@@ -27,9 +27,10 @@ venv/
 .ruff_cache/
 .mypy_cache/
 *.egg-info/
-dist/
-build/
+/dist/
+/build/
 # uv.lock IS committed on purpose (exact-version authority, ADR-10)
+# (anchored to repo root so they never swallow docs/build/)
 
 # --- Claude Code local logs and markers (not source) ---
 .claude/logs/

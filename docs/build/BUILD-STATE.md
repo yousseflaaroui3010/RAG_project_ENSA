@@ -1,36 +1,35 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
 Last verified commit: (setup commit on chore/setup-config)
-Updated: 2026-07-20 by setup-engineer
+Updated: 2026-07-20 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
-- Task: SETUP-000 one-time kit configuration
-- Branch: chore/setup-config (setup edits committed here; human merges to main)
-- Where exactly: kit configured for Sanad, CI on uv, both Windows guard gaps
-  fixed and re-tested, .gitignore added, origin re-pointed to the new public repo.
-- What is proven working: guard now blocks Edit/Write to docs/phase2 and the
-  hook scripts (config.sh excepted), and blocks the PowerShell tool too
-  (verified live). dup-sentry, --no-verify block, commit-on-main block all
-  refuse as designed. All kit files set to the Sanad uv stack.
-- What is NOT done yet (human steps):
-  1. Review and merge chore/setup-config into main, then push main.
-  2. Install the git pre-commit hook (per clone): copy .claude/git-hooks/pre-commit
-     to .git/hooks/pre-commit and chmod +x it.
-  3. Create the branch ruleset on the new repo AFTER main is pushed
-     (require PR, require the gate check, block force-push).
-  4. Local TYPECHECK_CMD/TEST_CMD are DEFERRED (empty) until the first build
-     story runs uv sync; restore them to "uv run ruff check ." and
-     "uv run pytest -q" then.
+- Task: Phase 3 kickoff — Steps 0-2 complete; no build story started yet.
+- Branch: main (read-only work: intake + index + plan; correctly no story branch).
+- Where exactly: Step 0 intake gate PASSED (pack complete/consistent/signed);
+  Step 1 repo indexed (254 nodes, greenfield) + graph verified + marker set;
+  Step 2 BUILD-PLAN.md drafted from the 52 signed stories and APPROVED by human.
+- What is proven working: signed pack maps 1:1 to files; graph queryable;
+  BUILD-PLAN.md and INTAKE-REPORT.md written to docs/build/; journaling now
+  writes the three masters directly (immutable-masters/fold scheme dropped).
+- What is NOT done yet: the first build story ST-02 (project skeleton) cannot
+  start until the Sprint-0 human steps land.
 
 ## Next (ordered queue, top 3 only)
-1. Human: merge + push main, install pre-commit hook, apply ruleset.
-2. Restart Claude Code, then say "Index this project".
-3. Paste PHASE3-KICKOFF-PROMPT.md to begin Step 0 (intake gate) of Sanad.
+1. Human Sprint-0 steps: merge chore/setup-config → push main → install
+   .git/hooks/pre-commit → apply the branch ruleset; restore TYPECHECK/TEST cmds
+   after ST-02 scaffolds uv.
+2. Start ST-02 skeleton on feat/S0-ST-02-skeleton (pyproject.toml, uv.lock,
+   config.py, .env.example). Exit gate: uv sync green, every var documented.
+3. ST-03 CI skeleton (ci.yml: ruff + pytest per PR).
 
 ## Blockers / waiting on human
+- Sprint-0 gating steps above (merge / push / pre-commit hook / ruleset) not done.
 - No pyproject.toml / uv.lock yet, so uv-based hooks and CI cannot run until
-  the first build story scaffolds them. CI keeps the real commands for then.
+  ST-02 scaffolds them.
 
 ## Done this week
 - SETUP-000: kit configured for Sanad (uv stack), safety walls tested, two
   Windows guard gaps found AND fixed, .gitignore added, origin re-pointed.
+- Phase 3 kickoff Steps 0-2: intake gate passed (pack clean), repo indexed,
+  BUILD-PLAN.md approved and filed in docs/build/.
