@@ -1,0 +1,41 @@
+stage: S1-S4 Software Architect through Lead QA (compressed on human ruling)
+date: 2026-07-20
+signed_artifacts:
+  - {id: ARCH-1.0, name: Sanad_Architecture_v1.0.md, summary_1_line: "Local-first modular monolith: C4 views, 12 ADRs, data layer with PostgreSQL reference DDL on SQLite runtime, verified stack, env + git + CI/CD plan, QA strategy."}
+locked_decisions:
+  - {adr_id: ADR-01, ruling_1_line: "One Python process, six modules", downstream_consequence: "Epics map 1:1 to modules; no service orchestration work"}
+  - {adr_id: ADR-02, ruling_1_line: "UI on Gradio Blocks, three tabs = PRD screens", downstream_consequence: "No JS toolchain; UI stories are Python stories"}
+  - {adr_id: ADR-03, ruling_1_line: "Agent = LangGraph graph (clarify, retrieve, grade, retry, answer, refuse)", downstream_consequence: "F-04 retry ceiling and F-05 refusal are testable nodes"}
+  - {adr_id: ADR-04, ruling_1_line: "Qdrant embedded, one collection per workspace", downstream_consequence: "F-01 isolation is structural; no DB server story"}
+  - {adr_id: ADR-05, ruling_1_line: "Dense multilingual-e5-base local + BM25 sparse, hybrid; prefixes mandatory", downstream_consequence: "Prefix unit test required; BGE-M3 is the recorded upgrade path"}
+  - {adr_id: ADR-06, ruling_1_line: "Provider-agnostic model, cloud-key mode + strict-local mode (7B+ floor)", downstream_consequence: "Offline rehearsal story; OR-2 checklist before defense"}
+  - {adr_id: ADR-07, ruling_1_line: "pymupdf4llm for PDF, markitdown for DOCX/PPTX, scanned PDFs skipped-with-reason", downstream_consequence: "Conversion ladder fixed; OCR stays V2"}
+  - {adr_id: ADR-08, ruling_1_line: "SQLite runtime, JSON parent store, PostgreSQL reference DDL", downstream_consequence: "schema.sql from section 7.4; PRAGMA foreign_keys enforced in code"}
+  - {adr_id: ADR-09, ruling_1_line: "In-process trace collector, no external observability", downstream_consequence: "F-10 reads local traces; zero third-party setup"}
+  - {adr_id: ADR-10, ruling_1_line: "uv + lockfile; Docker image for demo and fallback", downstream_consequence: "Lockfile is the exact-version authority; R4 mitigation rehearsed via compose"}
+  - {adr_id: ADR-11, ruling_1_line: "Trunk-based git, protected main, squash merges, partner review, Conventional Commits", downstream_consequence: "Sprint-0 setup stories; PR template from section 12.2"}
+  - {adr_id: ADR-12, ruling_1_line: "CI = lint + mocked tests + Docker build; evaluation is manual-dispatch, cost-gated", downstream_consequence: "ci.yml and eval.yml stories; eval dispatch is a human click"}
+cross_stage_exports:
+  - "Sprint 0 stories: create repo 'sanad', add collaborator, ci.yml skeleton, .env.example, Dockerfile, branch protection (human click)"
+  - "Sprint 1 mandatory spike: index the labor corpus, run 20-question latency measurement, report vs G4/G5 (OR-1)"
+  - "Golden-set authoring is a continuous Research & Quality Owner stream: 40 in-scope FR + 20 out-of-scope, files in evaluation/golden/, reviewed like code"
+  - "Module map (arch section 4) seeds epics; features F-01..F-09 with their Given-When-Then ACs are the V1.0 stories"
+  - "Release tags v1.0.0/v1.1.0 only after eval gate passes; eval workflow spends credits, manual dispatch only"
+verification_log:
+  - {pin: "python", version: ">=3.11 (target 3.12)", status: verified, date: 2026-07-19, source_ref: "[2]"}
+  - {pin: "langgraph", version: ">=1.1", status: verified, date: 2026-07-19, source_ref: "[1][2]"}
+  - {pin: "qdrant embedded + hybrid via langchain-qdrant/FastEmbed bm25", version: "current stable", status: verified, date: 2026-07-19, source_ref: "[2]"}
+  - {pin: "intfloat/multilingual-e5-base (768d, 512-token inputs)", version: "as named", status: verified, date: 2026-07-20, source_ref: "[4][6][10]"}
+  - {pin: "E5 prefix rule query:/passage: mandatory, silent degradation if omitted", version: "n/a", status: verified, date: 2026-07-20, source_ref: "[4][5]"}
+  - {pin: "BAAI/bge-m3 as upgrade path", version: "as named", status: verified, date: 2026-07-20, source_ref: "[7]"}
+  - {pin: "pymupdf4llm heading-preserving PDF conversion", version: "current stable", status: verified, date: 2026-07-19, source_ref: "[2]"}
+  - {pin: "markitdown (py3.10+; no OCR-less scanned PDFs; flattens PDF headings)", version: "current stable", status: verified, date: 2026-07-19, source_ref: "[3]"}
+  - {pin: "ragas faithfulness + answer relevancy for F-08", version: "current stable", status: verified, date: 2026-07-20, source_ref: "[8]"}
+  - {pin: "local model floor for strict-local mode", version: ">=7B instruction-following", status: verified, date: 2026-07-19, source_ref: "[2]"}
+  - {pin: "gradio", version: ">=5, exact at uv lock", status: unverified, date: 2026-07-20, source_ref: "[2]"}
+open_risks:
+  - {risk: "G4/G5 speed targets fail on CPU", owner_stage: "Build owner", trigger: "Sprint-1 spike measurements"}
+  - {risk: "Cloud provider data-use terms unread", owner_stage: "Both owners", trigger: "Before defense or first non-public document"}
+  - {risk: "French BM25 tokenization weakens hybrid recall", owner_stage: "Build owner", trigger: "Golden-set retrieval scores"}
+  - {risk: "Two-mode model testing spreads thin", owner_stage: "Both owners", trigger: "Sprint planning"}
+change_requests: []

@@ -1,0 +1,38 @@
+stage: D1 Engagement Lead (close)
+date: 2026-07-20
+signed_artifacts:
+  - {id: PRD-1.0, name: Sanad_PRD_v1.0.md, summary_1_line: "Technology-free PRD for a multi-workspace document assistant with sourced answers, honest refusals, on-demand Sync, and gated releases; 16 features, 3 screens."}
+locked_decisions:
+  - {id: LD-01, ruling_1_line: "On-demand Sync in V1, no background folder watcher", downstream_consequence: "Architecture designs a manual sync pipeline; watcher is a V2 epic"}
+  - {id: LD-02, ruling_1_line: "Flagship workspace = Moroccan HR/labor law (French corpus); workspace 2 = technical manuals", downstream_consequence: "QA golden set (40 + 20 out-of-scope) built on the labor corpus; French text handling required in V1"}
+  - {id: LD-03, ruling_1_line: "V1 formats: PDF, DOCX, TXT, MD; PPTX in V1.1; scanned PDFs skipped-with-reason until V2", downstream_consequence: "Ingestion scope fixed; the skip behavior is binding"}
+  - {id: LD-04, ruling_1_line: "Releases gate on evaluation: groundedness >=90%, refusals 20/20, sources 100%", downstream_consequence: "QA stands up the eval harness before V1.0 ships"}
+  - {id: LD-05, ruling_1_line: "UI copy English in V1; RTL-ready layouts verified; Arabic corpus deferred to V2", downstream_consequence: "No Arabic ingestion work in V1; RTL preview in QA"}
+  - {id: LD-06, ruling_1_line: "Documents and derived data stay on operator-controlled storage; external processing must not retain content", downstream_consequence: "Constrains every external service choice; architecture reports back how it complies"}
+  - {id: LD-07, ruling_1_line: "Single-user V1; Operator/End-user roles defined but unenforced", downstream_consequence: "No auth work in V1; design must not block V2 accounts"}
+  - {id: LD-08, ruling_1_line: "Five-level priorities; scope moves down, never up, without a signed PRD change", downstream_consequence: "Project plan derives sprints from Highest and High first"}
+evidence_base:
+  - {finding: "Labor Code (law 65-99) publicly downloadable as consolidated French PDF", source_ref: "Consolidated 2011 text on the Casablanca investment portal; Abhatoo/Ministry of Justice listing", date: 2011, confidence: confirmed}
+  - {finding: "589 articles across 7 books, in force since 2004", source_ref: "ClicPaie guide", date: 2026, confidence: confirmed}
+  - {finding: "ILO hosts an official-translation edition of the code", source_ref: "Bulletin Officiel translation, ILO library", date: 2004, confidence: confirmed}
+  - {finding: "French/Arabic synoptic edition circulates publicly", source_ref: "Deryany Law Office", date: 2025, confidence: confirmed}
+  - {finding: "HR pain-cost of 1-3 h/week (A1) and personas P1/P2", source_ref: "reasoning only, tagged [ASSUMPTION]/[SYNTHETIC]", date: 2026-07-20, confidence: unverified}
+instruments:
+  - {id: INT-01_user_interviews_x3, status: recommended_not_issued, n: 0}
+viability_flags:
+  - "GO with condition: pain-frequency assumptions unvalidated; 3 interviews recommended before the final report, non-blocking"
+  - "Performance targets (answer median <=20s, 200-page sync <=10min) are unproven pending an early architecture measurement"
+cross_stage_exports:
+  - "Study reference, not a codebase to copy: GiovanniPasq/agentic-rag-for-dummies (MIT, v2.1 Apr 2026) implements the F-03/F-04/F-05 behaviors: hierarchical parent/child indexing, hybrid retrieval, self-check loop (S1 Architect)"
+  - "Official pattern doc: LangChain 'Build a custom RAG agent with LangGraph' tutorial covers the decide-retrieve, grade, rewrite, answer loop (S1, S2)"
+  - "Conversion candidate for DOCX/TXT/PPTX: microsoft/markitdown; known limits: no scanned-PDF handling without OCR, flattens PDF headings, so PDFs need a heading-preserving converter (S2 Tech Scout)"
+  - "Eval harness candidate for F-08: RAGAS-style groundedness and relevance metrics (S4 QA Lead)"
+  - "LD-06 data-locality constraint restricts the external answering-service choice and its logging (S1, S3 DevOps-SRE)"
+  - "Build method is AI-assisted coding; branching, PR review, and CI rules must assume large generated diffs and enforce human review gates (S3 DevOps-SRE)"
+  - "Hard frame: 2-person team, ~4 working weeks, near-zero budget (all stages)"
+open_risks:
+  - {risk: "User pain unvalidated (A1, personas)", owner_stage: "Research & Quality Owner (human)", trigger: "Before the final report"}
+  - {risk: "Performance targets unproven", owner_stage: "S1 Architect + S4 QA", trigger: "First end-to-end measurement"}
+  - {risk: "Data-protection obligations unreviewed", owner_stage: "Close-out", trigger: "First non-public document in any workspace"}
+  - {risk: "Single demo machine", owner_stage: "Build owner (human)", trigger: "Defense day"}
+change_requests: []
