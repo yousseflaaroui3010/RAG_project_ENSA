@@ -7,3 +7,4 @@
 2026-07-20 | Phase3-S0 | docs/build/INTAKE-REPORT.md | intake gate report written | Step 0 deliverable; signed pack verified complete/consistent
 2026-07-20 | Phase3-S1 | .claude/logs/graph-indexed.marker | repo indexed (254 nodes) + marker set | Step 1; graph queryable, confirmed greenfield
 2026-07-20 | Phase3-S2 | docs/build/BUILD-PLAN.md | build plan drafted from 52 signed stories (refs+deps+exit gate) | Step 2; approved by human
+2026-07-20 | ST-02 | pyproject.toml, uv.lock, config.py, .env.example, tests/unit/test_config.py | uv project skeleton: pinned stack (Arch §8), all tunables in config (no magic literals), smoke test, pytest pythonpath fix | Sprint-0 foundation; every downstream story needs the environment

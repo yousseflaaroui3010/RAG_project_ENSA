@@ -1,35 +1,39 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: (setup commit on chore/setup-config)
+Last verified commit: cc782f7 on feat/S0-ST-02-skeleton
 Updated: 2026-07-20 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
-- Task: Phase 3 kickoff — Steps 0-2 complete; no build story started yet.
-- Branch: main (read-only work: intake + index + plan; correctly no story branch).
-- Where exactly: Step 0 intake gate PASSED (pack complete/consistent/signed);
-  Step 1 repo indexed (254 nodes, greenfield) + graph verified + marker set;
-  Step 2 BUILD-PLAN.md drafted from the 52 signed stories and APPROVED by human.
-- What is proven working: signed pack maps 1:1 to files; graph queryable;
-  BUILD-PLAN.md and INTAKE-REPORT.md written to docs/build/; journaling now
-  writes the three masters directly (immutable-masters/fold scheme dropped).
-- What is NOT done yet: the first build story ST-02 (project skeleton) cannot
-  start until the Sprint-0 human steps land.
+- Task: ST-02 project skeleton — COMPLETE, committed, awaiting PR merge.
+- Branch: feat/S0-ST-02-skeleton (stacked on chore/phase3-kickoff bookkeeping).
+- Where exactly: pyproject.toml (pinned stack per Arch §8), uv.lock, config.py
+  (all tunables, no magic literals), .env.example, tests/unit/test_config.py all
+  committed (cc782f7). Exit gate GREEN locally: uv sync (174 pkgs), ruff clean,
+  pytest 2 passed.
+- What is proven working: the full stack resolves and installs; config loads;
+  smoke test passes. b2 built the files but stalled before verify+commit; the
+  orchestrator caught a real defect (pytest could not import root `config` —
+  fixed with pythonpath=["."]) and finished the gate + commit.
+- What is NOT done yet: open the ST-02 PR (carries kickoff bookkeeping + skeleton
+  so CI can finally pass), human merge. Cloud provider package unconfirmed.
 
 ## Next (ordered queue, top 3 only)
-1. Human Sprint-0 steps: merge chore/setup-config → push main → install
-   .git/hooks/pre-commit → apply the branch ruleset; restore TYPECHECK/TEST cmds
-   after ST-02 scaffolds uv.
-2. Start ST-02 skeleton on feat/S0-ST-02-skeleton (pyproject.toml, uv.lock,
-   config.py, .env.example). Exit gate: uv sync green, every var documented.
-3. ST-03 CI skeleton (ci.yml: ruff + pytest per PR).
+1. Push feat/S0-ST-02-skeleton + open PR; CI (gate.yml) runs uv sync/ruff/pytest;
+   human merges.
+2. ST-03 CI skeleton (ci.yml already exists as gate.yml — confirm/extend: ruff +
+   pytest per PR, a failing test blocks). Likely already satisfied by gate.yml.
+3. ST-10 SQLite schema + data access (PRAGMA foreign_keys, cascade) — first real
+   data-layer story, unblocks the ingestion/indexing chain.
 
 ## Blockers / waiting on human
-- Sprint-0 gating steps above (merge / push / pre-commit hook / ruleset) not done.
-- No pyproject.toml / uv.lock yet, so uv-based hooks and CI cannot run until
-  ST-02 scaffolds them.
+- Cloud provider package: Arch §8 left it unnamed; b2 defaulted to
+  langchain-openai. Confirm the provider before cloud-mode work (ties to OR-2).
+- Human merge of the ST-02 PR moves main.
 
 ## Done this week
 - SETUP-000: kit configured for Sanad (uv stack), safety walls tested, two
   Windows guard gaps found AND fixed, .gitignore added, origin re-pointed.
 - Phase 3 kickoff Steps 0-2: intake gate passed (pack clean), repo indexed,
-  BUILD-PLAN.md approved and filed in docs/build/.
+  BUILD-PLAN.md approved and filed.
+- ST-02: uv project skeleton complete (pinned stack, config, .env.example, smoke
+  test); exit gate green; committed cc782f7.
