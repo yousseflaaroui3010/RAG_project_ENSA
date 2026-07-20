@@ -7,34 +7,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # PACKAGE MANAGER: keep ONE of the two blocks below.
-      # SETUP-PROMPT detects which lockfile this repo has and picks for you.
+      # PACKAGE MANAGER: uv (astral-sh). Lockfile authority is uv.lock (ADR-10).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install dependencies (frozen)
+        run: uv sync --frozen
 
-      # --- npm (package-lock.json) ---
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
-      - run: npm ci
-
-      # --- pnpm (pnpm-lock.yaml): pnpm/action-setup MUST come first ---
-      # - uses: pnpm/action-setup@v4
-      # - uses: actions/setup-node@v4
-      #   with:
-      #     node-version: 22
-      #     cache: pnpm
-      #     # lockfile in a subfolder (monorepo)? point at it:
-      #     # cache-dependency-path: frontend/pnpm-lock.yaml
-      # - run: pnpm install --frozen-lockfile
-
-      - name: Typecheck
-        run: npx tsc --noEmit           # TODO adjust to your stack
+      - name: Lint / typecheck gate
+        run: uv run ruff check .
       - name: Tests
-        run: npm test --silent          # TODO adjust to your stack
+        run: uv run pytest -q
       - name: Commit message format
         run: |
           git log origin/main..HEAD --format=%B | grep -q "INTENT:" || \
             (echo "Missing INTENT: line in commit body" && exit 1)
       - name: Duplication gate (fails over 3%)
-        run: npx jscpd src --threshold 3 --exitCode 1
+        run: npx jscpd . --gitignore --threshold 3 --exitCode 1
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2
