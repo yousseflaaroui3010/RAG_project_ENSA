@@ -1,0 +1,619 @@
+# Sanad API contract of record (ADR-13, CR-01). Repo location: docs/api/openapi.yaml
+# Authority rule: this file is the contract; the served schema must equal it after
+# normalization (ST-52 drift test). An endpoint change and this file change travel
+# in the same branch.
+# Version note: FastAPI emits its own openapi version string at runtime; ST-51
+# aligns this header once at first implementation and records it in the journal.
+# Deliberate exclusions (ADR-13): no evaluation-trigger endpoint (cost gate stays
+# a human click, ADR-12); no /traces endpoint until F-10 lands (contract v1.1).
+openapi: 3.1.0
+info:
+  title: Sanad API
+  version: 1.0.0
+  description: >-
+    Local-first document assistant API. Serves on 127.0.0.1 only, with no
+    authentication, by design: V1 is single-user on an operator-controlled
+    machine (PRD LD-07). Every endpoint delegates to the same service
+    functions the bundled UI calls. Answers carry sources or become refusals;
+    error bodies always carry a plain-language message and a next step.
+servers:
+  - url: http://127.0.0.1:8000
+    description: Local only. Never exposed to a network in V1.
+tags:
+  - name: system
+  - name: workspaces
+  - name: sync
+  - name: ask
+  - name: evaluation
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [system]
+      operationId: healthCheck
+      summary: Liveness and version
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /api/v1/workspaces:
+    get:
+      tags: [workspaces]
+      operationId: listWorkspaces
+      summary: List workspaces
+      responses:
+        "200":
+          description: All workspaces
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Workspace"
+    post:
+      tags: [workspaces]
+      operationId: createWorkspace
+      summary: Create a workspace over an existing folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "409":
+          description: A workspace with this name already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /api/v1/workspaces/{workspace_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [workspaces]
+      operationId: getWorkspace
+      summary: Workspace detail with document registry
+      responses:
+        "200":
+          description: Workspace with its documents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [workspaces]
+      operationId: updateWorkspace
+      summary: Rename or set the legal-content flag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: New name collides with an existing workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/Validation"
+    delete:
+      tags: [workspaces]
+      operationId: deleteWorkspace
+      summary: Delete workspace and its derived data (source files untouched)
+      description: >-
+        Removes registry rows, vectors, and parent files for this workspace.
+        Never touches the source folder (PRD F-01). Confirmation is the
+        caller's job; the UI always confirms first.
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Refused while a sync is running for this workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/workspaces/{workspace_id}/sync:
+    post:
+      tags: [sync]
+      operationId: startSync
+      summary: Start a sync job (F-02)
+      description: >-
+        Scans the folder, detects added, changed, unchanged, removed files,
+        converts and indexes supported formats. Returns immediately with the
+        job id; poll the sync-run endpoints for progress and the per-file
+        report. A second sync while one runs is refused (PRD failure table).
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "202":
+          description: Sync job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncAccepted"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: A sync is already running for this workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/workspaces/{workspace_id}/sync-runs:
+    get:
+      tags: [sync]
+      operationId: listSyncRuns
+      summary: Sync history for a workspace, newest first
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Sync runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SyncRunSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/sync-runs/{sync_run_id}:
+    get:
+      tags: [sync]
+      operationId: getSyncRun
+      summary: One sync run with its per-file report
+      parameters:
+        - name: sync_run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Run detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncRunDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workspaces/{workspace_id}/ask:
+    post:
+      tags: [ask]
+      operationId: askQuestion
+      summary: Ask a question against one workspace (F-03 to F-07, F-09)
+      description: >-
+        Runs the agent loop: rewrite, retrieve, grade, retry within the
+        configured ceiling, then answer with sources or refuse honestly.
+        Invariant enforced by the application and its tests: refusal false
+        implies sources is non-empty. Pass the returned session_id back to
+        keep in-session memory (F-07); omit it to start clean.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AskRequest"
+      responses:
+        "200":
+          description: Answer, clarification request, or honest refusal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Answer"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Workspace has no synced content yet (PRD failure table)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/Validation"
+        "503":
+          description: Answering model unreachable; no fabricated fallback
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/workspaces/{workspace_id}/eval-runs:
+    get:
+      tags: [evaluation]
+      operationId: listEvalRuns
+      summary: Evaluation history for a workspace (F-08), newest first
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Evaluation runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvalRunSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/eval-runs/{eval_run_id}:
+    get:
+      tags: [evaluation]
+      operationId: getEvalRun
+      summary: One evaluation run with per-question results
+      parameters:
+        - name: eval_run_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Run detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvalRunDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    WorkspaceId:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Validation:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationError"
+
+  schemas:
+    Health:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+          description: Application version, matches the release tag
+
+    Workspace:
+      type: object
+      required: [id, name, folder_path, legal_flag, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        folder_path:
+          type: string
+          description: Absolute path of the user-owned source folder
+        legal_flag:
+          type: boolean
+          description: When true, every answer carries the F-09 disclaimer
+        created_at:
+          type: string
+          format: date-time
+
+    WorkspaceCreate:
+      type: object
+      required: [name, folder_path]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        folder_path:
+          type: string
+          minLength: 1
+        legal_flag:
+          type: boolean
+          default: false
+
+    WorkspaceUpdate:
+      type: object
+      description: At least one property must be present
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        legal_flag:
+          type: boolean
+
+    WorkspaceDetail:
+      allOf:
+        - $ref: "#/components/schemas/Workspace"
+        - type: object
+          required: [documents]
+          properties:
+            documents:
+              type: array
+              items:
+                $ref: "#/components/schemas/DocumentEntry"
+
+    DocumentEntry:
+      type: object
+      required: [id, file_name, file_type, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        file_name:
+          type: string
+        file_type:
+          type: string
+          enum: [pdf, docx, txt, md, pptx]
+        page_count:
+          type: [integer, "null"]
+        status:
+          type: string
+          enum: [active, failed, skipped, removed]
+        last_synced_at:
+          type: [string, "null"]
+          format: date-time
+
+    SyncAccepted:
+      type: object
+      required: [sync_run_id]
+      properties:
+        sync_run_id:
+          type: string
+          format: uuid
+
+    SyncRunSummary:
+      type: object
+      required: [id, workspace_id, started_at, state, added, changed, unchanged, failed, removed, skipped]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+        state:
+          type: string
+          enum: [running, finished]
+        added:
+          type: integer
+        changed:
+          type: integer
+        unchanged:
+          type: integer
+        failed:
+          type: integer
+        removed:
+          type: integer
+        skipped:
+          type: integer
+
+    SyncItem:
+      type: object
+      required: [file_name, result]
+      properties:
+        file_name:
+          type: string
+        result:
+          type: string
+          enum: [added, changed, unchanged, failed, removed, skipped]
+        reason:
+          type: [string, "null"]
+          description: Plain-language reason for failed or skipped files
+
+    SyncRunDetail:
+      allOf:
+        - $ref: "#/components/schemas/SyncRunSummary"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/SyncItem"
+
+    AskRequest:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        session_id:
+          type: [string, "null"]
+          description: Echo a previous session_id to keep conversation memory
+
+    Source:
+      type: object
+      required: [file_name]
+      properties:
+        file_name:
+          type: string
+        section_label:
+          type: [string, "null"]
+          description: Heading or article label when the document provides one
+
+    Answer:
+      type: object
+      required: [kind, text, sources, searched, disclaimer, refusal, session_id, trace_id]
+      properties:
+        kind:
+          type: string
+          enum: [answer, refusal, clarification]
+        text:
+          type: string
+          description: The answer, the refusal explanation, or the single clarifying question
+        sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/Source"
+          description: Non-empty whenever kind is answer (application invariant, G3)
+        searched:
+          type: array
+          items:
+            type: string
+          description: The search strings attempted, always disclosed on refusals (F-05)
+        disclaimer:
+          type: boolean
+          description: True on legal-flagged workspaces (F-09)
+        refusal:
+          type: boolean
+        session_id:
+          type: string
+        trace_id:
+          type: string
+          description: Stored trace reference; a read endpoint arrives with F-10 (contract v1.1)
+
+    EvalRunSummary:
+      type: object
+      required: [id, workspace_id, run_at, passed, refusal_pass, refusal_total]
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        run_at:
+          type: string
+          format: date-time
+        groundedness:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+        relevancy:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+        refusal_pass:
+          type: integer
+        refusal_total:
+          type: integer
+        passed:
+          type: boolean
+
+    EvalResult:
+      type: object
+      required: [question_id, kind, passed]
+      properties:
+        question_id:
+          type: string
+        kind:
+          type: string
+          enum: [in_scope, out_of_scope]
+        groundedness:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+        relevancy:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+        passed:
+          type: boolean
+
+    EvalRunDetail:
+      allOf:
+        - $ref: "#/components/schemas/EvalRunSummary"
+        - type: object
+          required: [results]
+          properties:
+            results:
+              type: array
+              items:
+                $ref: "#/components/schemas/EvalResult"
+
+    Error:
+      type: object
+      required: [code, message, next_step]
+      properties:
+        code:
+          type: string
+          description: Machine-readable code, examples include WORKSPACE_NOT_FOUND, SYNC_IN_PROGRESS, EMPTY_WORKSPACE, NAME_TAKEN, MODEL_UNREACHABLE
+        message:
+          type: string
+          description: Plain language, no jargon, never fakes success (PRD message principle)
+        next_step:
+          type: string
+          description: What the caller can do now
+
+    ValidationError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            required: [loc, msg, type]
+            properties:
+              loc:
+                type: array
+                items:
+                  type: [string, integer]
+              msg:
+                type: string
+              type:
+                type: string

@@ -1,0 +1,18 @@
+stage: Project plan (scrum), closing
+date: 2026-07-20
+signed_artifacts:
+  - {id: PLAN-1.0, name: Sanad_ProjectPlan_v1.0.md, summary_1_line: "5 sprints, 8 epics, 50 owned stories with ACs, checkpoints C1-C3, pre-agreed descope ladder, defense anchored at D=2026-08-20."}
+locked_decisions:
+  - {id: PL-01, ruling_1_line: "DoD includes the one-minute out-loud explanation by the story owner", downstream_consequence: "Unexplainable code cannot merge; defense-safety by construction"}
+  - {id: PL-02, ruling_1_line: "Descope ladder order fixed in advance; F-03/F-05/F-08/F-09 never cut", downstream_consequence: "No scope debates under pressure; cuts below step 2 require PRD change requests"}
+  - {id: PL-03, ruling_1_line: "Sprint 3 ends with the V1.0 gate; sprint 4 carries no V1.0 code", downstream_consequence: "One full week of frozen-product margin for rehearsals and the report"}
+  - {id: PL-04, ruling_1_line: "Stretch (F-10..F-12) only if every Highest story is Done by Aug 15", downstream_consequence: "V1.1 can die without ceremony"}
+  - {id: PL-05, ruling_1_line: "MB review lane is behavioral (demo script + ACs); YL lane is code mechanics", downstream_consequence: "Partner review is real at both skill levels"}
+cross_stage_exports:
+  - "Execution protocol shipped as repo-root CLAUDE.md (this turn's artifact); commit it in the bootstrap"
+  - "Velocity is a guess until checkpoint C1 recalibrates it (Jul 29)"
+  - "Defense date D assumed 2026-08-20; confirm and shift dates if wrong"
+open_risks:
+  - {risk: "Point calibration wrong", owner_stage: "BOTH", trigger: "C1 velocity reading"}
+  - {risk: "Defense date differs from assumption", owner_stage: "YL", trigger: "Official schedule publication"}
+change_requests: []
