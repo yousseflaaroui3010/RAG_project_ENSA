@@ -23,12 +23,16 @@ class Settings(BaseSettings):
     )
 
     # --- Model provider selection (ADR-06: provider-agnostic, two modes) ---
-    # "cloud" uses the configured cloud provider's API key; "strict_local"
-    # runs a local model through the same interface (offline demo fallback,
-    # LD-06 locality). One config point, no code branch elsewhere.
+    # "cloud" uses Google Gemini (free tier); "strict_local" runs a free local
+    # model (Mistral, Llama, ...) through Ollama, the offline demo fallback
+    # (LD-06 locality). One config point, no code branch elsewhere; swap the
+    # provider by changing these values, never by editing module code.
     model_mode: str = "cloud"
-    chat_model_cloud: str = "gpt-4o-mini"
-    chat_model_local: str = "llama3.1:8b-instruct"
+    # Cloud: any Gemini model available on the free tier (Google AI Studio).
+    chat_model_cloud: str = "gemini-2.0-flash"
+    # Local: any Ollama-served instruct model >= 7B (ADR-06 floor).
+    chat_model_local: str = "mistral"
+    # Gemini / Google AI Studio API key; read in cloud mode only.
     cloud_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
 

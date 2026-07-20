@@ -10,11 +10,10 @@ dependencies = [
     # Model interface, one-line provider swap (ADR-06). §8: 1.x line.
     "langchain>=1.0,<2.0",
     "langchain-ollama",
-    # Cloud provider package for cloud-key mode (ADR-06). Provider not named
-    # in architecture §8 ("the team's cloud provider package") -- OpenAI
-    # chosen as the default LangChain-supported cloud provider pending
-    # confirmation. See escalation in docs/build/DECISIONS.md.
-    "langchain-openai",
+    # Cloud provider for cloud-key mode (ADR-06): Google Gemini (free tier).
+    # Provider stays swappable via config; free local models (Mistral, Llama)
+    # run through langchain-ollama in strict-local mode.
+    "langchain-google-genai",
     # Embedded vector store, hybrid mode (ADR-04; §8).
     "qdrant-client",
     "langchain-qdrant",
