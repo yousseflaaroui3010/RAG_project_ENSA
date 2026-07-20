@@ -1,0 +1,40 @@
+name: gate
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # PACKAGE MANAGER: keep ONE of the two blocks below.
+      # SETUP-PROMPT detects which lockfile this repo has and picks for you.
+
+      # --- npm (package-lock.json) ---
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+
+      # --- pnpm (pnpm-lock.yaml): pnpm/action-setup MUST come first ---
+      # - uses: pnpm/action-setup@v4
+      # - uses: actions/setup-node@v4
+      #   with:
+      #     node-version: 22
+      #     cache: pnpm
+      #     # lockfile in a subfolder (monorepo)? point at it:
+      #     # cache-dependency-path: frontend/pnpm-lock.yaml
+      # - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: npx tsc --noEmit           # TODO adjust to your stack
+      - name: Tests
+        run: npm test --silent          # TODO adjust to your stack
+      - name: Commit message format
+        run: |
+          git log origin/main..HEAD --format=%B | grep -q "INTENT:" || \
+            (echo "Missing INTENT: line in commit body" && exit 1)
+      - name: Duplication gate (fails over 3%)
+        run: npx jscpd src --threshold 3 --exitCode 1
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
