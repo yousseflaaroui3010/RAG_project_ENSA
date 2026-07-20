@@ -1,0 +1,80 @@
+"""Sanad configuration: the single source of truth for every tunable.
+
+Hard technical rule (docs/phase2/CLAUDE.md): all tunables live in
+config.py and .env (documented in .env.example). No magic literals in
+module code -- import Settings/get_settings() instead of hardcoding a
+value a second time.
+
+Reads from a .env file via pydantic-settings (architecture §8, §12.1).
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # --- Model provider selection (ADR-06: provider-agnostic, two modes) ---
+    # "cloud" uses the configured cloud provider's API key; "strict_local"
+    # runs a local model through the same interface (offline demo fallback,
+    # LD-06 locality). One config point, no code branch elsewhere.
+    model_mode: str = "cloud"
+    chat_model_cloud: str = "gpt-4o-mini"
+    chat_model_local: str = "llama3.1:8b-instruct"
+    cloud_api_key: str = ""
+    ollama_base_url: str = "http://localhost:11434"
+
+    # --- Embeddings (ADR-05) ---
+    # Dense multilingual model; every embedded chunk MUST carry the
+    # "passage: " prefix and every query the "query: " prefix (model card
+    # requirement, unit-test enforced -- never delete or weaken that test).
+    embedding_model: str = "intfloat/multilingual-e5-base"
+    embedding_dense_dim: int = 768
+    embedding_sparse_model: str = "Qdrant/bm25"
+    embedding_passage_prefix: str = "passage: "
+    embedding_query_prefix: str = "query: "
+
+    # --- Agent behavior (F-03 to F-07) ---
+    # Retry ceiling default 2, operator-configurable (F-04). Never hardcode
+    # this in agent/nodes.py; read it from here.
+    retry_ceiling: int = 2
+    # Retrieval depth: number of child chunks pulled per hybrid search.
+    retrieval_depth_k: int = 5
+
+    # --- Chunking (architecture §7.5) ---
+    # Parents split on markdown headings H1-H3, merged below
+    # parent_merge_below_chars, split above parent_split_above_chars.
+    # Children are chunk_child_size_chars with chunk_child_overlap_chars
+    # overlap, sized to stay well under the E5 512-token input ceiling.
+    chunk_child_size_chars: int = 500
+    chunk_child_overlap_chars: int = 100
+    parent_merge_below_chars: int = 2000
+    parent_split_above_chars: int = 4000
+
+    # --- Store paths (architecture §7.5, LD-06 data locality) ---
+    # All under data/, git-ignored, operator-controlled disk.
+    qdrant_storage_path: str = "data/qdrant/"
+    parent_store_path: str = "data/parents/"
+    sqlite_db_path: str = "data/sanad.db"
+    reports_path: str = "data/reports/"
+
+    # --- Server (ADR-13) ---
+    # Single-user, no authentication, localhost only (LD-07).
+    server_host: str = "127.0.0.1"
+    server_port: int = 8000
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Cached Settings instance; import and call this, never instantiate
+    Settings() directly in module code, so every module shares one config
+    read of .env."""
+    return Settings()
