@@ -1,10 +1,14 @@
 # Project Manifest (Phase 3 Build)
 
-Product: {{PROJECT_ONE_LINER}} | Stack: {{PRIMARY_STACK}}
+Product: Sanad, a local-first document assistant: workspaces of
+documents, on-demand Sync, answers with sources, honest refusals,
+evaluation-gated releases. | Stack: Python 3.12, uv, FastAPI hosting
+Gradio Blocks, LangGraph, Qdrant embedded, SQLite, multilingual-e5-base.
 
 ## Commands
-Dev `{{DEV_CMD}}` | Typecheck `{{TYPECHECK_CMD}}` | Tests `{{TEST_CMD}}`
-| Lint `{{LINT_CMD}}` | E2E `{{E2E_CMD}}`
+Dev `uv run python app.py` | Typecheck `uv run ruff check .` | Tests
+`uv run pytest -q` | Lint `uv run ruff check .` | E2E
+`uv run pytest tests/integration -q`
 
 ## Map
 Signed pack: `docs/phase2/` (write-locked; escalate, never edit).
@@ -17,8 +21,9 @@ Changes: `docs/build/CHANGELOG-AI.md`. Product prompts: `prompts/`.
 2. Absence protocol before creating any symbol or file: graph search +
    2 name variants, project grep, written scope line. Partial reads
    prove nothing.
-3. Never work on `{{PROTECTED_BRANCH}}`. One task = one branch
-   `task/T-xxx-slug`.
+3. Never work on `main`. One story = one branch
+   `feat/S<sprint>-ST-<nn>-<slug>` (also `fix/`, `docs/`, `chore/`).
+   Story IDs are ST-01..ST-52 from the signed project plan.
 4. Never `--no-verify`, force-push, or touch `.claude/hooks/`,
    `.claude/settings.json`, `docs/phase2/`.
 5. After each task: BUILD-STATE update, one CHANGELOG line, DECISIONS

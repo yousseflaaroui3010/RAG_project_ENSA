@@ -19,31 +19,46 @@ TOOL="$(printf '%s\n' "$PARSED" | sed -n 1p)"
 FILEPATH="$(printf '%s\n' "$PARSED" | sed -n 2p)"
 CMD="$(printf '%s\n' "$PARSED" | sed -n '3,$p')"
 
+# Normalize Windows backslashes so path matching is OS-independent.
+FILEPATH="${FILEPATH//\\//}"
+CMDN="${CMD//\\//}"
+
 deny () { echo "BLOCKED by guard.sh: $1" >&2; exit 2; }
 
-# --- Protect the control plane and signed specs from file-edit tools ---
-if [ "$TOOL" != "Bash" ]; then
-  case "$FILEPATH" in
-    *".claude/hooks/"*|*".claude/settings.json"*|*".git/hooks/"*|*".env"*)
-      deny "This file is part of the safety system. Ask the human to change it." ;;
-    *"docs/phase2/"*)
-      deny "Phase 2 specs are signed and write-locked. If a contract is wrong, escalate to the human; never edit the spec to match the code." ;;
-  esac
-  exit 0
-fi
+# Write/delete verbs across POSIX sh AND PowerShell.
+WRITE_VERBS='(>|>>|sed +-i|tee |rm |mv |cp |Remove-Item|Set-Content|Add-Content|Out-File|Move-Item|Copy-Item|New-Item|ni )'
 
-# --- Bash command checks ---
-echo "$CMD" | grep -qE 'docs/phase2' && \
-  echo "$CMD" | grep -qE '(>|>>|sed +-i|tee |rm |mv |cp +[^ ]+ +docs/phase2)' && \
+# --- Protect the control plane and signed specs from file-edit tools ---
+# Bash and PowerShell are command tools; they are handled in the command
+# section below. Everything else here is a file-edit tool (Edit/Write/...).
+case "$TOOL" in
+  Bash|PowerShell) : ;;
+  *)
+    case "$FILEPATH" in
+      *".claude/hooks/config.sh") : ;;   # the one hook file meant to be edited
+      *".claude/hooks/"*|*".claude/settings.json"*|*".git/hooks/"*|*".env"*)
+        deny "This file is part of the safety system. Ask the human to change it." ;;
+    esac
+    case "$FILEPATH" in
+      *"docs/phase2/"*)
+        deny "Phase 2 specs are signed and write-locked. If a contract is wrong, escalate to the human; never edit the spec to match the code." ;;
+    esac
+    exit 0
+    ;;
+esac
+
+# --- Command checks (Bash and PowerShell) ---
+echo "$CMDN" | grep -qiE 'docs/phase2' && \
+  echo "$CMD" | grep -qiE "$WRITE_VERBS" && \
   deny "Phase 2 specs are signed and write-locked. Escalate instead of editing them."
 echo "$CMD" | grep -qE -- '--no-verify' && deny "--no-verify is never allowed. Fix the failing check instead."
-echo "$CMD" | grep -qE 'git +push +(-f|--force)' && deny "Force push is not allowed."
-echo "$CMD" | grep -qE 'core\.hooksPath|\.git/hooks' && deny "Git hook paths are locked."
+echo "$CMD" | grep -qiE 'git +push +(-f|--force)' && deny "Force push is not allowed."
+echo "$CMDN" | grep -qE 'core\.hooksPath|\.git/hooks' && deny "Git hook paths are locked."
 echo "$CMD" | grep -qE '(^|[;& ])(HUSKY=0|SKIP=)' && deny "Skipping local checks is not allowed."
-echo "$CMD" | grep -qE '(curl|wget)[^|;]*\|\s*(ba)?sh' && deny "Piping downloads into a shell is not allowed."
-echo "$CMD" | grep -qE 'rm +-rf +(/|~)( |$)' && deny "Refusing destructive delete."
-echo "$CMD" | grep -qE '\.claude/(hooks|settings)' && \
-  echo "$CMD" | grep -qE '(>|>>|sed +-i|tee )' && deny "Do not modify the safety system via shell."
+echo "$CMD" | grep -qiE '(curl|wget|Invoke-WebRequest|iwr)[^|;]*\|\s*((ba)?sh|iex|Invoke-Expression)' && deny "Piping downloads into a shell is not allowed."
+echo "$CMD" | grep -qiE 'rm +-rf +(/|~)( |$)' && deny "Refusing destructive delete."
+echo "$CMDN" | grep -qE '\.claude/(hooks|settings)' && \
+  echo "$CMD" | grep -qiE "$WRITE_VERBS" && deny "Do not modify the safety system via shell."
 
 for BR in $PROTECTED_BRANCHES; do
   echo "$CMD" | grep -qE "git +push +[^ ]+ +($BR)(\$| )" && \
@@ -56,7 +71,7 @@ if [ -n "$CUR" ]; then
   for BR in $PROTECTED_BRANCHES; do
     if [ "$CUR" = "$BR" ]; then
       echo "$CMD" | grep -qE '(^|[;&| ])git +commit' && \
-        deny "You are ON '$BR'. Committing here is blocked. Create task/T-xxx-slug, commit there; only the human moves '$BR'."
+        deny "You are ON '$BR'. Committing here is blocked. Create a task branch, commit there; only the human moves '$BR'."
       echo "$CMD" | grep -qE '(^|[;&| ])git +merge' && \
         deny "Merging into '$BR' is the human's move, via PR."
     fi

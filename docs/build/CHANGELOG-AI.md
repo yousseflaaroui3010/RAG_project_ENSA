@@ -1,3 +1,5 @@
 # CHANGELOG-AI (one line per change, append only)
 
-YYYY-MM-DD | T-000 | src/example.ts | what changed | why
+2026-07-20 | SETUP-000 | CLAUDE.md, PHASE3-KICKOFF-PROMPT.md, .claude/hooks/config.sh, .github/workflows/gate.yml, .claude/rules/{backend,frontend,git-discipline}.md, VARIABLES.md | filled kit variables for the Sanad uv stack, rewrote CI from npm to uv, aligned rule globs to the Sanad module map, tested safety walls | one-time Setup-Prompt configuration before the Phase 3 build2026-07-20 | SETUP-000 | .claude/hooks/config.sh | deferred TYPECHECK_CMD and TEST_CMD (set empty) until first build story installs ruff/pytest via uv sync | greenfield repo has no test runner yet, so the Stop gate blocked every session
+2026-07-20 | SETUP-000 | .claude/hooks/guard.sh, .claude/settings.json | fixed two Windows safety gaps: normalize backslash file_paths so the phase2/hooks/settings/.env edit-lock fires, and add PowerShell to the guard matcher + command checks so it is no longer an unguarded bypass; config.sh excepted as the one editable hook | wall test showed Edit/Write and PowerShell bypassed the guard on Windows
+2026-07-20 | SETUP-000 | .gitignore | added; ignores .env, data/, qdrant/parent stores, model caches, pycache/.venv, claude logs (keeps .env.example and uv.lock tracked) | public repo had no .gitignore, risking secret/data commits

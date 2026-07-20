@@ -3,10 +3,14 @@
 # Leave a variable empty ("") to skip that check until you configure it.
 
 # Fast check that runs after every file edit (keep it under ~30s):
-TYPECHECK_CMD="npx tsc --noEmit"        # e.g. "npx tsc --noEmit" or "cargo check"
+# DEFERRED until the first build story creates pyproject.toml + uv.lock and
+# installs ruff. Target command (restore then): "uv run ruff check ."
+TYPECHECK_CMD=""
 
 # Full test suite that must pass before Claude is allowed to stop:
-TEST_CMD="npm test --silent"            # e.g. "npm test --silent" or "pytest -q"
+# DEFERRED until pytest is installed via uv sync (first build story).
+# Target command (restore then): "uv run pytest -q"
+TEST_CMD=""
 
 # Branch names Claude must never push to directly:
 PROTECTED_BRANCHES="main master production"

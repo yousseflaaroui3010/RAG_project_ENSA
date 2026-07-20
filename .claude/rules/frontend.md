@@ -1,9 +1,6 @@
 ---
 paths:
-  - "src/app/**"
-  - "src/components/**"
-  - "**/*.tsx"
-  - "**/*.jsx"
+  - "ui/**"
   - "**/*.css"
 ---
 # Frontend rules

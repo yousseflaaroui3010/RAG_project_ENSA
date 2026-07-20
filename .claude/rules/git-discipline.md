@@ -1,8 +1,9 @@
 # Git discipline
 
-- Branch per task: `task/T-xxx-short-slug`, cut from latest `main`.
-- Commit small and often on the task branch. Subject:
-  `type(scope): summary [AI]` where type is feat|fix|refactor|test|chore.
+- Branch per story: `feat/S<sprint>-ST-<nn>-<slug>`, cut from latest `main`.
+  Also `fix/<issue-id>-<slug>`, `docs/<slug>`, `chore/<slug>` (ADR-11).
+- Commit small and often on the task branch. Conventional Commits carrying
+  the story id: `feat: ST-17 sync engine end to end`.
 - Commit body must contain:
   `INTENT: <what this change tries to achieve>`
   `VERIFY: <exact command that passed>`
