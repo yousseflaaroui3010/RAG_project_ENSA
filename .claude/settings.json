@@ -9,7 +9,6 @@
       "Read(**/pnpm-lock.yaml)",
       "Read(**/yarn.lock)",
       "Read(./dist/**)",
-      "Read(./build/**)",
       "Read(./.next/**)",
       "Read(./coverage/**)"
     ]
