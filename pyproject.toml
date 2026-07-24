@@ -1,0 +1,65 @@
+[project]
+name = "sanad"
+version = "0.1.0"
+description = "Sanad: a local-first document assistant. Workspaces of documents, on-demand Sync, answers with sources, honest refusals, evaluation-gated releases."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Agent graph (ADR-03). §8: >= 1.1.
+    "langgraph>=1.1",
+    # Model interface, one-line provider swap (ADR-06). §8: 1.x line.
+    "langchain>=1.0,<2.0",
+    "langchain-ollama",
+    # Cloud provider for cloud-key mode (ADR-06): Google Gemini (free tier).
+    # Provider stays swappable via config; free local models (Mistral, Llama)
+    # run through langchain-ollama in strict-local mode.
+    "langchain-google-genai",
+    # Embedded vector store, hybrid mode (ADR-04; §8).
+    "qdrant-client",
+    "langchain-qdrant",
+    # Dense multilingual embeddings, intfloat/multilingual-e5-base (ADR-05).
+    "sentence-transformers",
+    # Sparse side of hybrid retrieval, Qdrant/bm25 (ADR-05; §8).
+    "fastembed",
+    # Heading-preserving PDF -> markdown (ADR-07).
+    "pymupdf4llm",
+    # DOCX now / PPTX in V1.1 conversion (ADR-07).
+    "markitdown[all]",
+    # UI layer, mounted onto FastAPI (ADR-02; ADR-13). §8: >= 5.
+    "gradio>=5",
+    # Faithfulness / relevancy metrics for the eval gate (F-08).
+    "ragas",
+    # Config from .env (all tunables; Hard technical rules).
+    "pydantic-settings",
+    # API process host + server (ADR-13). Binds 127.0.0.1 only.
+    "fastapi",
+    "uvicorn",
+    # Loads the committed OpenAPI contract for the CI drift test (ADR-13).
+    "pyyaml",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# Flat-layout app (package = false): put the repo root on sys.path so tests
+# can `from config import ...` without an installed package.
+pythonpath = ["."]
+
+[tool.uv]
+# Sanad is a flat-layout application repo (architecture §11), not a
+# distributed library: no wheel is ever built or published. uv manages
+# only the virtual environment and dependency resolution.
+package = false
