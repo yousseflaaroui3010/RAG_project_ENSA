@@ -32,3 +32,5 @@ jobs:
         run: npx jscpd . --ignore "**/.venv/**,**/node_modules/**,**/*.md,uv.lock" --threshold 3 --exit-code 1
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
