@@ -9,3 +9,5 @@
 2026-07-20 | Phase3-S2 | docs/build/BUILD-PLAN.md | build plan drafted from 52 signed stories (refs+deps+exit gate) | Step 2; approved by human
 2026-07-20 | ST-02 | pyproject.toml, uv.lock, config.py, .env.example, tests/unit/test_config.py | uv project skeleton: pinned stack (Arch §8), all tunables in config (no magic literals), smoke test, pytest pythonpath fix | Sprint-0 foundation; every downstream story needs the environment
 2026-07-20 | ST-02 | pyproject.toml, uv.lock, config.py, .env.example | cloud provider swapped OpenAI -> Google Gemini (langchain-google-genai); local free models (Mistral) via Ollama; re-verified green | user chose Gemini free tier + free local models over OpenAI
+2026-07-24 | ST-02/CI | .github/workflows/gate.yml | fixed the duplication gate: jscpd v5 removed --gitignore; switched to --ignore globs and excluded .venv/node_modules/*.md/uv.lock | CI verify job was failing on every PR at the dup step (blocked all merges)
+2026-07-24 | docs | docs/START-HERE.md | added beginner team handbook (Sprints 0-1): setup, daily git loop, Sprint-1 stories split so MB codes too | onboard both people as coders and let them run the app now

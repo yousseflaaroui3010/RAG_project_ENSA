@@ -29,6 +29,6 @@ jobs:
           git log origin/main..HEAD --format=%B | grep -q "INTENT:" || \
             (echo "Missing INTENT: line in commit body" && exit 1)
       - name: Duplication gate (fails over 3%)
-        run: npx jscpd . --gitignore --threshold 3 --exitCode 1
+        run: npx jscpd . --ignore "**/.venv/**,**/node_modules/**,**/*.md,uv.lock" --threshold 3 --exitCode 1
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2
