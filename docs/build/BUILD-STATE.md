@@ -65,10 +65,15 @@ Updated: 2026-07-25 by b1 (ST-10 integration)
 
 ## Blockers / waiting on human
 - `gh` CLI is not installed and no GH_TOKEN/GITHUB_TOKEN is set, so agents
-  cannot open or merge PRs. Every PR from here on needs a human to click a
-  prefilled compare URL until `gh` is installed and `gh auth login` is run.
-  b1 correctly refused to extract the stored Git Credential Manager token to
-  drive the REST API; that would be credential exfiltration, not authorized.
+  cannot open or merge PRs. b1 correctly refused to extract the stored Git
+  Credential Manager token to drive the REST API; that would be credential
+  exfiltration, not authorized. RESOLUTION CHOSEN 2026-07-25: the human
+  installs `gh` (`winget install --id GitHub.cli -e`) and runs
+  `gh auth login` in an interactive terminal; agents then use `gh` for PR
+  open and CI status, and merge stays a human press. Until that is done,
+  each PR needs a human to click a prefilled compare URL. Verify with
+  `gh auth status`. Note the same PATH gotcha as uv: reopen the terminal
+  (and VS Code) after install or `gh` will not resolve.
 - `.claude/agent-memory/` is untracked and needs a decision: commit it (agent
   memory becomes shared, reviewable project state) or gitignore it (stays
   per-machine). Not urgent, but it will keep showing up in git status.
