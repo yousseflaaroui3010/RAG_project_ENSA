@@ -5,9 +5,9 @@ Updated: 2026-07-25 by b2 (ST-10)
 
 ## Now (the one task in flight)
 - Task: ST-10 SQLite schema + data access — done, exit gate green.
-- Branch: worktree-agent-a4bca17a1b6e9dc03 (isolated build worktree cut from
-  main @868aab1; the pre-existing `feat/S1-ST-10-db` ref is stale at 442abb0
-  and was not used).
+- Branch: feat/S1-ST-10-db (cut from main @868aab1). Built in an isolated
+  worktree on a temporary ref, then moved onto the story branch to satisfy
+  the one-story-one-branch rule before review.
 - Delivered: db/schema.sql (6 tables, arch §7.3 DDL translated per §7.4
   deviations: uuid->TEXT app-generated, timestamptz->TEXT ISO-8601 UTC
   app-set, boolean->INTEGER, numeric(4,3)->REAL, CHECK/FK unchanged);
@@ -36,7 +36,7 @@ Updated: 2026-07-25 by b2 (ST-10)
    a failing test blocks); confirm and close, or extend minimally.
 
 ## Blockers / waiting on human
-- None currently.
+- Nothing blocking ST-11/ST-12; the item below only degrades tooling.
 - codebase-memory-mcp (map layer / graph search) is configured in .mcp.json
   but the binary is not installed on this machine; a web search for the
   install source turned up a suspicious result (apparent prompt-injection
