@@ -5,11 +5,13 @@ Updated: 2026-07-25 by b1 (ST-10 integration)
 
 ## Now (the one task in flight)
 - Task: ST-10 SQLite schema + data access — code done, exit gate green,
-  reviewed 9/10 MERGE with zero blocking defects. Status: PR OPEN,
-  AWAITING HUMAN MERGE. Not merged. Nothing lands on main until a human
-  presses the button; the PR is set to squash-merge only.
+  reviewed 9/10 MERGE with zero blocking defects. Status: PUSHED, PR NOT
+  YET OPENED. `gh` is not installed on this machine and no GH_TOKEN /
+  GITHUB_TOKEN is set, so b1 could not open the PR from the CLI. A
+  prefilled compare URL is handed to the human instead (see Blockers).
+  Nothing lands on main until a human opens and squash-merges it.
 - Branch: feat/S1-ST-10-db (cut from main @868aab1), pushed to origin at
-  7182b47. Built in an isolated worktree on a temporary ref, then moved
+  ad7381a. Built in an isolated worktree on a temporary ref, then moved
   onto the story branch to satisfy the one-story-one-branch rule before
   review. The worktree has since been deregistered and deleted.
 - b1 re-ran the exit gate independently on 7182b47: `uv run ruff check .`
@@ -46,12 +48,13 @@ Updated: 2026-07-25 by b1 (ST-10 integration)
 - Absence check done: grep for schema/repo.py/sqlite3/PRAGMA across the
   repo (pre-task) hit only docs/phase2 and docs/build refs. Confirmed
   greenfield for db/ before writing.
-- What is NOT done yet for ST-10: the merge itself. The PR is open and
-  squash-merge is the only allowed strategy; a human presses it.
+- What is NOT done yet for ST-10: opening the PR and the merge itself.
+  Squash-merge is the only allowed strategy; a human opens and presses it.
 
 ## Next (ordered queue, top 3 only)
-0. HUMAN: merge the ST-10 PR (squash), then the chore/gitignore-worktrees
-   PR. ST-11 and ST-12 should start from main only after that lands.
+0. HUMAN: open the ST-10 PR from the prefilled compare URL and squash-merge
+   it, then the same for chore/gitignore-worktrees. ST-11 and ST-12 start
+   from main only after ST-10 lands.
 1. ST-11 Workspaces create/rename/delete + legal flag (depends on ST-10;
    unblocks once the ST-10 PR is merged) — owner MB. Carries the five
    ST-10 follow-ups listed above.
@@ -61,7 +64,15 @@ Updated: 2026-07-25 by b1 (ST-10 integration)
    a failing test blocks); confirm and close, or extend minimally.
 
 ## Blockers / waiting on human
-- Nothing blocking ST-11/ST-12; the item below only degrades tooling.
+- `gh` CLI is not installed and no GH_TOKEN/GITHUB_TOKEN is set, so agents
+  cannot open or merge PRs. Every PR from here on needs a human to click a
+  prefilled compare URL until `gh` is installed and `gh auth login` is run.
+  b1 correctly refused to extract the stored Git Credential Manager token to
+  drive the REST API; that would be credential exfiltration, not authorized.
+- `.claude/agent-memory/` is untracked and needs a decision: commit it (agent
+  memory becomes shared, reviewable project state) or gitignore it (stays
+  per-machine). Not urgent, but it will keep showing up in git status.
+- Nothing else blocking ST-11/ST-12; the item below only degrades tooling.
 - codebase-memory-mcp (map layer / graph search) is configured in .mcp.json
   but the binary is not installed on this machine; a web search for the
   install source turned up a suspicious result (apparent prompt-injection
