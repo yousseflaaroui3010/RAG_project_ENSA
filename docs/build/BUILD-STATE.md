@@ -64,19 +64,20 @@ Updated: 2026-07-25 by b1 (ST-10 integration)
    a failing test blocks); confirm and close, or extend minimally.
 
 ## Blockers / waiting on human
-- `gh` CLI is not installed and no GH_TOKEN/GITHUB_TOKEN is set, so agents
-  cannot open or merge PRs. b1 correctly refused to extract the stored Git
-  Credential Manager token to drive the REST API; that would be credential
-  exfiltration, not authorized. RESOLUTION CHOSEN 2026-07-25: the human
-  installs `gh` (`winget install --id GitHub.cli -e`) and runs
-  `gh auth login` in an interactive terminal; agents then use `gh` for PR
-  open and CI status, and merge stays a human press. Until that is done,
-  each PR needs a human to click a prefilled compare URL. Verify with
-  `gh auth status`. Note the same PATH gotcha as uv: reopen the terminal
-  (and VS Code) after install or `gh` will not resolve.
-- `.claude/agent-memory/` is untracked and needs a decision: commit it (agent
-  memory becomes shared, reviewable project state) or gitignore it (stays
-  per-machine). Not urgent, but it will keep showing up in git status.
+- HUMAN ACTION, one command: run `gh auth login` in an interactive terminal
+  (GitHub.com, HTTPS, login with a web browser). `gh` 2.96.0 is now installed
+  (winget, 2026-07-25) and resolves on PATH, but `gh auth status` reports no
+  logged-in host, so agents still cannot open PRs. The browser flow cannot be
+  driven from an agent session. Until it is done, each PR needs a human to
+  click a prefilled compare URL. Agents must run `gh auth status` first and
+  never assume either state. Merge stays a human press regardless.
+  b1 correctly refused to extract the stored Git Credential Manager token to
+  drive the REST API instead; that is credential exfiltration, not authorized.
+- RESOLVED 2026-07-25: `.claude/agent-memory/` is gitignored on
+  chore/gitignore-worktrees. It duplicated this Blockers section and went
+  stale within the hour (its gh note was wrong minutes after gh was
+  installed). One reviewed flight recorder, not two. Durable facts get
+  promoted here or to DECISIONS by a reviewed commit.
 - Nothing else blocking ST-11/ST-12; the item below only degrades tooling.
 - codebase-memory-mcp (map layer / graph search) is configured in .mcp.json
   but the binary is not installed on this machine; a web search for the
