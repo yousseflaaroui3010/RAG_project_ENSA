@@ -35,6 +35,9 @@ venv/
 # --- Claude Code local logs and markers (not source) ---
 .claude/logs/
 
+# --- Agent worktrees (live git worktrees; never a tracked gitlink) ---
+.claude/worktrees/
+
 # --- OS / editor noise ---
 .DS_Store
 Thumbs.db
