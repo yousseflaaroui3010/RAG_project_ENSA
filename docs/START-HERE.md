@@ -57,10 +57,17 @@ Install these tools. For each: what it is → how to get it → how to check it.
   - ⌨️ `git config --global user.email "your-github-email@example.com"`
   - (Use the same email as your GitHub account.)
 - **uv** — installs everything the project needs (like a butler fetching all the
-  ingredients).
-  - ⌨️ In PowerShell: `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`
-  - 🔁 **Close and reopen PowerShell**, then ✅ ⌨️ `uv --version`.
-  - (uv installs Python 3.12 for you — no separate Python install needed.)
+  ingredients). *(Your Python version doesn't matter, even 3.11 — uv brings its
+  own Python 3.12 just for the project.)*
+  - ⌨️ In PowerShell: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+  - 🔁 **Fully close and reopen the terminal** (and VS Code), then check:
+    ⌨️ `uv --version` → should print a version. New tools only "wake up" in a
+    fresh window.
+  - 🩹 **If it still says `uv` is "not recognized":**
+    - First test in a **Start-menu PowerShell** (not VS Code's terminal):
+      ⌨️ `uv --version`. If it works there, just **fully quit and reopen VS Code**.
+    - If it fails everywhere, install uv through your Python instead:
+      ⌨️ `python -m pip install uv` → reopen the terminal → `uv --version`.
 - **VS Code** — the editor where you read and write code (like Word, but for code).
   - 🖱️ Download from **code.visualstudio.com** → install.
   - 🖱️ Open VS Code → left **Extensions** icon (four squares) → search **"Python"**
@@ -106,10 +113,7 @@ Sanad can use a **free local** model or a **free cloud** model. Set up at least 
 
 - **Make your settings file:**
   - 📍 In VS Code's file list (left), find **`.env.example`**.
-  - 🖱️ Right-click it → **Copy**, right-click empty space → **Paste**, then
-    **Rename** the copy to exactly **`.env`** (no `.txt` on the end! If Windows
-    hides file endings, turn on **View → File name extensions** in File Explorer
-    so you can see it's really `.env`).
+  - 🖱️ Right-click it → **Copy**, right-click empty space → **Paste**, then **Rename** the copy to exactly **`.env`** (no `.txt` on the end! If Windows hides file endings, turn on **View → File name extensions** in File Explorer so you can see it's really `.env`).
   - This is your **private** settings file — it's never uploaded to GitHub.
 - **To edit it:** 🖱️ click `.env` in VS Code to open it, change the line, then
   **save with ⌨️ Ctrl+S** (unsaved files show a dot • in the tab).
