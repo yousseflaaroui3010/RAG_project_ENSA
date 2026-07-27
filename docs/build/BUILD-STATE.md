@@ -4,7 +4,8 @@ Last verified commit: 442abb0 on main (ST-02 + CI fixes + handbook, all merged)
 Updated: 2026-07-24 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
-- Task: NONE in flight. Sprint-0 foundation is merged to main and green.
+- Task: docs/readme-pipeline-diagram — root README.md with the Mermaid pipeline
+  flowchart. Written and rendered clean; awaiting PR merge. No code touched.
 - Where exactly: main = 442abb0. ST-02 skeleton (Gemini + Ollama providers)
   merged via PR #2 (squash 3eb19f2). CI gate (gate.yml) repaired and passing
   end to end. Team handbook docs/START-HERE.md added and its uv-setup hardened
@@ -36,3 +37,7 @@ Updated: 2026-07-24 by Phase 3 orchestrator
 - CI gate repaired: jscpd flags (--ignore/--exit-code), .venv excluded, gitleaks
   GITHUB_TOKEN — the verify job now passes on every PR.
 - Team handbook docs/START-HERE.md added and uv setup hardened (PR #3, 442abb0).
+- Root README.md added: three-phase Mermaid pipeline diagram (ingestion, vector
+  retrieval, LLM prompt generation) sourced from Architecture 5.1/5.2/7.5 +
+  ADR-04/05/07, plus quickstart and doc map. Diagram validated by rendering it
+  with mermaid-cli, not by eye.

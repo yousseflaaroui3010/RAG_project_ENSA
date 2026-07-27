@@ -13,3 +13,4 @@
 2026-07-24 | docs | docs/START-HERE.md | added beginner team handbook (Sprints 0-1): setup, daily git loop, Sprint-1 stories split so MB codes too | onboard both people as coders and let them run the app now
 2026-07-24 | ST-02/CI | .github/workflows/gate.yml | further gate fixes: jscpd --exitCode -> --exit-code (v5 rename); pass GITHUB_TOKEN to gitleaks-action v2 (now required for PRs) | gate now fully green; PR #2 merged to main (squash 3eb19f2)
 2026-07-24 | docs | docs/START-HERE.md | hardened uv setup: -ExecutionPolicy ByPass install, quit/reopen VS Code fix, `python -m pip install uv` fallback, any-Python note | teammate hit "uv not recognized" (PR #3, merged 442abb0)
+2026-07-27 | docs | README.md | added root README with a Mermaid pipeline flowchart (ingestion -> vector retrieval -> LLM prompt generation), quickstart, doc map, locality and gate notes | repo had no root README; the three-phase flow was only readable by cross-reading Architecture 5.1/5.2/7.5
