@@ -54,8 +54,9 @@ class DuplicateWorkspaceNameError(WorkspaceError):
 class InvalidWorkspaceNameError(WorkspaceError):
     """Raised when a workspace name violates the length bounds in
     docs/phase2/openapi.yaml (WorkspaceCreate/WorkspaceUpdate `name`:
-    minLength 1, maxLength 100), sourced from config.py. A route maps
-    this to HTTP 422."""
+    minLength 1, maxLength 100), sourced from config.py. Checked against
+    the stripped value so a whitespace-only name (e.g. "   ") is rejected
+    too, not just an empty string. A route maps this to HTTP 422."""
 
     def __init__(self, name: str):
         self.name = name
@@ -67,10 +68,37 @@ class InvalidWorkspaceNameError(WorkspaceError):
         )
 
 
+class InvalidFolderPathError(WorkspaceError):
+    """Raised when `folder_path` is empty or whitespace-only, violating
+    docs/phase2/openapi.yaml WorkspaceCreate `folder_path` minLength: 1.
+    A route maps this to HTTP 422."""
+
+    def __init__(self, folder_path: str):
+        self.folder_path = folder_path
+        super().__init__(f"folder_path must not be empty or whitespace-only: {folder_path!r}")
+
+
 def _validate_name(name: str) -> None:
     settings = get_settings()
-    if not (settings.workspace_name_min_length <= len(name) <= settings.workspace_name_max_length):
+    stripped_length = len(name.strip())
+    min_length = settings.workspace_name_min_length
+    max_length = settings.workspace_name_max_length
+    if not (min_length <= stripped_length <= max_length):
         raise InvalidWorkspaceNameError(name)
+
+
+def _validate_folder_path(folder_path: str) -> None:
+    """Reject empty/whitespace-only folder_path. A non-str (e.g. None) is
+    left to db/schema.sql's own NOT NULL constraint -- that is a
+    different violation (see
+    test_non_name_constraint_violation_does_not_surface_as_duplicate_name_error)
+    and must still surface as a raw sqlite3.IntegrityError, not this
+    domain error."""
+    if not isinstance(folder_path, str):
+        return
+    settings = get_settings()
+    if len(folder_path.strip()) < settings.workspace_folder_path_min_length:
+        raise InvalidFolderPathError(folder_path)
 
 
 @dataclass(frozen=True)
@@ -96,6 +124,17 @@ def _from_row(row: sqlite3.Row) -> Workspace:
     )
 
 
+def _get_workspace_or_raise(conn: sqlite3.Connection, workspace_id: str) -> sqlite3.Row:
+    """Fetch a workspace row by id or raise WorkspaceNotFoundError. Single
+    fetch-or-raise-not-found implementation shared by every verb that
+    needs the current row before acting on it (get, rename, delete,
+    set_legal_flag) -- extracted per review, this was the third copy."""
+    row = repo.get_workspace(conn, workspace_id)
+    if row is None:
+        raise WorkspaceNotFoundError(workspace_id)
+    return row
+
+
 def create_workspace(
     *,
     name: str,
@@ -109,6 +148,7 @@ def create_workspace(
     escape (only a UNIQUE violation on workspace.name is translated; any
     other constraint violation re-raises as-is)."""
     _validate_name(name)
+    _validate_folder_path(folder_path)
     with repo.session(db_path) as conn:
         try:
             ws_id = repo.create_workspace(
@@ -134,9 +174,7 @@ def rename_workspace(
     constraint violation re-raises as-is)."""
     _validate_name(new_name)
     with repo.session(db_path) as conn:
-        row = repo.get_workspace(conn, workspace_id)
-        if row is None:
-            raise WorkspaceNotFoundError(workspace_id)
+        row = _get_workspace_or_raise(conn, workspace_id)
         if row["name"] == new_name:
             return _from_row(row)
         try:
@@ -154,28 +192,34 @@ def delete_workspace(*, workspace_id: str, db_path: str | Path | None = None) ->
     cascade). Source files on disk are never touched (PRD F-01 #3).
     Raises WorkspaceNotFoundError if the id does not exist."""
     with repo.session(db_path) as conn:
-        row = repo.get_workspace(conn, workspace_id)
-        if row is None:
-            raise WorkspaceNotFoundError(workspace_id)
+        _get_workspace_or_raise(conn, workspace_id)
         repo.delete_workspace(conn, workspace_id)
 
 
 def list_workspaces(*, db_path: str | Path | None = None) -> list[Workspace]:
     """List every workspace, ordered by name. Empty list (no exception)
     when none exist, so a caller (ST-28 UI) can render an empty state
-    (PRD F-01 #2)."""
-    with repo.session(db_path) as conn:
+    (PRD F-01 #2) -- that is distinct from the registry not existing at
+    all: a read never bootstraps (repo.get_connection), so a missing or
+    mistyped db_path raises db.repo.RegistryNotFoundError instead of
+    silently returning []."""
+    conn = repo.get_connection(db_path)
+    try:
         rows = repo.list_workspaces(conn)
+    finally:
+        conn.close()
     return [_from_row(row) for row in rows]
 
 
 def get_workspace(*, workspace_id: str, db_path: str | Path | None = None) -> Workspace:
     """Fetch one workspace by id. Raises WorkspaceNotFoundError if it
-    does not exist."""
-    with repo.session(db_path) as conn:
-        row = repo.get_workspace(conn, workspace_id)
-    if row is None:
-        raise WorkspaceNotFoundError(workspace_id)
+    does not exist. A read never bootstraps: a missing or mistyped
+    db_path raises db.repo.RegistryNotFoundError instead."""
+    conn = repo.get_connection(db_path)
+    try:
+        row = _get_workspace_or_raise(conn, workspace_id)
+    finally:
+        conn.close()
     return _from_row(row)
 
 
@@ -186,9 +230,7 @@ def set_legal_flag(
     WorkspaceNotFoundError if the workspace does not exist. Idempotent:
     setting the same value twice is a harmless no-op write."""
     with repo.session(db_path) as conn:
-        row = repo.get_workspace(conn, workspace_id)
-        if row is None:
-            raise WorkspaceNotFoundError(workspace_id)
+        _get_workspace_or_raise(conn, workspace_id)
         repo.update_workspace_legal_flag(conn, workspace_id, legal_flag)
         row = repo.get_workspace(conn, workspace_id)
     return _from_row(row)

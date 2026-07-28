@@ -21,10 +21,7 @@ from db import repo
 @pytest.fixture
 def db_path(tmp_path):
     path = tmp_path / "sanad.db"
-    conn = repo.get_connection(path)
-    repo.init_db(conn)
-    conn.commit()
-    conn.close()
+    repo.ensure_schema(path)
     return path
 
 
@@ -252,6 +249,78 @@ def test_rename_workspace_rejects_name_over_100_chars(db_path):
     hr = ws.create_workspace(name="HR", folder_path="/data/hr", db_path=db_path)
     with pytest.raises(ws.InvalidWorkspaceNameError):
         ws.rename_workspace(workspace_id=hr.id, new_name="x" * 101, db_path=db_path)
+
+
+# --- reads never fabricate a registry (second re-review, item 1) ------------
+
+
+def test_list_workspaces_raises_for_nonexistent_path_and_creates_nothing(tmp_path):
+    """The exact repro from review: a mistyped/unmounted db_path must not
+    read back as an empty list. It must fail loudly, and it must not
+    create the directory tree or the db file as a side effect of trying."""
+    bad_path = tmp_path / "typo" / "deep" / "x.db"
+
+    with pytest.raises(repo.RegistryNotFoundError):
+        ws.list_workspaces(db_path=bad_path)
+
+    assert not bad_path.exists()
+    assert not bad_path.parent.exists()
+
+
+def test_get_workspace_raises_registry_not_found_for_nonexistent_path(tmp_path):
+    bad_path = tmp_path / "typo2" / "x.db"
+
+    with pytest.raises(repo.RegistryNotFoundError):
+        ws.get_workspace(workspace_id="anything", db_path=bad_path)
+
+    assert not bad_path.exists()
+
+
+def test_write_against_a_fresh_path_bootstraps_and_succeeds(tmp_path):
+    """No fixture pre-bootstrap here: db_path is a path that has never
+    been touched. A write (create_workspace) must still succeed end to
+    end, unlike a read against the same kind of fresh path."""
+    fresh_path = tmp_path / "fresh" / "sanad.db"
+    assert not fresh_path.exists()
+
+    created = ws.create_workspace(name="Fresh", folder_path="/data/fresh", db_path=fresh_path)
+
+    assert fresh_path.exists()
+    assert created.name == "Fresh"
+
+
+def test_read_after_write_bootstrap_returns_the_row(tmp_path):
+    fresh_path = tmp_path / "fresh2" / "sanad.db"
+    created = ws.create_workspace(name="Fresh2", folder_path="/data/fresh2", db_path=fresh_path)
+
+    fetched = ws.get_workspace(workspace_id=created.id, db_path=fresh_path)
+
+    assert fetched == created
+    assert ws.list_workspaces(db_path=fresh_path) == [created]
+
+
+# --- folder_path validation (docs/phase2/openapi.yaml WorkspaceCreate) -------
+
+
+def test_create_workspace_rejects_empty_folder_path(db_path):
+    with pytest.raises(ws.InvalidFolderPathError):
+        ws.create_workspace(name="HR", folder_path="", db_path=db_path)
+
+
+def test_create_workspace_rejects_whitespace_only_folder_path(db_path):
+    with pytest.raises(ws.InvalidFolderPathError):
+        ws.create_workspace(name="HR", folder_path="   ", db_path=db_path)
+
+
+def test_create_workspace_rejects_whitespace_only_name(db_path):
+    with pytest.raises(ws.InvalidWorkspaceNameError):
+        ws.create_workspace(name="   ", folder_path="/data/hr", db_path=db_path)
+
+
+def test_rename_workspace_rejects_whitespace_only_name(db_path):
+    hr = ws.create_workspace(name="HR", folder_path="/data/hr", db_path=db_path)
+    with pytest.raises(ws.InvalidWorkspaceNameError):
+        ws.rename_workspace(workspace_id=hr.id, new_name="   ", db_path=db_path)
 
 
 # --- default DB path bootstrap (ST-10 follow-up 4) ----------------------------

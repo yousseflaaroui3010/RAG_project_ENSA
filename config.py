@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     # workspaces.py; never hardcode these limits a second time.
     workspace_name_min_length: int = 1
     workspace_name_max_length: int = 100
+    # Mirrors docs/phase2/openapi.yaml WorkspaceCreate `folder_path`
+    # minLength. Checked against the stripped value so whitespace-only
+    # paths are rejected too (openapi's raw minLength alone would not
+    # catch "   ").
+    workspace_folder_path_min_length: int = 1
 
 
 @lru_cache

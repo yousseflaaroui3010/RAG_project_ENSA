@@ -41,30 +41,66 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+class RegistryNotFoundError(Exception):
+    """Raised by `get_connection` when `db_path` does not exist on disk.
+
+    Reads must never create the registry (a mistyped `SQLITE_DB_PATH` or
+    an unmounted folder must not be indistinguishable from a genuinely
+    fresh, empty registry -- PRD F-01 criterion 2 depends on
+    `list_workspaces()` returning `[]` meaning "the registry exists and
+    is empty", never "I could not find it"). Only `ensure_schema` /
+    `session` (write paths) may create the file; this error is what a
+    read gets instead."""
+
+    def __init__(self, db_path: str | Path):
+        self.db_path = db_path
+        super().__init__(f"registry database does not exist: {db_path!r}")
+
+
 def _connect_raw(db_path: str | Path) -> sqlite3.Connection:
     """The single call site for `sqlite3.connect()` in the codebase.
-    Every connection gets `PRAGMA foreign_keys = ON` before use, then the
-    registry schema is bootstrapped via `init_db` (ST-10 follow-up 4: the
-    default path had no caller that ever created the tables). Safe to
-    run on every connect because every statement in schema.sql is
-    `CREATE TABLE IF NOT EXISTS` -- idempotent, and DDL is not part of
-    Python sqlite3's implicit DML transaction, so this never interferes
-    with a caller's own transaction (e.g. `session()`)."""
-    path = Path(db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    Every connection gets `PRAGMA foreign_keys = ON` before use. Nothing
+    else: no `mkdir`, no schema bootstrap. Bootstrapping is an explicit,
+    write-path-only step -- see `ensure_schema` -- so that merely
+    connecting (as every read does) can never fabricate a directory tree
+    or an empty database file for a path that was never meant to exist."""
+    conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
-    init_db(conn)
     return conn
 
 
 def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
-    """Open a connection to the Sanad registry DB. Defaults to
+    """Open a connection to the Sanad registry DB for READS. Defaults to
     `config.get_settings().sqlite_db_path` -- never hardcode the path a
-    second time."""
+    second time.
+
+    Never bootstraps. Raises `RegistryNotFoundError` if `db_path` does
+    not exist, instead of letting `sqlite3.connect()` silently create an
+    empty file. Write paths do not call this directly; they go through
+    `session()`, which calls `ensure_schema()` first."""
     path = db_path if db_path is not None else get_settings().sqlite_db_path
-    return _connect_raw(path)
+    resolved = Path(path)
+    if not resolved.exists():
+        raise RegistryNotFoundError(resolved)
+    return _connect_raw(resolved)
+
+
+def ensure_schema(db_path: str | Path | None = None) -> None:
+    """Bootstrap the registry: create the parent directory if needed and
+    apply db/schema.sql. Idempotent (every statement is `CREATE TABLE IF
+    NOT EXISTS`) -- safe to call on every write. This is the only place
+    in the codebase that may create the db file or its parent directory;
+    reads (`get_connection`) deliberately never do either."""
+    path = db_path if db_path is not None else get_settings().sqlite_db_path
+    resolved = Path(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    conn = _connect_raw(resolved)
+    try:
+        init_db(conn)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -96,9 +132,15 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 @contextmanager
 def session(db_path: str | Path | None = None) -> Iterator[sqlite3.Connection]:
-    """Open a connection, commit on success, roll back and re-raise on
-    error, always close. Use for any multi-statement write so partial
-    failures never leave the registry half-written."""
+    """Open a connection for a WRITE, commit on success, roll back and
+    re-raise on error, always close. Use for any multi-statement write so
+    partial failures never leave the registry half-written.
+
+    Calls `ensure_schema(db_path)` first, so a genuinely fresh install
+    still works end to end with no manual bootstrap step. This is the
+    write-path/read-path seam: `session()` bootstraps, `get_connection()`
+    (used by pure reads) does not."""
+    ensure_schema(db_path)
     conn = get_connection(db_path)
     try:
         yield conn
