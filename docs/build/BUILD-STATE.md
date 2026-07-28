@@ -1,48 +1,65 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: e7c777f on main (all four open PRs merged: #6 gitignore,
-#7 ST-04, #8 ST-10, #9 attribution rule). No open PRs. No stranded branches.
+Last verified commit: 1a4f3fb on main (ST-11 workspaces module merged, PR #11).
+No open PRs. No stranded branches.
 Updated: 2026-07-28 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
-- Task: ST-11 Workspaces create/rename/delete + legal flag. NOT STARTED.
-  Unblocked as of e7c777f; ST-10 landed, so `db/repo.py` and `session()`
-  exist to build on.
-- Owner: to be confirmed before a branch is cut. The build plan assigns ST-10
-  to YL but MB wrote all of it, so ownership has already drifted once. Settle
-  ST-11 and ST-12 ownership first so contribution stays attributable; this is
-  graded work and the split has to be defensible.
-- Branch: none cut yet. Use `feat/S1-ST-11-workspaces` from main @e7c777f.
-- Carries the five ST-10 follow-ups below. Follow-up 1 is the one to read
-  before touching the schema.
+- Nothing in flight. ST-11 merged; the next story has not been started.
+- Next up is ST-12, owner MB. See the Next queue and the ownership note there.
 - What is proven working on main right now: `uv sync` resolves the pinned
   stack; config loads; the SQLite registry creates, cascades and rolls back
-  under test. `uv run ruff check .` clean, `uv run pytest -q` 17 passed
-  (2 config + 15 db). CI verify green on every PR.
-- What does NOT exist yet: any workspace logic, any UI, any ingestion,
-  any retrieval. `db/` is still a leaf package that nothing imports.
+  under test; workspaces create, rename, delete, list, get and toggle their
+  legal flag, with names normalized and the F-01 criteria demonstrated at
+  module level. `uv run ruff check .` clean, `uv run pytest -q` 51 passed
+  (2 config + 15 db + 34 workspaces). CI verify green on every PR.
+- What does NOT exist yet: any UI, any ingestion, any conversion, any
+  chunking, any embeddings, any retrieval, any sync engine. `workspaces.py`
+  is the only consumer of `db/`, and nothing consumes `workspaces.py`.
 
 ## Next (ordered queue, top 3 only)
-1. ST-12 Content hashing + change-detection state machine. Unblocked; can run
-   parallel to ST-11 since it touches different modules.
+1. ST-12 Content hashing + change-detection state machine. Unblocked. Owner
+   MB by agreement 2026-07-28, which is a deliberate deviation: BUILD-PLAN
+   line 60 assigns ST-12 to YL. Recorded in DECISIONS. The deviation exists to
+   rebalance the split after MB wrote all of ST-10 while the plan assigned it
+   to YL. Carries the follow-up list below.
 2. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR, a
    failing test blocks, INTENT check, dup gate, gitleaks). Almost certainly a
    confirm-and-close, not work. Verify against the story's exit criteria.
-3. ST-13 onward per BUILD-PLAN, once ST-11 and ST-12 land.
+3. ST-13 Conversion ladder PDF/DOCX/TXT/MD, once ST-12 lands.
 
-## ST-10 follow-ups (do not lose these; fold into ST-11)
-1. db/repo.py:64 - `init_db` splits schema.sql on `;` after stripping
+## Data-layer follow-ups (do not lose these; fold into ST-12)
+Carried from ST-10, plus two the ST-11 reviewer surfaced. Numbers 3 and 4 are
+CLOSED by ST-11 and kept here only so the closure is auditable.
+
+1. OPEN. db/repo.py - `init_db` splits schema.sql on `;` after stripping
    full-line comments. Verified safe for the current schema (no triggers, no
    views, no semicolons inside string literals) but it WILL break the first
-   time ST-11+ adds a trigger or a view. Harden the splitter or move to a
+   time a trigger or a view is added. Harden the splitter or move to a real
    migration runner before extending the schema.
-2. db/repo.py:55 - the config-path default in `get_connection()` is still
-   never exercised; every test passes an explicit tmp_path.
-3. The cascade test needs pre-delete `== 1` assertions so a degenerate
-   `_count` cannot pass vacuously.
-4. `init_db` still has no bootstrap caller outside tests - app startup never
-   creates the registry.
-5. A test still uses inline SQL because `delete_document` does not exist yet.
+2. OPEN. The config-path default in `get_connection()` is exercised by exactly
+   one test; most tests still pass an explicit tmp_path.
+3. CLOSED by ST-11. Cascade tests now assert `== 1` pre-delete and `== 0`
+   post-delete across all five child tables, so a degenerate count cannot pass
+   vacuously.
+4. CLOSED by ST-11. `ensure_schema()` now bootstraps the registry explicitly
+   and `session()` calls it, so a fresh install works with no manual step.
+   Deliberately NOT done inside `_connect_raw`: reads must never create a
+   registry, or a mistyped path is indistinguishable from a fresh install.
+5. OPEN. A test still uses inline SQL because `delete_document` does not exist.
+6. OPEN, new from the ST-11 review. `ensure_schema` can leave a half-built
+   registry if `schema.sql` is truncated: the file then exists, so
+   `get_connection` accepts it and reads succeed against a partial schema. It
+   self-heals on the next write and needs a corrupt signed artifact to trigger,
+   so it is low severity. Durable fix: `get_connection` should validate that
+   the expected tables are present, not merely that the file exists. That also
+   closes the `RegistryNotFoundError` blind spot.
+7. OPEN, new from the ST-11 review, and the one that will bite on schedule.
+   `_connect_raw` sets no `timeout`, so once ST-17's sync writes concurrently
+   with the UI, writer contention surfaces as `database is locked` after a 5
+   second stall. Reproduced with raw `sqlite3` and no project code, so it is
+   inherited ST-10 behaviour, not something ST-11 introduced. Set a `timeout`
+   before ST-17, not during it.
 
 ## Blockers / waiting on human
 - None blocking.
@@ -63,6 +80,20 @@ Updated: 2026-07-28 by Phase 3 orchestrator
   still stands.
 
 ## Done this week
+- ST-11 Workspaces module. MERGED, PR #11 (1a4f3fb). Owner YL. `workspaces.py`
+  holds the rules, `db/repo.py` stays pure SQL. All three signed F-01 criteria
+  demonstrated at module level, including a delete test that writes real bytes
+  to disk and verifies they survive byte-for-byte. Tests went 17 to 51.
+  Reviewed three times, 7/10 then 8/10 then 9/10, and every pass found
+  something the previous one missed WHILE THE SUITE WAS GREEN THROUGHOUT:
+  (a) the scoping test was vacuous, it only ever fetched the first workspace;
+  (b) reads fabricated a registry, so a mistyped path created an empty database
+      and returned an empty list, making a typo indistinguishable from a fresh
+      install and corrupting the exact criterion the story demonstrates;
+  (c) the fix for a whitespace finding introduced a defect of the same shape,
+      validating a stripped name while persisting the raw one.
+  Every fix was mutation-proven in both directions, mutation applied AFTER
+  fixture setup. Read that list before writing the next story's tests.
 - ST-02: uv project skeleton (pinned stack, config, .env.example, smoke test),
   Gemini + Ollama providers. MERGED, PR #2 (3eb19f2).
 - CI gate repaired: jscpd flags (--ignore/--exit-code), .venv excluded,
