@@ -35,6 +35,15 @@ venv/
 # --- Claude Code local logs and markers (not source) ---
 .claude/logs/
 
+# --- Agent worktrees (live git worktrees; never a tracked gitlink) ---
+.claude/worktrees/
+
+# --- Per-agent scratch memory (machine-local, unreviewed, goes stale) ---
+# Durable facts belong in docs/build/BUILD-STATE.md and DECISIONS.md, which
+# are reviewed and versioned. Committing agent memory would duplicate those
+# and let an unreviewed copy contradict them.
+.claude/agent-memory/
+
 # --- OS / editor noise ---
 .DS_Store
 Thumbs.db
