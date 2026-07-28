@@ -19,8 +19,8 @@ from db import repo
 @pytest.fixture
 def conn(tmp_path):
     db_path = tmp_path / "sanad.db"
+    repo.ensure_schema(db_path)
     connection = repo.get_connection(db_path)
-    repo.init_db(connection)
     yield connection
     connection.close()
 
@@ -222,6 +222,33 @@ def test_insert_document_rejects_a_bogus_workspace_id(conn):
         )
 
 
+# --- get_connection / ensure_schema: reads never bootstrap -------------------
+
+
+def test_get_connection_raises_and_creates_nothing_for_nonexistent_path(tmp_path):
+    bad_path = tmp_path / "typo" / "deep" / "x.db"
+
+    with pytest.raises(repo.RegistryNotFoundError):
+        repo.get_connection(bad_path)
+
+    assert not bad_path.exists()
+    assert not bad_path.parent.exists()
+
+
+def test_ensure_schema_bootstraps_a_fresh_path(tmp_path):
+    fresh_path = tmp_path / "fresh" / "sanad.db"
+    assert not fresh_path.exists()
+
+    repo.ensure_schema(fresh_path)
+
+    assert fresh_path.exists()
+    conn = repo.get_connection(fresh_path)
+    try:
+        assert _count(conn, "workspace") == 0
+    finally:
+        conn.close()
+
+
 # --- session() commit / rollback / close -------------------------------------
 
 
@@ -230,10 +257,7 @@ def test_session_commits_on_success_and_row_persists(tmp_path):
     commit must be durable: reopening a fresh connection to the same file
     afterward must still see the row."""
     db_path = tmp_path / "sanad.db"
-    bootstrap = repo.get_connection(db_path)
-    repo.init_db(bootstrap)
-    bootstrap.commit()
-    bootstrap.close()
+    repo.ensure_schema(db_path)
 
     with repo.session(db_path) as conn:
         repo.create_workspace(conn, name="ws-session-commit", folder_path="/tmp/ws-commit")
@@ -258,10 +282,7 @@ def test_session_rolls_back_everything_on_exception(tmp_path):
     this assertion failed. After the fix, `init_db` never commits, so the
     whole block rolls back together."""
     db_path = tmp_path / "sanad.db"
-    bootstrap = repo.get_connection(db_path)
-    repo.init_db(bootstrap)
-    bootstrap.commit()
-    bootstrap.close()
+    repo.ensure_schema(db_path)
 
     with pytest.raises(RuntimeError):
         with repo.session(db_path) as conn:
