@@ -80,7 +80,7 @@ Sprint-0 baseline exit: all Highest sprint-0 stories Done (target 2026-07-22).
 | ST-26 | Legal disclaimer wiring (F-09) | YL | F-09 | ST-24, ST-11 | Flagged workspace shows the line on every answer; unflagged shows none |
 | ST-27 | Chat screen S1: variants, source cards, passage viewer, states | YL | ADR-02; S1 §8 | ST-24 | Every S1 state (empty/loading/error) from PRD §8 demonstrated live |
 | ST-28 | Workspaces screen S2: list, detail, sync progress, report, double-sync block | YL | ADR-02; S2 §8; F-02 | ST-17 | Every S2 state demonstrated; failed file never blocks the batch in UI |
-| ST-51 | CR-01 thin API: FastAPI host, `/api/v1` delegate-only, Gradio at `/`, live `/docs` | YL | ADR-13; openapi.yaml; §12.3 | ST-24, ST-27, ST-28 | Every endpoint in openapi.yaml responds on 127.0.0.1; UI unchanged when mounted; `/docs` renders |
+| ST-51 | CR-01 thin API: FastAPI host, `/api/v1` delegate-only, template routes at `/` and `/static`, live `/docs` | YL | ADR-13; openapi.yaml; §12.3 (ADR-02 as amended by CR-02) | ST-24, ST-27, ST-28 | Every endpoint in openapi.yaml responds on 127.0.0.1; UI unchanged when mounted; `/docs` renders |
 | ST-29 | Golden set batch 2: +15 in-scope, +7 out-of-scope | MB | F-08 | ST-19 | Totals 30 in / 15 out; same schema + review path |
 | ST-30 | Demo script v0 (10 steps), used in MB behavioral reviews | MB | §12.2; §13.2 | ST-07 | Script committed; one PR review references a step |
 | ST-31 | Report skeleton + chapters 1-2 (problem, PRD summary) | MB | PRD | — | Chapters drafted in `docs/`, sourced from signed PRD, assumptions tagged |

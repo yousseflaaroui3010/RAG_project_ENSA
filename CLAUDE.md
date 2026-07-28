@@ -3,7 +3,8 @@
 Product: Sanad, a local-first document assistant: workspaces of
 documents, on-demand Sync, answers with sources, honest refusals,
 evaluation-gated releases. | Stack: Python 3.12, uv, FastAPI hosting
-Gradio Blocks, LangGraph, Qdrant embedded, SQLite, multilingual-e5-base.
+server-rendered templates, LangGraph, Qdrant embedded, SQLite,
+multilingual-e5-base.
 
 ## Commands
 Dev `uv run python app.py` | Typecheck `uv run ruff check .` | Tests
