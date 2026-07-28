@@ -1,54 +1,34 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: 7a51935 on main (ST-04 PR template merged, PR #7)
+Last verified commit: e7c777f on main (all four open PRs merged: #6 gitignore,
+#7 ST-04, #8 ST-10, #9 attribution rule). No open PRs. No stranded branches.
 Updated: 2026-07-28 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
-- Task: ST-10 SQLite schema + data access. Code complete, independently
-  re-reviewed, all blocking defects fixed, exit gate green. Awaiting PR
-  and squash-merge into main.
-- Branch: feat/S1-ST-10-db, pushed. Built by MB 2026-07-25; the build plan
-  assigns ST-10 to YL, so ownership drifted. Not a code defect, but worth
-  settling before ST-11 so contribution stays attributable.
-- Review history, both passes recorded on purpose:
-  - 2026-07-25, MB's session: 9/10 MERGE, "zero blocking defects".
-  - 2026-07-28, independent re-review before merge: 8/10, NOT safe to merge,
-    five must-fix items. The re-review was right; the first pass missed a
-    real transaction bug. Two reviews disagreeing is why the second one runs.
-- The bug that mattered: `init_db` committed on a caller-owned connection,
-  so a write made earlier inside `session()` could not be rolled back by a
-  later exception. Reproduced, then fixed. Dropping the explicit `commit()`
-  was NOT sufficient - `executescript()` issues its own implicit COMMIT of
-  any pending transaction, verified empirically against this schema. `init_db`
-  now executes each DDL statement individually via `conn.execute()` and never
-  commits or rolls back; the caller's `session()` owns the transaction
-  outright. See db/repo.py:64 and its docstring.
-- Also fixed: `session()` commit and rollback now have tests (the rollback
-  test was proven to fail pre-fix and pass post-fix - that is the regression
-  proof); the PRAGMA assertion now runs on a second freshly opened connection,
-  which is the risk the story actually names; a negative FK test rejects an
-  orphan `insert_document`; `_count` whitelists table and column identifiers
-  instead of f-string-interpolating them.
-- Verify: `uv run ruff check .` clean; `uv run pytest -q` 17 passed (2 config
-  + 15 db). Re-run independently by the orchestrator, not taken on report.
-- Delivered: db/schema.sql (6 tables, arch §7.3 DDL under the §7.4 deviations:
-  uuid->TEXT app-generated, timestamptz->TEXT ISO-8601 UTC, boolean->INTEGER,
-  numeric(4,3)->REAL, CHECK/FK unchanged - byte-checked against the signed
-  pack and NOT modified by the fixes); db/repo.py (single `_connect_raw()`
-  connect site, PRAGMA foreign_keys=ON on every open, `session()` transaction
-  context manager, typed insert/delete per table, path from
-  config.get_settings().sqlite_db_path); tests/unit/test_db_repo.py.
-- Blast radius: `db/` is a new leaf package. Nothing on main imports it, so
-  regression risk to existing code is zero; the risk is forward, onto ST-11
-  and ST-12, which will build on `session()`.
+- Task: ST-11 Workspaces create/rename/delete + legal flag. NOT STARTED.
+  Unblocked as of e7c777f; ST-10 landed, so `db/repo.py` and `session()`
+  exist to build on.
+- Owner: to be confirmed before a branch is cut. The build plan assigns ST-10
+  to YL but MB wrote all of it, so ownership has already drifted once. Settle
+  ST-11 and ST-12 ownership first so contribution stays attributable; this is
+  graded work and the split has to be defensible.
+- Branch: none cut yet. Use `feat/S1-ST-11-workspaces` from main @e7c777f.
+- Carries the five ST-10 follow-ups below. Follow-up 1 is the one to read
+  before touching the schema.
+- What is proven working on main right now: `uv sync` resolves the pinned
+  stack; config loads; the SQLite registry creates, cascades and rolls back
+  under test. `uv run ruff check .` clean, `uv run pytest -q` 17 passed
+  (2 config + 15 db). CI verify green on every PR.
+- What does NOT exist yet: any workspace logic, any UI, any ingestion,
+  any retrieval. `db/` is still a leaf package that nothing imports.
 
 ## Next (ordered queue, top 3 only)
-1. ST-11 Workspaces create/rename/delete + legal flag - owner MB. Unblocks
-   the moment ST-10 lands. Carries the ST-10 follow-ups listed below.
-2. ST-12 Content hashing + change-detection state machine. Also depends on
-   ST-10.
-3. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR,
-   a failing test blocks). Confirm and close, or extend minimally.
+1. ST-12 Content hashing + change-detection state machine. Unblocked; can run
+   parallel to ST-11 since it touches different modules.
+2. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR, a
+   failing test blocks, INTENT check, dup gate, gitleaks). Almost certainly a
+   confirm-and-close, not work. Verify against the story's exit criteria.
+3. ST-13 onward per BUILD-PLAN, once ST-11 and ST-12 land.
 
 ## ST-10 follow-ups (do not lose these; fold into ST-11)
 1. db/repo.py:64 - `init_db` splits schema.sql on `;` after stripping
@@ -100,6 +80,21 @@ Updated: 2026-07-28 by Phase 3 orchestrator
   satisfied: the active `protect-main` ruleset enforces required PRs, the
   strict `verify` status check, non-fast-forward, no deletion, and linear
   history, so direct push to main is rejected. ST-04 is closeable.
+- ST-10 SQLite schema + data access. MERGED, PR #8 (6746234). Six-table
+  registry per Architecture 7.3 under the 7.4 deviations, `PRAGMA
+  foreign_keys=ON` at the single connect site, `session()` transaction helper,
+  17 tests green. Reviewed twice and the passes disagreed: MB's session graded
+  it 9/10 "zero blocking defects"; an independent pre-merge re-review graded it
+  8/10 NOT safe to merge and was right. It found `init_db` committing on a
+  caller-owned connection, which silently defeated rollback inside `session()`.
+  Dropping the explicit `commit()` was not enough, because `executescript()`
+  issues its own implicit COMMIT; `init_db` now runs each DDL statement via
+  `conn.execute()` and never commits. The rollback test was proven to fail
+  before the fix and pass after. Keep running the second review.
+- Three of MB's branches were recovered and landed. They had been pushed on
+  2026-07-25 and sat invisible for three days because `gh` was never
+  authenticated, so no PR was ever opened for any of them. All merged with
+  `Co-authored-by: meriem-mb` preserved.
 - SETUP-000: kit configured for Sanad (uv stack), safety walls tested, two
   Windows guard gaps found AND fixed, .gitignore added, origin re-pointed.
 - Phase 3 kickoff Steps 0-2: intake gate passed (pack clean), BUILD-PLAN.md
