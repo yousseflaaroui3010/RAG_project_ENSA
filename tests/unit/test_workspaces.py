@@ -40,6 +40,14 @@ def test_get_and_list_never_cross_workspace_boundaries(db_path):
     assert fetched_hr.name == "HR"
     assert fetched_hr.id != manuals.id
 
+    # This is the discriminating half: fetching the SECOND-inserted
+    # workspace must return its own row, not the first one back again.
+    # Without `WHERE id = ?` on the read path, this returns HR instead.
+    fetched_manuals = ws.get_workspace(workspace_id=manuals.id, db_path=db_path)
+    assert fetched_manuals.id == manuals.id
+    assert fetched_manuals.name == "Manuals"
+    assert fetched_manuals.id != hr.id
+
     all_ws = ws.list_workspaces(db_path=db_path)
     assert {w.id for w in all_ws} == {hr.id, manuals.id}
 
@@ -97,7 +105,13 @@ def test_delete_workspace_removes_derived_rows_but_leaves_disk_files_untouched(
             "SELECT COUNT(*) FROM sync_run WHERE workspace_id = ?", (workspace.id,)
         ).fetchone()[0] == 1
         assert conn.execute(
+            "SELECT COUNT(*) FROM sync_item WHERE sync_run_id = ?", (run_id,)
+        ).fetchone()[0] == 1
+        assert conn.execute(
             "SELECT COUNT(*) FROM eval_run WHERE workspace_id = ?", (workspace.id,)
+        ).fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT COUNT(*) FROM eval_result WHERE eval_run_id = ?", (eval_run_id,)
         ).fetchone()[0] == 1
     finally:
         conn.close()
@@ -116,7 +130,13 @@ def test_delete_workspace_removes_derived_rows_but_leaves_disk_files_untouched(
             "SELECT COUNT(*) FROM sync_run WHERE workspace_id = ?", (workspace.id,)
         ).fetchone()[0] == 0
         assert conn.execute(
+            "SELECT COUNT(*) FROM sync_item WHERE sync_run_id = ?", (run_id,)
+        ).fetchone()[0] == 0
+        assert conn.execute(
             "SELECT COUNT(*) FROM eval_run WHERE workspace_id = ?", (workspace.id,)
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM eval_result WHERE eval_run_id = ?", (eval_run_id,)
         ).fetchone()[0] == 0
     finally:
         conn.close()
@@ -149,6 +169,14 @@ def test_create_workspace_duplicate_never_leaks_raw_integrity_error(db_path):
         pytest.fail("raw sqlite3.IntegrityError leaked past the workspaces module")
     except ws.DuplicateWorkspaceNameError:
         pass
+
+
+def test_non_name_constraint_violation_does_not_surface_as_duplicate_name_error(db_path):
+    """folder_path is NOT NULL (db/schema.sql). That violation must not be
+    mistranslated into DuplicateWorkspaceNameError; it is not a name
+    collision at all."""
+    with pytest.raises(sqlite3.IntegrityError):
+        ws.create_workspace(name="HR", folder_path=None, db_path=db_path)  # type: ignore[arg-type]
 
 
 def test_rename_workspace_rejects_existing_name_with_domain_error(db_path):
@@ -194,3 +222,54 @@ def test_legal_flag_round_trips_as_a_real_bool_not_an_integer(db_path):
 def test_set_legal_flag_raises_not_found_for_unknown_id(db_path):
     with pytest.raises(ws.WorkspaceNotFoundError):
         ws.set_legal_flag(workspace_id="does-not-exist", legal_flag=True, db_path=db_path)
+
+
+# --- name length validation (docs/phase2/openapi.yaml WorkspaceCreate/Update) --
+
+
+def test_create_workspace_rejects_empty_name(db_path):
+    with pytest.raises(ws.InvalidWorkspaceNameError):
+        ws.create_workspace(name="", folder_path="/data/hr", db_path=db_path)
+
+
+def test_create_workspace_rejects_name_over_100_chars(db_path):
+    with pytest.raises(ws.InvalidWorkspaceNameError):
+        ws.create_workspace(name="x" * 101, folder_path="/data/hr", db_path=db_path)
+
+
+def test_create_workspace_accepts_name_at_the_100_char_boundary(db_path):
+    workspace = ws.create_workspace(name="x" * 100, folder_path="/data/hr", db_path=db_path)
+    assert workspace.name == "x" * 100
+
+
+def test_rename_workspace_rejects_empty_name(db_path):
+    hr = ws.create_workspace(name="HR", folder_path="/data/hr", db_path=db_path)
+    with pytest.raises(ws.InvalidWorkspaceNameError):
+        ws.rename_workspace(workspace_id=hr.id, new_name="", db_path=db_path)
+
+
+def test_rename_workspace_rejects_name_over_100_chars(db_path):
+    hr = ws.create_workspace(name="HR", folder_path="/data/hr", db_path=db_path)
+    with pytest.raises(ws.InvalidWorkspaceNameError):
+        ws.rename_workspace(workspace_id=hr.id, new_name="x" * 101, db_path=db_path)
+
+
+# --- default DB path bootstrap (ST-10 follow-up 4) ----------------------------
+
+
+def test_create_and_get_workspace_bootstraps_schema_on_default_path(tmp_path, monkeypatch):
+    """No explicit db_path: repo's connection path must bootstrap
+    schema.sql itself. Before this fix, every verb failed with
+    `sqlite3.OperationalError: no such table: workspace` on a fresh
+    default path because nothing ever called init_db outside tests."""
+    from config import get_settings
+
+    monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "default-path" / "sanad.db"))
+    get_settings.cache_clear()
+    try:
+        created = ws.create_workspace(name="Ops", folder_path="/data/ops")
+        fetched = ws.get_workspace(workspace_id=created.id)
+        assert fetched.name == "Ops"
+        assert ws.list_workspaces() == [fetched]
+    finally:
+        get_settings.cache_clear()

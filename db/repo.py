@@ -43,12 +43,19 @@ def utc_now() -> str:
 
 def _connect_raw(db_path: str | Path) -> sqlite3.Connection:
     """The single call site for `sqlite3.connect()` in the codebase.
-    Every connection gets `PRAGMA foreign_keys = ON` before use."""
+    Every connection gets `PRAGMA foreign_keys = ON` before use, then the
+    registry schema is bootstrapped via `init_db` (ST-10 follow-up 4: the
+    default path had no caller that ever created the tables). Safe to
+    run on every connect because every statement in schema.sql is
+    `CREATE TABLE IF NOT EXISTS` -- idempotent, and DDL is not part of
+    Python sqlite3's implicit DML transaction, so this never interferes
+    with a caller's own transaction (e.g. `session()`)."""
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path))
     conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
+    init_db(conn)
     return conn
 
 
