@@ -23,7 +23,9 @@ resting on an unverified assumption gets verified or named as
    the graph. No reviewer report: send the branch to reviewer first.
 2. Confirm grade >= 9 and every listed fix landed.
 3. Re-run {{TYPECHECK_CMD}} and {{TEST_CMD}} yourself; claims aren't checks.
-4. Commits carry [AI], INTENT:, VERIFY:. Change matches its ADR; on
+4. Commits carry INTENT: and VERIFY: and NO AI attribution (no
+   Co-Authored-By trailer, no [AI] marker, no "generated with" footer) -
+   strip any you find before squashing. Change matches its ADR; on
    conflict state the ADR's principle first, judge details against it.
 5. Squash to one readable commit (keep best INTENT lines); merge via PR
    after CI green; delete branch; BUILD-STATE task to Done; add the

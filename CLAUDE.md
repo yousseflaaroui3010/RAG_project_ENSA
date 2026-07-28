@@ -28,7 +28,10 @@ Changes: `docs/build/CHANGELOG-AI.md`. Product prompts: `prompts/`.
    `.claude/settings.json`, `docs/phase2/`.
 5. After each task: BUILD-STATE update, one CHANGELOG line, DECISIONS
    row for real choices, commit.
-6. Commit: `type(scope): summary [AI]` + body `INTENT:` + `VERIFY:`.
+6. Commit: `type(scope): summary` + body `INTENT:` + `VERIFY:`. No AI
+   attribution anywhere in commits, PRs, or issues: no `Co-Authored-By`
+   trailer, no `[AI]` marker, no "generated with" footer. This is graded
+   academic work; the commit log carries the team's names only.
 7. Trivial tasks (single file, no schema/route change, ~15 min):
    orchestrator does them directly under the same rules; an agent
    carrying a sticky note costs more than the note.

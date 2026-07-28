@@ -1,15 +1,17 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: 442abb0 on main (ST-02 + CI fixes + handbook, all merged)
-Updated: 2026-07-24 by Phase 3 orchestrator
+Last verified commit: 40e4ac0 on main (README + pipeline diagram merged, PR #5)
+Updated: 2026-07-28 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
-- Task: docs/readme-pipeline-diagram — root README.md with the Mermaid pipeline
-  flowchart. Written and rendered clean; awaiting PR merge. No code touched.
-- Where exactly: main = 442abb0. ST-02 skeleton (Gemini + Ollama providers)
+- Task: chore/no-ai-attribution — drop every AI-attribution marker from the git
+  workflow (no Co-Authored-By trailer, no [AI] subject marker). Docs/rules only,
+  no code touched.
+- Where exactly: main = 40e4ac0. ST-02 skeleton (Gemini + Ollama providers)
   merged via PR #2 (squash 3eb19f2). CI gate (gate.yml) repaired and passing
   end to end. Team handbook docs/START-HERE.md added and its uv-setup hardened
-  (PR #3). Repo indexed; BUILD-PLAN approved and on main.
+  (PR #3). Root README merged (PR #5). Repo re-indexed at 40e4ac0 (357 nodes,
+  365 edges); BUILD-PLAN approved and on main.
 - What is proven working: `uv sync` resolves the pinned stack; config loads;
   smoke test passes; the full CI gate (uv sync, ruff, pytest, INTENT check, dup
   gate, gitleaks) is green on PRs.
@@ -40,4 +42,7 @@ Updated: 2026-07-24 by Phase 3 orchestrator
 - Root README.md added: three-phase Mermaid pipeline diagram (ingestion, vector
   retrieval, LLM prompt generation) sourced from Architecture 5.1/5.2/7.5 +
   ADR-04/05/07, plus quickstart and doc map. Diagram validated by rendering it
-  with mermaid-cli, not by eye.
+  with mermaid-cli, not by eye. MERGED (PR #5, 40e4ac0).
+- AI-attribution ban written into the workflow (CLAUDE.md rule 6,
+  git-discipline, b1 merge checklist). History on main left as-is by decision:
+  scrubbing the 5 existing trailers would need a force-push to main.
