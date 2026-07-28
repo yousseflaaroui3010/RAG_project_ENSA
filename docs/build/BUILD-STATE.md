@@ -34,6 +34,11 @@ after ST-10 lands so the human never resolves a journal conflict.
   fix/docs/chore titles are equally valid and fix branches carry issue ids not
   ST-nn; lines 25-28 pre-fill two commands and may be left unedited when a story
   needs tests/integration.
+- Where exactly: main = c844922. ST-02 skeleton (PR #2, 3eb19f2), handbook
+  (PR #3, 442abb0), journal sync (PR #4), root README + pipeline diagram
+  (PR #5, 40e4ac0) and MB's worktree/agent-memory gitignore (PR #6, c844922)
+  are all merged. The full CI gate (uv sync, ruff, pytest, INTENT check, dup
+  gate, gitleaks) is green on every PR.
 
 ## Next (ordered queue, top 3 only)
 1. HUMAN: `gh auth login`, then merge the three open branches in order (see
@@ -64,3 +69,7 @@ after ST-10 lands so the human never resolves a journal conflict.
 - CI gate repaired: jscpd flags (--ignore/--exit-code), .venv excluded, gitleaks
   GITHUB_TOKEN — the verify job now passes on every PR.
 - Team handbook docs/START-HERE.md added and uv setup hardened (PR #3, 442abb0).
+- Root README.md added: three-phase Mermaid pipeline diagram (ingestion, vector
+  retrieval, LLM prompt generation) sourced from Architecture 5.1/5.2/7.5 +
+  ADR-04/05/07, plus quickstart and doc map. Diagram validated by rendering it
+  with mermaid-cli, not by eye.
