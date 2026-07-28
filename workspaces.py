@@ -78,13 +78,24 @@ class InvalidFolderPathError(WorkspaceError):
         super().__init__(f"folder_path must not be empty or whitespace-only: {folder_path!r}")
 
 
-def _validate_name(name: str) -> None:
+def _normalize_name(name: str) -> str:
+    """Validate a workspace name and return the value to persist.
+
+    Returns the STRIPPED name, and callers must store what this returns
+    rather than their own input. Validating a stripped copy while
+    persisting the raw string produced two real defects: `"x" * 100 + " "`
+    passed a 100-char check and was then stored at 101, breaching
+    docs/phase2/openapi.yaml maxLength: 100; and `"HR"` and `" HR "`
+    coexisted as separate rows, so a trailing space defeated the
+    `workspace.name` UNIQUE constraint and put two visually identical
+    entries in the picker."""
     settings = get_settings()
-    stripped_length = len(name.strip())
+    normalized = name.strip()
     min_length = settings.workspace_name_min_length
     max_length = settings.workspace_name_max_length
-    if not (min_length <= stripped_length <= max_length):
+    if not (min_length <= len(normalized) <= max_length):
         raise InvalidWorkspaceNameError(name)
+    return normalized
 
 
 def _validate_folder_path(folder_path: str) -> None:
@@ -147,7 +158,7 @@ def create_workspace(
     if `name` is already taken, instead of letting sqlite3.IntegrityError
     escape (only a UNIQUE violation on workspace.name is translated; any
     other constraint violation re-raises as-is)."""
-    _validate_name(name)
+    name = _normalize_name(name)
     _validate_folder_path(folder_path)
     with repo.session(db_path) as conn:
         try:
@@ -172,7 +183,7 @@ def rename_workspace(
     raises DuplicateWorkspaceNameError rather than a raw IntegrityError
     (only a UNIQUE violation on workspace.name is translated; any other
     constraint violation re-raises as-is)."""
-    _validate_name(new_name)
+    new_name = _normalize_name(new_name)
     with repo.session(db_path) as conn:
         row = _get_workspace_or_raise(conn, workspace_id)
         if row["name"] == new_name:

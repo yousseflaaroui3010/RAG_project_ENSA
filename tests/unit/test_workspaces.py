@@ -323,6 +323,48 @@ def test_rename_workspace_rejects_whitespace_only_name(db_path):
         ws.rename_workspace(workspace_id=hr.id, new_name="   ", db_path=db_path)
 
 
+# --- names are normalized before they are persisted, not just before they are
+# validated. Validating a stripped copy while storing the raw string let a
+# 101-char name through the 100-char contract, and let "HR" and " HR " coexist
+# as two rows despite workspace.name being UNIQUE.
+
+
+def test_created_name_is_persisted_stripped_not_raw(db_path):
+    created = ws.create_workspace(name="  HR  ", folder_path="/data/hr", db_path=db_path)
+    assert created.name == "HR"
+    assert ws.get_workspace(workspace_id=created.id, db_path=db_path).name == "HR"
+
+
+def test_padded_name_at_the_boundary_cannot_exceed_the_contract_max(db_path):
+    # 100 chars + a trailing space: passes a stripped-length check, and must
+    # persist at exactly 100, never 101 (openapi.yaml maxLength: 100).
+    created = ws.create_workspace(
+        name="x" * 100 + " ", folder_path="/data/hr", db_path=db_path
+    )
+    assert len(created.name) == 100
+
+
+def test_padded_name_collides_with_its_stripped_twin(db_path):
+    ws.create_workspace(name="HR", folder_path="/data/hr", db_path=db_path)
+    with pytest.raises(ws.DuplicateWorkspaceNameError):
+        ws.create_workspace(name=" HR ", folder_path="/data/hr2", db_path=db_path)
+    assert [w.name for w in ws.list_workspaces(db_path=db_path)] == ["HR"]
+
+
+def test_renaming_to_a_padded_form_of_the_current_name_is_a_no_op(db_path):
+    hr = ws.create_workspace(name="HR", folder_path="/data/hr", db_path=db_path)
+    renamed = ws.rename_workspace(workspace_id=hr.id, new_name="  HR  ", db_path=db_path)
+    assert renamed.name == "HR"
+    assert renamed.created_at == hr.created_at
+
+
+def test_renaming_to_a_padded_form_of_another_name_still_collides(db_path):
+    ws.create_workspace(name="HR", folder_path="/data/hr", db_path=db_path)
+    manuals = ws.create_workspace(name="Manuals", folder_path="/data/m", db_path=db_path)
+    with pytest.raises(ws.DuplicateWorkspaceNameError):
+        ws.rename_workspace(workspace_id=manuals.id, new_name=" HR ", db_path=db_path)
+
+
 # --- default DB path bootstrap (ST-10 follow-up 4) ----------------------------
 
 
