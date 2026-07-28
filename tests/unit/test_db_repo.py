@@ -25,7 +25,20 @@ def conn(tmp_path):
     connection.close()
 
 
+# Table/column identifiers this test module is allowed to interpolate into
+# SQL via `_count`. Whitelisted against db/schema.sql so no caller can ever
+# splice an arbitrary identifier into a query string (.claude/rules/backend.md
+# forbids f-string SQL, even test-only, call-site-literal instances).
+_ALLOWED_TABLES = {"workspace", "document", "sync_run", "sync_item", "eval_run", "eval_result"}
+_ALLOWED_COLUMNS = {"id", "workspace_id", "sync_run_id", "eval_run_id", "file_name"}
+
+
 def _count(conn: sqlite3.Connection, table: str, **where) -> int:
+    if table not in _ALLOWED_TABLES:
+        raise ValueError(f"_count: table {table!r} is not whitelisted")
+    for column in where:
+        if column not in _ALLOWED_COLUMNS:
+            raise ValueError(f"_count: column {column!r} is not whitelisted")
     clause = " AND ".join(f"{k} = ?" for k in where)
     sql = f"SELECT COUNT(*) FROM {table}" + (f" WHERE {clause}" if clause else "")
     return conn.execute(sql, tuple(where.values())).fetchone()[0]
@@ -34,8 +47,19 @@ def _count(conn: sqlite3.Connection, table: str, **where) -> int:
 # --- PRAGMA + cascade delete ------------------------------------------------
 
 
-def test_foreign_keys_pragma_is_on(conn):
+def test_foreign_keys_pragma_is_on(conn, tmp_path):
+    """PRAGMA foreign_keys is a per-connection setting, not a database-level
+    one -- it does not persist in the file. Assert it on the fixture
+    connection AND on a second, independently opened connection to the same
+    database file so the story's actual stated risk is locked in, not just
+    the behavior of one shared connection object."""
     assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+
+    second = repo.get_connection(tmp_path / "sanad.db")
+    try:
+        assert second.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    finally:
+        second.close()
 
 
 def test_delete_workspace_cascades_to_every_derived_row(conn):
@@ -178,3 +202,78 @@ def test_same_file_name_allowed_across_different_workspaces(conn):
 
     assert _count(conn, "document", workspace_id=ws1, file_name="shared.pdf") == 1
     assert _count(conn, "document", workspace_id=ws2, file_name="shared.pdf") == 1
+
+
+# --- document.workspace_id FK enforcement ------------------------------------
+
+
+def test_insert_document_rejects_a_bogus_workspace_id(conn):
+    """Cascade delete (above) proves FK enforcement fires on the delete
+    side. Nothing until now locked in the insert side: an orphan child
+    row referencing a workspace that does not exist must be rejected."""
+    with pytest.raises(sqlite3.IntegrityError):
+        repo.insert_document(
+            conn,
+            workspace_id="not-a-real-workspace-id",
+            file_name="orphan.pdf",
+            file_type="pdf",
+            content_hash="hash-orphan",
+            status="active",
+        )
+
+
+# --- session() commit / rollback / close -------------------------------------
+
+
+def test_session_commits_on_success_and_row_persists(tmp_path):
+    """A successful `with repo.session(...)` block must commit, and that
+    commit must be durable: reopening a fresh connection to the same file
+    afterward must still see the row."""
+    db_path = tmp_path / "sanad.db"
+    bootstrap = repo.get_connection(db_path)
+    repo.init_db(bootstrap)
+    bootstrap.commit()
+    bootstrap.close()
+
+    with repo.session(db_path) as conn:
+        repo.create_workspace(conn, name="ws-session-commit", folder_path="/tmp/ws-commit")
+
+    reopened = repo.get_connection(db_path)
+    try:
+        row = reopened.execute(
+            "SELECT COUNT(*) FROM workspace WHERE name = ?", ("ws-session-commit",)
+        ).fetchone()
+        assert row[0] == 1
+    finally:
+        reopened.close()
+
+
+def test_session_rolls_back_everything_on_exception(tmp_path):
+    """Regression proof for the init_db/session transaction bug (reviewer
+    finding 1): a write made earlier in a `session()` block must NOT
+    survive a later exception in the same block, even when `init_db` is
+    called again partway through (a legal, idempotent call per its
+    IF NOT EXISTS schema). Before the fix, `init_db`'s stray `commit()`
+    silently finalized the earlier write, so it survived the rollback and
+    this assertion failed. After the fix, `init_db` never commits, so the
+    whole block rolls back together."""
+    db_path = tmp_path / "sanad.db"
+    bootstrap = repo.get_connection(db_path)
+    repo.init_db(bootstrap)
+    bootstrap.commit()
+    bootstrap.close()
+
+    with pytest.raises(RuntimeError):
+        with repo.session(db_path) as conn:
+            repo.create_workspace(conn, name="ws-session-rollback", folder_path="/tmp/ws-rb")
+            repo.init_db(conn)  # reproduces the finding-1 bug if it regresses
+            raise RuntimeError("simulated failure mid-session")
+
+    reopened = repo.get_connection(db_path)
+    try:
+        row = reopened.execute(
+            "SELECT COUNT(*) FROM workspace WHERE name = ?", ("ws-session-rollback",)
+        ).fetchone()
+        assert row[0] == 0
+    finally:
+        reopened.close()

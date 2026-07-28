@@ -62,10 +62,29 @@ def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     """Apply db/schema.sql to `conn`. Safe to call repeatedly: every
-    CREATE TABLE uses IF NOT EXISTS."""
+    CREATE TABLE uses IF NOT EXISTS.
+
+    Does NOT commit, and deliberately does not use
+    `sqlite3.Connection.executescript()`. `executescript()` is
+    documented to issue an implicit COMMIT of any pending transaction
+    before it runs its script -- verified directly against this
+    schema.sql: even with the trailing `conn.commit()` removed,
+    `executescript()` alone still force-committed a write made earlier
+    in the same transaction. That is unacceptable for a function meant
+    to run inside `session()`, where a later exception must be able to
+    roll back everything, including writes made before `init_db` was
+    called. So each DDL statement (comment lines stripped, split on
+    `;`) is executed individually via `conn.execute()`, which carries no
+    implicit commit. `init_db` therefore never commits or rolls back;
+    ownership of the connection's transaction stays entirely with the
+    caller (typically `session()`).
+    """
     ddl = _SCHEMA_PATH.read_text(encoding="utf-8")
-    conn.executescript(ddl)
-    conn.commit()
+    statements = [line for line in ddl.splitlines() if not line.strip().startswith("--")]
+    for statement in "\n".join(statements).split(";"):
+        statement = statement.strip()
+        if statement:
+            conn.execute(statement)
 
 
 @contextmanager
