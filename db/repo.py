@@ -132,6 +132,35 @@ def delete_workspace(conn: sqlite3.Connection, workspace_id: str) -> None:
     conn.execute("DELETE FROM workspace WHERE id = ?", (workspace_id,))
 
 
+def get_workspace(conn: sqlite3.Connection, workspace_id: str) -> sqlite3.Row | None:
+    """Raw row lookup by id, or None. Business rules (not-found handling,
+    domain errors) belong to workspaces.py, not here."""
+    return conn.execute(
+        "SELECT * FROM workspace WHERE id = ?", (workspace_id,)
+    ).fetchone()
+
+
+def list_workspaces(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Raw row listing, ordered by name. Returns an empty list when no
+    workspace exists (PRD F-01 criterion 2: the UI's empty state)."""
+    return conn.execute("SELECT * FROM workspace ORDER BY name").fetchall()
+
+
+def update_workspace_name(conn: sqlite3.Connection, workspace_id: str, name: str) -> None:
+    """Raw UPDATE. `name` is UNIQUE (db/schema.sql); a collision raises
+    sqlite3.IntegrityError for the caller to translate into a domain error."""
+    conn.execute("UPDATE workspace SET name = ? WHERE id = ?", (name, workspace_id))
+
+
+def update_workspace_legal_flag(
+    conn: sqlite3.Connection, workspace_id: str, legal_flag: bool
+) -> None:
+    conn.execute(
+        "UPDATE workspace SET legal_flag = ? WHERE id = ?",
+        (int(legal_flag), workspace_id),
+    )
+
+
 # --- document ------------------------------------------------------------
 
 
