@@ -1,0 +1,16 @@
+# Append-only journals: every parallel branch appends its own lines, so the
+# default line-merge reports a conflict on every single concurrent branch.
+# Union keeps both sides' lines instead of asking a human to pick one.
+#
+# Evidence for this rule, 2026-07-28: three of three branches merged that day
+# (PRs #7, #8, #9) conflicted here and ONLY here. Not one code file conflicted.
+#
+# Caveat: union can leave a duplicate line if two branches append the same
+# entry. That is visible in review and trivial to delete, which is a far
+# cheaper failure than a hand-resolved conflict on every merge.
+docs/build/CHANGELOG-AI.md  merge=union
+docs/build/DECISIONS.md     merge=union
+
+# BUILD-STATE.md is deliberately NOT union. It is a mutable snapshot, not an
+# append-only log, so unioning it would interleave two contradictory pictures
+# of the same moment. It stays a manual resolve: rewrite it to the truth.
