@@ -5,8 +5,8 @@ Updated: 2026-08-01 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
 - ST-12 content hashing + change detection, on branch
-  `feat/S1-ST-12-hashing`. Code complete and green locally; NOT reviewed,
-  NOT pushed, NOT merged. Next action is a reviewer pass, then b1.
+  `feat/S1-ST-12-hashing`, pushed, PR #14 OPEN. Code complete and green
+  locally; NOT reviewed, NOT merged. Next action is a reviewer pass, then b1.
 - What is proven working on main right now: `uv sync` resolves the pinned
   stack; config loads; the SQLite registry creates, cascades and rolls back
   under test; workspaces create, rename, delete, list, get and toggle their
@@ -80,6 +80,13 @@ ST-13 (the next story that touches the data layer) or raise them as a chore.
   PRs #6 and #7 were opened and merged through it. Note for the record that
   b1 correctly refused to extract the stored Git Credential Manager token to
   work around this - that is credential exfiltration, not authorization.
+- MACHINE-SPECIFIC, not a blocker, found 2026-08-01: `gh` is installed and
+  authenticated on this machine but is NOT on PATH for the agent shell, so
+  a bare `gh` call fails with "command not found" and looks exactly like the
+  old unauthenticated gh gap. It is not that. Call it by full path:
+  `C:\Program Files\GitHub CLI\gh.exe`. Do not conclude gh is missing and do
+  not hand over a compare URL -- that is what stranded three branches for
+  three days in July.
 - MACHINE-SPECIFIC, not a project blocker: the codebase-memory graph is
   indexed and working on YL's machine (357 nodes / 365 edges at 40e4ac0) but
   the MCP server is not installed on MB's machine, so MB's agents run the
