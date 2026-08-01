@@ -5,7 +5,7 @@ source "$(dirname "$0")/config.sh" 2>/dev/null || PROTECTED_BRANCHES="main maste
 
 INPUT="$(cat)"
 
-PARSED="$(printf '%s' "$INPUT" | python3 -c '
+PY_SRC='
 import json,sys
 d=json.load(sys.stdin)
 t=d.get("tool_name","")
@@ -13,7 +13,13 @@ ti=d.get("tool_input",{}) or {}
 cmd=ti.get("command","") or ""
 fp=ti.get("file_path","") or ""
 print(t); print(fp); print(cmd)
-' 2>/dev/null)" || exit 0
+'
+_parse () { printf '%s' "$INPUT" | "$1" -c "$PY_SRC" 2>/dev/null; }
+PARSED="$(_parse python3)" || PARSED="$(_parse python)" || {
+  echo "guard.sh: no working python3 or python found. Blocking to stay safe." >&2
+  exit 2
+}
+
 
 TOOL="$(printf '%s\n' "$PARSED" | sed -n 1p)"
 FILEPATH="$(printf '%s\n' "$PARSED" | sed -n 2p)"
