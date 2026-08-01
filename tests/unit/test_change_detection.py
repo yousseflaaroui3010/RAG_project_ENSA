@@ -5,11 +5,12 @@ Reference: docs/phase2/Sanad_Architecture_v1.0.md section 5.1 (the
 `H{Per file: content hash vs registry}` decision in the Sync flow) and
 docs/phase2/Sanad_PRD_v1.0.md F-02.
 
-Every test writes real bytes to a real folder under `tmp_path`. The
-filesystem is never mocked: the ST-11 review found a test that passed
-while proving nothing, and a mocked `read_bytes` would hide exactly the
-bugs this module can have (chunk-boundary errors, a size that disagrees
-with its digest, a scan that walks into subfolders).
+Every test writes real bytes to a real folder under `tmp_path`, and the
+filesystem is mocked in exactly one place, for a reason given at
+`_fail_reads_of`. Everything else is acted out for real: the ST-11 review
+found a test that passed while proving nothing, and a mocked read would
+hide precisely the bugs this module can have (chunk-boundary errors, a
+size that disagrees with its digest, a scan that walks into subfolders).
 """
 
 from __future__ import annotations
@@ -427,3 +428,138 @@ def test_detection_writes_nothing_to_the_registry(db_path, folder, workspace):
         conn.close()
 
     assert after == before
+
+
+# --- unreadable files: PRD F-02 #3, one bad file never blocks the rest ------
+
+
+def _fail_reads_of(monkeypatch, *file_names: str):
+    """Make named files raise UnreadableFileError while staying real files
+    on disk.
+
+    This is the one seam in the suite that is patched rather than acted out,
+    and the reason is that neither real alternative works portably: chmod
+    does not remove an owner's read access on Windows, and replacing the file
+    with a directory changes `is_file()`, so `scan_folder` skips it before it
+    ever tries to read -- a trap the first version of these tests fell into,
+    passing for entirely the wrong reason.
+
+    The chain stays fully covered, because the half this does not exercise is
+    exercised elsewhere: `test_unreadable_file_raises_a_domain_error` proves a
+    genuine OSError becomes UnreadableFileError against a real filesystem, and
+    these tests prove scan_folder collects that error instead of propagating
+    it. Patched here is the boundary between the two, not the behaviour."""
+    real = cd.compute_fingerprint
+
+    def fake(path):
+        if path.name in file_names:
+            raise cd.UnreadableFileError(path.name, "permission denied")
+        return real(path)
+
+    monkeypatch.setattr(cd, "compute_fingerprint", fake)
+
+
+def test_one_unreadable_file_does_not_abort_the_scan(folder, monkeypatch):
+    """PRD F-02 criterion 3: a file that cannot be processed is reported,
+    and every other file completes. Letting UnreadableFileError escape
+    scan_folder loses the whole sync over one bad file."""
+    _write(folder, "good-a.txt", "fine")
+    _write(folder, "bad.txt", "doomed")
+    _write(folder, "good-b.txt", "also fine")
+    _fail_reads_of(monkeypatch, "bad.txt")
+
+    scan = cd.scan_folder(folder)
+
+    assert set(scan.fingerprints) == {"good-a.txt", "good-b.txt"}
+    assert [u.file_name for u in scan.unreadable] == ["bad.txt"]
+    assert scan.unreadable[0].reason
+
+
+def test_unreadable_file_is_reported_separately_from_unsupported(folder, monkeypatch):
+    """They map to different sync_item.result values -- Failed vs Skipped --
+    so collapsing them into one list would mislabel one of them."""
+    _write(folder, "bad.txt", "doomed")
+    _write(folder, "installer.exe", "binary")
+    _fail_reads_of(monkeypatch, "bad.txt")
+
+    scan = cd.scan_folder(folder)
+
+    assert [u.file_name for u in scan.unreadable] == ["bad.txt"]
+    assert [u.file_name for u in scan.unsupported] == ["installer.exe"]
+
+
+def test_unreadable_registered_file_is_not_reported_as_removed(
+    db_path, folder, workspace, monkeypatch
+):
+    """The dangerous one. An unreadable file is still ON DISK. Reporting it
+    Removed makes ST-17 delete the chunks of a document that never went
+    anywhere, and the user loses answers from a file they can still see."""
+    path = _write(folder, "policy.pdf", "v1")
+    _register(db_path, workspace.id, "policy.pdf", cd.compute_fingerprint(path).serialize())
+    _fail_reads_of(monkeypatch, "policy.pdf")
+
+    report = cd.detect_changes(workspace_id=workspace.id, db_path=db_path)
+
+    assert report.by_status(cd.ChangeStatus.REMOVED) == []
+    assert [u.file_name for u in report.unreadable] == ["policy.pdf"]
+
+
+def test_a_genuinely_deleted_file_is_still_removed_alongside_an_unreadable_one(
+    db_path, folder, workspace, monkeypatch
+):
+    """The other side of the previous test: suppressing REMOVED for
+    unreadable files must not suppress it for actually-deleted ones."""
+    _write(folder, "unreadable.pdf", "v1")
+    deleted = _write(folder, "deleted.pdf", "v1")
+    _register(
+        db_path,
+        workspace.id,
+        "unreadable.pdf",
+        cd.compute_fingerprint(folder / "unreadable.pdf").serialize(),
+    )
+    _register(
+        db_path, workspace.id, "deleted.pdf", cd.compute_fingerprint(deleted).serialize()
+    )
+    _fail_reads_of(monkeypatch, "unreadable.pdf")
+    deleted.unlink()
+
+    report = cd.detect_changes(workspace_id=workspace.id, db_path=db_path)
+
+    assert [c.file_name for c in report.by_status(cd.ChangeStatus.REMOVED)] == ["deleted.pdf"]
+
+
+# --- the NEW-with-an-existing-row case --------------------------------------
+
+
+def test_file_returning_after_removal_is_new_but_keeps_its_document_id(
+    db_path, folder, workspace
+):
+    """`document_id` is not simply "None whenever NEW". A file returning
+    after removal is NEW yet owns its old registry row, and ST-17 must
+    UPDATE that row rather than INSERT -- an INSERT would violate
+    UNIQUE (workspace_id, file_name) and fail the sync."""
+    path = _write(folder, "policy.pdf", "v1")
+    doc_id = _register(
+        db_path,
+        workspace.id,
+        "policy.pdf",
+        cd.compute_fingerprint(path).serialize(),
+        status="removed",
+    )
+
+    report = cd.detect_changes(workspace_id=workspace.id, db_path=db_path)
+    returning = report.by_status(cd.ChangeStatus.NEW)[0]
+
+    assert returning.status is cd.ChangeStatus.NEW
+    assert returning.document_id == doc_id
+
+
+def test_a_genuinely_new_file_has_no_document_id(db_path, folder, workspace):
+    """The discriminating half: a file with no registry row must still
+    report document_id None, or the previous test would pass against an
+    implementation that invented an id for everything."""
+    _write(folder, "fresh.pdf", "brand new")
+
+    report = cd.detect_changes(workspace_id=workspace.id, db_path=db_path)
+
+    assert report.by_status(cd.ChangeStatus.NEW)[0].document_id is None

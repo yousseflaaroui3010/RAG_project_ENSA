@@ -14,8 +14,8 @@ Updated: 2026-08-01 by Phase 3 orchestrator
   module level. `uv run ruff check .` clean, `uv run pytest -q` 51 passed
   (2 config + 17 db + 32 workspaces -- the previous entry's per-file split,
   "15 db + 34 workspaces", was miscounted; the 51 total was right).
-- On the ST-12 branch: ruff clean, 87 passed (2 config + 19 db + 32
-  workspaces + 34 change detection).
+- On the ST-12 branch: ruff clean, 93 passed (2 config + 19 db + 32
+  workspaces + 40 change detection). CI `verify` green on PR #14.
 - What does NOT exist yet: any UI, any conversion, any chunking, any
   embeddings, any retrieval, any sync engine. ST-12 decides what needs
   ingesting but nothing consumes that decision yet -- `detect_changes` has
@@ -156,6 +156,22 @@ ST-13 (the next story that touches the data layer) or raise them as a chore.
   (c) the dangerous near-miss is a missing folder vs an emptied folder. Both
       scan to zero files, but one means "report nothing" and the other means
       "delete every chunk in this workspace". It raises.
+  A self-review pass AFTER CI went green found three more defects, all in the
+  same blind spot -- what happens to a file that is present but unreadable:
+  (d) `scan_folder` never caught `UnreadableFileError`, so one unreadable file
+      aborted the entire sync. `compute_fingerprint`'s own docstring claimed
+      the opposite. PRD F-02 #3 ("every other file completes") was broken;
+  (e) worse, an unreadable file was absent from `fingerprints`, so the REMOVED
+      sweep reported it as deleted -- ST-17 would have deleted the chunks of a
+      document still sitting on disk;
+  (f) `FileChange`'s docstring said `document_id` is None whenever the status
+      is NEW. False for a file returning after removal, and the id is load
+      bearing: ST-17 must UPDATE that row, because INSERT would violate
+      UNIQUE (workspace_id, file_name).
+  Fixed with `ScanResult.unreadable` / `ChangeReport.unreadable`, six tests and
+  six more mutations. The lesson worth carrying: CI green and 34 tests said
+  nothing about this, because every test asked "what happens to a file" and
+  none asked "what happens to a file we cannot read".
 - ST-11 Workspaces module. MERGED, PR #11 (1a4f3fb). Owner YL. `workspaces.py`
   holds the rules, `db/repo.py` stays pure SQL. All three signed F-01 criteria
   demonstrated at module level, including a delete test that writes real bytes

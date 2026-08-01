@@ -171,21 +171,45 @@ class UnsupportedFile:
 
 
 @dataclass(frozen=True)
+class UnreadableFile:
+    """A file whose bytes could not be read during the scan (permissions, a
+    broken link, a file deleted between listing and hashing).
+
+    Collected rather than raised, because PRD F-02 criterion 3 is explicit:
+    a file that cannot be processed is reported as Failed with a
+    plain-language reason AND every other file completes. Letting the
+    exception escape `scan_folder` would abort the whole sync over one bad
+    file -- exactly the behaviour that criterion forbids."""
+
+    file_name: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class ScanResult:
     """What one folder scan found: fingerprints for the files Sync can
-    process, plus the ones it must report as Skipped."""
+    process, plus the two kinds it cannot -- unsupported types (reported
+    Skipped) and unreadable bytes (reported Failed). They stay in separate
+    lists because they map to different sync_item.result values."""
 
     fingerprints: dict[str, Fingerprint]
     unsupported: list[UnsupportedFile]
+    unreadable: list[UnreadableFile]
 
 
 @dataclass(frozen=True)
 class FileChange:
     """One file's verdict. `fingerprint` is the freshly computed identity
     for a file on disk, and None for a REMOVED file (there is nothing
-    left to hash). `document_id` is None for a NEW file (it has no
-    registry row yet) and set otherwise, so ST-17 can write the registry
-    without a second lookup."""
+    left to hash).
+
+    `document_id` is the registry row this file already has, or None when
+    it has none. Note it is NOT simply "None whenever the status is NEW":
+    a file returning after removal is NEW (its chunks were deleted, so it
+    must be re-ingested) yet still owns its old row. ST-17 must UPDATE
+    that row rather than INSERT, or it violates
+    UNIQUE (workspace_id, file_name) in db/schema.sql. Treat "NEW with a
+    document_id" as "re-ingest into the existing row"."""
 
     file_name: str
     status: ChangeStatus
@@ -202,6 +226,7 @@ class ChangeReport:
     folder_path: str
     changes: list[FileChange]
     unsupported: list[UnsupportedFile]
+    unreadable: list[UnreadableFile]
 
     def by_status(self, status: ChangeStatus) -> list[FileChange]:
         return [change for change in self.changes if change.status is status]
@@ -229,9 +254,11 @@ def compute_fingerprint(path: Path) -> Fingerprint:
     could describe a different version of a file being written
     concurrently.
 
-    Raises UnreadableFileError (never a bare OSError) so one unreadable
-    file becomes a reportable per-file failure instead of aborting the
-    whole scan."""
+    Raises UnreadableFileError (never a bare OSError) carrying the file
+    name, so `scan_folder` can turn it into one reportable per-file
+    failure. Note that raising is only half the contract: `scan_folder`
+    must actually catch it, or PRD F-02 criterion 3 ("every other file
+    completes") is broken by a single unreadable file."""
     digest = hashlib.new(_FINGERPRINT_ALGORITHM)
     size_bytes = 0
     chunk_size = get_settings().hash_read_chunk_bytes
@@ -261,7 +288,9 @@ def scan_folder(folder: str | Path) -> ScanResult:
     Files are keyed by name, which is exactly the uniqueness rule the
     registry enforces (db/schema.sql: UNIQUE (workspace_id, file_name)).
 
-    Raises FolderNotFoundError when the folder is missing, so a
+    One unreadable file is collected into `unreadable`, never raised: PRD
+    F-02 criterion 3 requires the other files to complete. A whole missing
+    FOLDER is the opposite case and does raise FolderNotFoundError, so a
     disconnected drive can never be mistaken for a folder emptied by the
     user -- that mistake would report every document as Removed and
     delete every chunk in the workspace."""
@@ -271,6 +300,7 @@ def scan_folder(folder: str | Path) -> ScanResult:
 
     fingerprints: dict[str, Fingerprint] = {}
     unsupported: list[UnsupportedFile] = []
+    unreadable: list[UnreadableFile] = []
     for entry in sorted(resolved.iterdir()):
         if not entry.is_file():
             continue
@@ -279,8 +309,13 @@ def scan_folder(folder: str | Path) -> ScanResult:
                 UnsupportedFile(file_name=entry.name, reason=_UNSUPPORTED_TYPE_REASON)
             )
             continue
-        fingerprints[entry.name] = compute_fingerprint(entry)
-    return ScanResult(fingerprints=fingerprints, unsupported=unsupported)
+        try:
+            fingerprints[entry.name] = compute_fingerprint(entry)
+        except UnreadableFileError as exc:
+            unreadable.append(UnreadableFile(file_name=exc.file_name, reason=exc.reason))
+    return ScanResult(
+        fingerprints=fingerprints, unsupported=unsupported, unreadable=unreadable
+    )
 
 
 def _classify_present_file(row: sqlite3.Row | None, fingerprint: Fingerprint) -> ChangeStatus:
@@ -349,8 +384,15 @@ def detect_changes(
             )
         )
 
+    # Names that are on disk but produced no fingerprint. They must be
+    # excluded from the REMOVED sweep below: a file we merely failed to READ
+    # is still present, and calling it Removed would make ST-17 delete the
+    # chunks of a document that never went anywhere. Removed means gone from
+    # disk, not "we had trouble with it".
+    present_but_unhashed = {problem.file_name for problem in scan.unreadable}
+
     for file_name, row in rows.items():
-        if file_name in scan.fingerprints:
+        if file_name in scan.fingerprints or file_name in present_but_unhashed:
             continue
         if row["status"] in _STATUS_WITHOUT_DERIVED_DATA:
             continue
@@ -369,4 +411,5 @@ def detect_changes(
         folder_path=workspace.folder_path,
         changes=changes,
         unsupported=scan.unsupported,
+        unreadable=scan.unreadable,
     )
