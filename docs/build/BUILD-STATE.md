@@ -14,7 +14,7 @@ Updated: 2026-08-01 by Phase 3 orchestrator
   module level. `uv run ruff check .` clean, `uv run pytest -q` 51 passed
   (2 config + 17 db + 32 workspaces -- the previous entry's per-file split,
   "15 db + 34 workspaces", was miscounted; the 51 total was right).
-- On the ST-12 branch: ruff clean, 85 passed (2 config + 17 db + 32
+- On the ST-12 branch: ruff clean, 87 passed (2 config + 19 db + 32
   workspaces + 34 change detection).
 - What does NOT exist yet: any UI, any conversion, any chunking, any
   embeddings, any retrieval, any sync engine. ST-12 decides what needs
@@ -62,17 +62,53 @@ ST-13 (the next story that touches the data layer) or raise them as a chore.
    so it is low severity. Durable fix: `get_connection` should validate that
    the expected tables are present, not merely that the file exists. That also
    closes the `RegistryNotFoundError` blind spot.
-7. CLOSED by ST-12. `_connect_raw` now passes
-   `timeout=config.sqlite_busy_timeout_seconds` (default 30.0) instead of
-   inheriting sqlite3's 5 second default, so ST-17's concurrent sync/UI
-   writes no longer surface as a bare `database is locked`. Set before
-   ST-17, as planned. Note it is NOT covered by a regression test: a
-   deterministic writer-contention test needs two real connections racing
-   and would be slow and flaky as a unit test. If it belongs anywhere it is
-   ST-17's integration suite, where the contention is real.
+7. CLOSED by ST-12, and now regression-tested after all. `_connect_raw`
+   passes `timeout=config.sqlite_busy_timeout_seconds` (default 30.0)
+   instead of inheriting sqlite3's 5 second default. Two tests cover it:
+   one spies on `sqlite3.connect` to prove the config value is what gets
+   passed, and one holds a real EXCLUSIVE lock and races a second
+   connection. The second test needed a second look. With only a lower
+   bound ("it waited at least 0.4s") it was VACUOUS: dropping the `timeout`
+   argument yields sqlite3's 5.0 second default, which is longer than the
+   0.5s the test configures, so the mutation stayed green while the config
+   was being ignored entirely. It now asserts a ceiling as well. Generalize
+   the lesson: when a mutation restores a DEFAULT rather than removing
+   behaviour, a one-sided bound cannot see it.
 
 ## Blockers / waiting on human
-- None blocking.
+- CRITICAL, found 2026-08-01, needs a human because agents are locked out of
+  both files involved. THE SAFETY SYSTEM IS OFF ON THIS MACHINE, and it fails
+  OPEN, so nothing announces it. Both layers are down:
+
+  Layer 1, `.claude/hooks/guard.sh`: it is correctly registered as a
+  PreToolUse hook, but line 8 parses the tool event with `python3`, and on
+  this machine `python3` is the Microsoft Store alias stub, not an
+  interpreter -- it prints "Python was not found" and exits 49. The parse is
+  wrapped in `|| exit 0`, so the guard exits 0 and PERMITS the call. All 15
+  of its `deny` checks are dead: the docs/phase2 write-lock, `--no-verify`,
+  force-push, direct push to main, committing while on main,
+  .claude/hooks + settings.json protection, and the journal-debt gate.
+  Verified by feeding the hook a synthetic event and by running its python3
+  line directly. `python` (3.12) IS present; only the `python3` name is not.
+
+  Layer 2, `.claude/git-hooks/pre-commit`: never installed. `.git/hooks/` is
+  empty and `core.hooksPath` is unset. The file's own header says installing
+  it is a human step, per clone.
+
+  This is not theoretical: it is exactly why the ST-12 commit landed on
+  `main` this session before being moved to its branch. Two fixes, both
+  human-only:
+    1. `cp .claude/git-hooks/pre-commit .git/hooks/pre-commit && chmod +x
+       .git/hooks/pre-commit` -- restores layer 2 (one rule).
+    2. In `.claude/hooks/guard.sh` line 8, make the interpreter resolve:
+       `python3 ... || python ...`, and change the trailing `|| exit 0` to
+       `|| exit 2`. The second half matters more than the first: a safety
+       guard that cannot read its input must fail CLOSED. Restores all 15.
+  Recommend doing both, starting with 2.
+- Open, unowned: data-layer follow-ups 1, 2 and 6 below. Deliberately NOT
+  folded into the ST-12 branch -- they are unrelated to change detection and
+  would have put unreviewable drive-by edits in PR #14 (.claude/rules
+  boy-scout rule is scoped on purpose). They need their own `chore/` branch.
 - RESOLVED 2026-07-28: the `gh` gap. This was the single reason MB's three
   branches never reached main - `gh` was unauthenticated, so b1 could not
   open a PR and handed over a prefilled compare URL that was never clicked.
