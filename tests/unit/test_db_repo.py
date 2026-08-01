@@ -10,9 +10,11 @@ db.repo.get_connection()/session() (never sqlite3.connect() directly) so
 from __future__ import annotations
 
 import sqlite3
+import time
 
 import pytest
 
+from config import get_settings
 from db import repo
 
 
@@ -111,7 +113,7 @@ def test_delete_document_sets_sync_item_document_id_null(conn):
     )
     conn.commit()
 
-    conn.execute("DELETE FROM document WHERE id = ?", (doc_id,))
+    repo.delete_document(conn, doc_id)
     conn.commit()
 
     row = conn.execute(
@@ -298,3 +300,83 @@ def test_session_rolls_back_everything_on_exception(tmp_path):
         assert row[0] == 0
     finally:
         reopened.close()
+
+
+# --- busy timeout (ST-12, BUILD-STATE data-layer follow-up 7) ----------------
+
+# sqlite3.connect()'s own default when `timeout` is not passed. Named here so
+# the two tests below can assert against the exact value they exist to keep
+# the project OFF -- it is the fallback a dropped argument silently restores.
+_SQLITE_DEFAULT_TIMEOUT_SECONDS = 5.0
+
+
+def test_connection_timeout_is_taken_from_config_not_sqlite_default(tmp_path, monkeypatch):
+    """`_connect_raw` must pass `timeout` through from config. sqlite3's own
+    default is 5.0 seconds, which is too short once ST-17's sync writes while
+    the UI reads; dropping the argument would silently restore that default,
+    and nothing else in the suite would notice."""
+    recorded: list[float | None] = []
+    real_connect = sqlite3.connect
+
+    def spy(*args, **kwargs):
+        recorded.append(kwargs.get("timeout"))
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(get_settings(), "sqlite_busy_timeout_seconds", 12.5)
+    monkeypatch.setattr(sqlite3, "connect", spy)
+
+    repo.ensure_schema(tmp_path / "sanad.db")
+
+    assert recorded, "_connect_raw never called sqlite3.connect"
+    assert all(t == 12.5 for t in recorded)
+
+
+def test_writer_contention_waits_for_the_timeout_instead_of_failing_instantly(
+    tmp_path, monkeypatch
+):
+    """The behaviour follow-up 7 actually asks for: a second writer must WAIT
+    for the CONFIGURED timeout before giving up -- neither failing the moment
+    it finds the database locked, nor falling back to sqlite3's own default.
+
+    Both bounds are load-bearing, and the upper one is the subtle half. A
+    lower bound alone is vacuous here: dropping the `timeout` argument gives
+    sqlite3's 5.0 second default, which is LONGER than the value configured
+    below, so "it waited at least 0.4s" would still pass while the config was
+    being ignored entirely. Mutation-proven: with only the lower bound, the
+    dropped-argument mutation stayed green. The ceiling sits ~5x under that
+    5.0 second default, so it separates the two cases without being tight
+    enough to flake on a loaded machine.
+
+    Configured down to a fraction of a second so the test stays fast; the
+    30 second production default would make this unrunnable."""
+    timeout_seconds = 0.5
+    db_path = tmp_path / "sanad.db"
+    repo.ensure_schema(db_path)
+    monkeypatch.setattr(get_settings(), "sqlite_busy_timeout_seconds", timeout_seconds)
+
+    holder = repo.get_connection(db_path)
+    holder.execute("BEGIN EXCLUSIVE")
+    try:
+        waiter = repo.get_connection(db_path)
+        try:
+            started = time.monotonic()
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                waiter.execute("BEGIN IMMEDIATE")
+            waited = time.monotonic() - started
+        finally:
+            waiter.close()
+    finally:
+        holder.rollback()
+        holder.close()
+
+    # Floor: it blocked rather than returning immediately.
+    assert waited >= timeout_seconds * 0.8, (
+        f"second writer gave up after {waited:.3f}s with a "
+        f"{timeout_seconds}s timeout configured -- it did not wait at all"
+    )
+    # Ceiling: it used OUR timeout, not sqlite3's 5.0 second default.
+    assert waited < _SQLITE_DEFAULT_TIMEOUT_SECONDS / 2, (
+        f"second writer waited {waited:.3f}s with a {timeout_seconds}s timeout "
+        f"configured -- that is sqlite3's own default, so `timeout` is not "
+        f"reaching sqlite3.connect()"
+    )

@@ -63,8 +63,16 @@ def _connect_raw(db_path: str | Path) -> sqlite3.Connection:
     else: no `mkdir`, no schema bootstrap. Bootstrapping is an explicit,
     write-path-only step -- see `ensure_schema` -- so that merely
     connecting (as every read does) can never fabricate a directory tree
-    or an empty database file for a path that was never meant to exist."""
-    conn = sqlite3.connect(str(db_path))
+    or an empty database file for a path that was never meant to exist.
+
+    Also sets an explicit busy `timeout`. sqlite3's default is 5.0
+    seconds, which is not enough once ST-17's sync writes concurrently
+    with a UI read: writer contention would surface as a bare "database
+    is locked" after a 5 second stall. The value lives in config.py
+    (`sqlite_busy_timeout_seconds`), never as a literal here."""
+    conn = sqlite3.connect(
+        str(db_path), timeout=get_settings().sqlite_busy_timeout_seconds
+    )
     conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     return conn
@@ -242,6 +250,26 @@ def insert_document(
         ),
     )
     return doc_id
+
+
+def list_documents(conn: sqlite3.Connection, workspace_id: str) -> list[sqlite3.Row]:
+    """Every document row registered for one workspace, ordered by
+    file_name. Scoped by workspace_id (PRD F-01: a workspace-scoped read
+    never crosses into another workspace's rows). Returns [] for an
+    unknown or empty workspace -- the caller decides whether that means
+    "not found"; this layer holds no business rules."""
+    return conn.execute(
+        "SELECT * FROM document WHERE workspace_id = ? ORDER BY file_name",
+        (workspace_id,),
+    ).fetchall()
+
+
+def delete_document(conn: sqlite3.Connection, document_id: str) -> None:
+    """Delete one document row. Its sync_item history survives with
+    `document_id` set to NULL (db/schema.sql: ON DELETE SET NULL, not
+    CASCADE) -- a past sync report must never lose rows because the file
+    was later removed from the folder."""
+    conn.execute("DELETE FROM document WHERE id = ?", (document_id,))
 
 
 # --- sync_run --------------------------------------------------------------
