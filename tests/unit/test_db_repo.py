@@ -111,7 +111,7 @@ def test_delete_document_sets_sync_item_document_id_null(conn):
     )
     conn.commit()
 
-    conn.execute("DELETE FROM document WHERE id = ?", (doc_id,))
+    repo.delete_document(conn, doc_id)
     conn.commit()
 
     row = conn.execute(
