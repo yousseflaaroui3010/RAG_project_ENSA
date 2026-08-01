@@ -1,12 +1,16 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: 1a4f3fb on main (ST-11 workspaces module merged, PR #11).
+Last verified commit: 1862a58 on main (ST-12 change detection merged, PR #14).
 Updated: 2026-08-01 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
-- ST-12 content hashing + change detection, on branch
-  `feat/S1-ST-12-hashing`, pushed, PR #14 OPEN. Code complete and green
-  locally; NOT reviewed, NOT merged. Next action is a reviewer pass, then b1.
+- Nothing in flight. ST-12 MERGED as 1862a58 (PR #14, squash).
+- CORRECTION, and the reason this file was stale: an earlier entry here said
+  ST-12 was "NOT reviewed, NOT merged" while 1862a58 was already on main. It
+  shipped WITHOUT the reviewer pass the Next queue was explicitly waiting on.
+  That matters because ST-10 and ST-11 each had a later review find real
+  defects while the suite was green, and ST-12's own self-review found three
+  more after CI passed. A post-hoc reviewer pass on 1862a58 is owed.
 - What is proven working on main right now: `uv sync` resolves the pinned
   stack; config loads; the SQLite registry creates, cascades and rolls back
   under test; workspaces create, rename, delete, list, get and toggle their
@@ -22,10 +26,9 @@ Updated: 2026-08-01 by Phase 3 orchestrator
   no caller until ST-17.
 
 ## Next (ordered queue, top 3 only)
-1. Review + merge `feat/S1-ST-12-hashing`. Owner MB by agreement 2026-07-28,
-   a deliberate deviation: BUILD-PLAN line 60 assigns ST-12 to YL. Recorded
-   in DECISIONS. The deviation rebalances the split after MB wrote all of
-   ST-10 while the plan assigned it to YL.
+1. Post-hoc reviewer pass on ST-12 (1862a58), which merged without one.
+   Owner MB by agreement 2026-07-28, a deliberate deviation: BUILD-PLAN line
+   60 assigns ST-12 to YL. Recorded in DECISIONS.
 2. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR, a
    failing test blocks, INTENT check, dup gate, gitleaks). Almost certainly a
    confirm-and-close, not work. Verify against the story's exit criteria.
@@ -76,35 +79,47 @@ ST-13 (the next story that touches the data layer) or raise them as a chore.
    behaviour, a one-sided bound cannot see it.
 
 ## Blockers / waiting on human
-- CRITICAL, found 2026-08-01, needs a human because agents are locked out of
-  both files involved. THE SAFETY SYSTEM IS OFF ON THIS MACHINE, and it fails
-  OPEN, so nothing announces it. Both layers are down:
+- CRITICAL, PARTIALLY FIXED 2026-08-01, still open. The safety system was
+  failing OPEN: `guard.sh` parsed tool events with `python3`, which on this
+  machine is the Microsoft Store alias stub (exits 49, no output), and the
+  parse was wrapped in `|| exit 0`, so the hook permitted every call and all
+  15 deny checks were dead. The git-level `pre-commit` backstop was also
+  never installed.
 
-  Layer 1, `.claude/hooks/guard.sh`: it is correctly registered as a
-  PreToolUse hook, but line 8 parses the tool event with `python3`, and on
-  this machine `python3` is the Microsoft Store alias stub, not an
-  interpreter -- it prints "Python was not found" and exits 49. The parse is
-  wrapped in `|| exit 0`, so the guard exits 0 and PERMITS the call. All 15
-  of its `deny` checks are dead: the docs/phase2 write-lock, `--no-verify`,
-  force-push, direct push to main, committing while on main,
-  .claude/hooks + settings.json protection, and the journal-debt gate.
-  Verified by feeding the hook a synthetic event and by running its python3
-  line directly. `python` (3.12) IS present; only the `python3` name is not.
+  DONE: `pre-commit` is installed and executable; `guard.sh` line 16 now
+  reads `|| exit 2`, so it fails CLOSED. Verified by synthetic events -- it
+  blocks `--no-verify`, blocks the signed-spec write-lock, allows a normal
+  command, and refuses unparseable input. A later reviewer pass confirmed 13
+  of 14 deny checks fire (journal-debt untestable, `.claude/logs/` absent).
 
-  Layer 2, `.claude/git-hooks/pre-commit`: never installed. `.git/hooks/` is
-  empty and `core.hooksPath` is unset. The file's own header says installing
-  it is a human step, per clone.
-
-  This is not theoretical: it is exactly why the ST-12 commit landed on
-  `main` this session before being moved to its branch. Two fixes, both
-  human-only:
-    1. `cp .claude/git-hooks/pre-commit .git/hooks/pre-commit && chmod +x
-       .git/hooks/pre-commit` -- restores layer 2 (one rule).
-    2. In `.claude/hooks/guard.sh` line 8, make the interpreter resolve:
-       `python3 ... || python ...`, and change the trailing `|| exit 0` to
-       `|| exit 2`. The second half matters more than the first: a safety
-       guard that cannot read its input must fail CLOSED. Restores all 15.
-  Recommend doing both, starting with 2.
+  STILL BROKEN, and item 1 is a REGRESSION introduced by the fix:
+  1. `guard.sh` line 8 was changed `python3` -> `python`. That was BAD
+     ADVICE from the orchestrator and it is machine-specific in the opposite
+     direction: on modern macOS and most Linux, `python3` exists and bare
+     `python` does not. Combined with the new fail-closed `exit 2`, a
+     teammate pulling this gets EVERY tool call blocked, and silently,
+     because `2>/dev/null` swallows the reason and `exit 2` prints none.
+     Fail-open here becomes total outage there. Fix: try both interpreters,
+     and echo a reason to stderr before exiting 2.
+  2. Six sibling hooks still call `python3` and are therefore still dead:
+     `verify-after-edit.sh`, `dup-sentry.sh`, `stop-gate.sh`,
+     `log-change.sh`, `load-state.sh`, `save-state.sh`. The duplication gate
+     and the post-edit verify gate are OFF. Verified by grep 2026-08-01.
+  3. `guard.sh` line 34: an empty `tool_name` falls through to `exit 0`,
+     skipping every command check.
+  4. `guard.sh` line 19: `FILEPATH` is `sed -n 2p`, so a newline inside
+     `file_path` walks past the signed-spec lock.
+  5. `set -u` survives only because `config.sh` defines
+     `PROTECTED_BRANCHES`; if that ever goes missing the guard aborts
+     fail-open.
+  6. Orchestrator note, new: the guard now false-positives on READ-ONLY
+     inspection, because `WRITE_VERBS` includes `>`, so any command
+     containing `2>/dev/null` or `>>` looks like a write. Two legitimate
+     read-only commands were blocked this session. Diagnose the hooks with
+     the Grep/Read tools, not shell.
+  Not a brick: the hook only matches Bash/PowerShell/Edit/Write, so Read and
+  any external editor still work and a human can always recover.
+  All of the above are human-only edits (rule 4 locks agents out).
 - Open, unowned: data-layer follow-ups 1, 2 and 6 below. Deliberately NOT
   folded into the ST-12 branch -- they are unrelated to change detection and
   would have put unreviewable drive-by edits in PR #14 (.claude/rules
@@ -133,7 +148,8 @@ ST-13 (the next story that touches the data layer) or raise them as a chore.
   still stands.
 
 ## Done this week
-- ST-12 Content hashing + change detection. ON BRANCH, not merged. New
+- ST-12 Content hashing + change detection. MERGED, PR #14 (1862a58),
+  but NOT reviewed before merge -- see the correction under Now. New
   `change_detection.py` implements the architecture §5.1 hash-vs-registry
   decision and returns NEW/CHANGED/UNCHANGED/REMOVED per file. It decides and
   never acts: no write transaction, no conversion, no chunk deletion, so the
