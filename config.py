@@ -63,12 +63,26 @@ class Settings(BaseSettings):
     parent_merge_below_chars: int = 2000
     parent_split_above_chars: int = 4000
 
+    # --- Change detection (ST-12, PRD F-02, architecture §5.1) ---
+    # File extensions Sync fingerprints and hands to the conversion ladder.
+    # PRD F-02 scopes V1 to PDF, DOCX, TXT, MD; PPTX is V1.1 (F-11 / ST-48)
+    # and is deliberately absent, so a deck in the folder is reported
+    # Skipped-unsupported rather than silently ingested. Lower-case, no dot.
+    supported_document_extensions: tuple[str, ...] = ("pdf", "docx", "txt", "md")
+    # Bytes read per hashing iteration. Files are hashed incrementally so a
+    # 500 MB PDF never lands in memory whole.
+    hash_read_chunk_bytes: int = 1024 * 1024
+
     # --- Store paths (architecture §7.5, LD-06 data locality) ---
     # All under data/, git-ignored, operator-controlled disk.
     qdrant_storage_path: str = "data/qdrant/"
     parent_store_path: str = "data/parents/"
     sqlite_db_path: str = "data/sanad.db"
     reports_path: str = "data/reports/"
+    # Seconds a connection waits for a writer lock before raising
+    # "database is locked". SQLite's own default is 5.0, which is too short
+    # once ST-17's sync writes while the UI reads on another connection.
+    sqlite_busy_timeout_seconds: float = 30.0
 
     # --- Server (ADR-13) ---
     # Single-user, no authentication, localhost only (LD-07).
