@@ -1,6 +1,6 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: 1862a58 on main (ST-12 change detection merged, PR #14).
+Last verified commit: c67e0e5 on main (journal + guard.sh reconcile, PR #15).
 Updated: 2026-08-01 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
@@ -18,21 +18,23 @@ Updated: 2026-08-01 by Phase 3 orchestrator
   module level. `uv run ruff check .` clean, `uv run pytest -q` 51 passed
   (2 config + 17 db + 32 workspaces -- the previous entry's per-file split,
   "15 db + 34 workspaces", was miscounted; the 51 total was right).
-- On the ST-12 branch: ruff clean, 93 passed (2 config + 19 db + 32
-  workspaces + 40 change detection). CI `verify` green on PR #14.
+- Whole suite on main: ruff clean, 93 passed (2 config + 19 db + 32
+  workspaces + 40 change detection). CI `verify` green on PRs #14 and #15.
 - What does NOT exist yet: any UI, any conversion, any chunking, any
   embeddings, any retrieval, any sync engine. ST-12 decides what needs
   ingesting but nothing consumes that decision yet -- `detect_changes` has
   no caller until ST-17.
 
 ## Next (ordered queue, top 3 only)
-1. Post-hoc reviewer pass on ST-12 (1862a58), which merged without one.
-   Owner MB by agreement 2026-07-28, a deliberate deviation: BUILD-PLAN line
-   60 assigns ST-12 to YL. Recorded in DECISIONS.
-2. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR, a
+1. ST-13 Conversion ladder PDF/DOCX/TXT/MD. UNBLOCKED, and the human's
+   chosen next task: on 2026-08-01 they called a halt to hook work and asked
+   to get back to building. Do this before the two items below.
+2. Post-hoc reviewer pass on ST-12 (1862a58), which merged without one.
+   Deferred by the human, not forgotten. Owner MB by agreement 2026-07-28,
+   a deliberate deviation: BUILD-PLAN line 60 assigns ST-12 to YL.
+3. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR, a
    failing test blocks, INTENT check, dup gate, gitleaks). Almost certainly a
    confirm-and-close, not work. Verify against the story's exit criteria.
-3. ST-13 Conversion ladder PDF/DOCX/TXT/MD, once ST-12 lands.
 
 ## Data-layer follow-ups (do not lose these)
 Carried from ST-10, plus two the ST-11 reviewer surfaced. 3 and 4 were CLOSED
@@ -79,46 +81,51 @@ ST-13 (the next story that touches the data layer) or raise them as a chore.
    behaviour, a one-sided bound cannot see it.
 
 ## Blockers / waiting on human
-- CRITICAL, PARTIALLY FIXED 2026-08-01, still open. The safety system was
-  failing OPEN: `guard.sh` parsed tool events with `python3`, which on this
-  machine is the Microsoft Store alias stub (exits 49, no output), and the
-  parse was wrapped in `|| exit 0`, so the hook permitted every call and all
-  15 deny checks were dead. The git-level `pre-commit` backstop was also
-  never installed.
+- SAFETY SYSTEM: critical half FIXED 2026-08-01, remainder is low-priority
+  debt. Full history so a future session does not re-litigate it.
 
-  DONE: `pre-commit` is installed and executable; `guard.sh` line 16 now
-  reads `|| exit 2`, so it fails CLOSED. Verified by synthetic events -- it
-  blocks `--no-verify`, blocks the signed-spec write-lock, allows a normal
-  command, and refuses unparseable input. A later reviewer pass confirmed 13
-  of 14 deny checks fire (journal-debt untestable, `.claude/logs/` absent).
+  WAS: `guard.sh` parsed tool events with `python3`, which on this machine is
+  the Microsoft Store alias stub (exits 49, no output), and the parse was
+  wrapped in `|| exit 0`. The hook therefore permitted EVERY call and all 15
+  deny checks were dead, silently. That is why an ST-12 commit briefly landed
+  on `main` this session. The git-level `pre-commit` backstop was also never
+  installed.
 
-  STILL BROKEN, and item 1 is a REGRESSION introduced by the fix:
-  1. `guard.sh` line 8 was changed `python3` -> `python`. That was BAD
-     ADVICE from the orchestrator and it is machine-specific in the opposite
-     direction: on modern macOS and most Linux, `python3` exists and bare
-     `python` does not. Combined with the new fail-closed `exit 2`, a
-     teammate pulling this gets EVERY tool call blocked, and silently,
-     because `2>/dev/null` swallows the reason and `exit 2` prints none.
-     Fail-open here becomes total outage there. Fix: try both interpreters,
-     and echo a reason to stderr before exiting 2.
-  2. Six sibling hooks still call `python3` and are therefore still dead:
-     `verify-after-edit.sh`, `dup-sentry.sh`, `stop-gate.sh`,
-     `log-change.sh`, `load-state.sh`, `save-state.sh`. The duplication gate
-     and the post-edit verify gate are OFF. Verified by grep 2026-08-01.
+  NOW FIXED and verified: `pre-commit` is installed and executable (it was
+  observed blocking a real commit on main). `guard.sh` tries `python3` then
+  falls back to `python`, and prints a reason to stderr before `exit 2`, so
+  it fails CLOSED and diagnosably. A 13-case harness confirmed it blocks
+  --no-verify / force-push / the signed-spec lock / settings edits, allows
+  normal commands and edits, and still behaves correctly under three
+  simulated machines: python-only (here), python3-only (a teammate's
+  macOS/Linux), and neither. That last case matters -- an interim fix that
+  swapped `python3` for `python` outright was BAD ADVICE from the
+  orchestrator and would have blocked every tool call for teammates.
+
+  STILL OPEN, deliberately deprioritized by the human on 2026-08-01 after
+  hook work had consumed most of a session. None of it blocks building:
+  1. Six sibling hooks still call `python3` and are inert:
+     `verify-after-edit.sh` (line 8), `dup-sentry.sh` (7), `stop-gate.sh`
+     (10), `log-change.sh` (6), `load-state.sh` (12), `save-state.sh` (7).
+     Each needs the same two-line change guard.sh got: insert
+     `PY=python3; "$PY" -c '' 2>/dev/null || PY=python` above the call, then
+     use `"$PY"` instead of `python3`. Do it as ONE runnable script, not a
+     hand-edit checklist -- a hand-edit list was tried and half-applied.
+  2. `config.sh` now sets `TYPECHECK_CMD="uv run ruff check ."` and
+     `TEST_CMD="uv run pytest -q"` (they had been left `""` since before the
+     stack existed). Correct, but INERT until item 1 is done, because the two
+     hooks that read them exit early on the dead `python3`. Half-fixed here
+     is not harmful, just not yet active.
   3. `guard.sh` line 34: an empty `tool_name` falls through to `exit 0`,
      skipping every command check.
   4. `guard.sh` line 19: `FILEPATH` is `sed -n 2p`, so a newline inside
      `file_path` walks past the signed-spec lock.
   5. `set -u` survives only because `config.sh` defines
-     `PROTECTED_BRANCHES`; if that ever goes missing the guard aborts
-     fail-open.
-  6. Orchestrator note, new: the guard now false-positives on READ-ONLY
-     inspection, because `WRITE_VERBS` includes `>`, so any command
-     containing `2>/dev/null` or `>>` looks like a write. Two legitimate
-     read-only commands were blocked this session. Diagnose the hooks with
-     the Grep/Read tools, not shell.
-  Not a brick: the hook only matches Bash/PowerShell/Edit/Write, so Read and
-  any external editor still work and a human can always recover.
+     `PROTECTED_BRANCHES`; if that vanishes the guard aborts fail-open.
+  6. The guard false-positives on READ-ONLY inspection: `WRITE_VERBS`
+     includes `>`, so any command containing `2>/dev/null` or `>>` looks
+     like a write. Two legitimate read-only commands were blocked this
+     session. Diagnose hooks with the Grep/Read tools, not shell heredocs.
   All of the above are human-only edits (rule 4 locks agents out).
 - Open, unowned: data-layer follow-ups 1, 2 and 6 below. Deliberately NOT
   folded into the ST-12 branch -- they are unrelated to change detection and
