@@ -6,6 +6,7 @@ Project Plan v1.1 (stories ST-01..ST-52, checkpoints C1-C3, descope ladder).
 This plan does not invent stories; it re-expresses the 52 signed stories as a
 build queue with **Phase-2 refs, dependencies, and exit gate** per row.
 
+SDDSGDS
 Authority order: PRD > Architecture > Project Plan > openapi.yaml. A story that
 seems to need breaking an ADR is an escalation, not a workaround.
 
