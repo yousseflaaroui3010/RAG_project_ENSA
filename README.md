@@ -8,7 +8,7 @@ One Python process on your machine, three local stores beside it. The only thing
 that leaves the machine is a prompt to the configured answering model, and even
 that has a fully local mode (Ollama).
 
-**Stack:** Python 3.12, uv, FastAPI hosting Gradio Blocks, LangGraph, Qdrant
+**Stack:** Python 3.12, uv, FastAPI serving server-rendered templates, LangGraph, Qdrant
 (embedded), SQLite, `intfloat/multilingual-e5-base`.
 
 **Status:** in build. Sprint-0 foundation is merged; the pipeline below is the

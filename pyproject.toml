@@ -25,8 +25,11 @@ dependencies = [
     "pymupdf4llm",
     # DOCX now / PPTX in V1.1 conversion (ADR-07).
     "markitdown[all]",
-    # UI layer, mounted onto FastAPI (ADR-02; ADR-13). §8: >= 5.
-    "gradio>=5",
+    # UI layer: server-rendered templates off the FastAPI host (ADR-02 as
+    # amended by CR-02). Hypermedia attributes for partial updates ship as a
+    # vendored static file under ui/static/, not a Python dependency, so
+    # ADR-10 (no JS toolchain) still holds.
+    "jinja2>=3.1",
     # Faithfulness / relevancy metrics for the eval gate (F-08).
     "ragas",
     # Config from .env (all tunables; Hard technical rules).
