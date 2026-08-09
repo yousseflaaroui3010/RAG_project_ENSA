@@ -30,6 +30,53 @@ the folder, it says "I don't have that" instead of making something up.
 
 ---
 
+## 🚀 Fastest path: let the script do it
+
+Once you have the project on your laptop (section 2 below), run this from the
+project folder in Git Bash:
+
+```bash
+bash scripts/setup-dev.sh
+```
+
+It checks and fixes everything in sections 1 and 3: uv, all the packages, the
+GitHub CLI and its login, the safety hook that stops you committing onto
+`main`, and the `git board` command. Then it **proves** it worked by running
+the linter and the whole test suite.
+
+You can run it as many times as you like. It skips anything already correct.
+
+It ends with a summary like this:
+
+```
+ Working : 9
+ Missing : 0
+
+ You are ready.
+```
+
+If anything says `MISSING`, the script prints the exact command to fix it, and
+you re-run it. Nothing else in this handbook matters until that summary is
+clean. 🧠 Like a pre-flight checklist: you do not take off with a red light on.
+
+One thing it will **not** do is install the code-graph tool
+(`codebase-memory-mcp`). That is optional, Sanad works fine without it, and an
+earlier attempt to find an installer turned up a page carrying what looked
+like hidden instructions aimed at the AI. We refused it then and the script
+refuses it now. Get that tool from a source you trust, by hand, or skip it.
+
+### The one command to run every morning
+
+```bash
+git board
+```
+
+It shows what landed on `main` overnight, which branches exist, **who owns
+each one**, and any open pull requests. Run it before you start anything, so
+you never build something your teammate already built.
+
+---
+
 ## 0. Who does what (you are BOTH coders now)
 
 - **YL — "Engine builder":** owns the parts that **store and search** documents.
