@@ -14,19 +14,74 @@ ROOT="$(pwd)"
 
 PASS=(); FAIL=(); NOTE=()
 ok()   { PASS+=("$1"); echo "  OK      $1"; }
-bad()  { FAIL+=("$1"); echo "  MISSING $1"; }
+bad()  { FAIL+=("$1"); echo "  PROBLEM $1"; }
 note() { NOTE+=("$1"); echo "  NOTE    $1"; }
 step() { echo ""; echo "== $1"; }
+
+# Find a program on PATH, and if it is not there, look where Windows
+# installers actually put things.
+#
+# Why this exists: `command -v gh` only searches PATH. When it failed, the
+# first version of this script said "gh is not installed" and told the reader
+# to install it. On a real machine gh 2.96.0 was already sitting in the winget
+# folder, just not on PATH, so following that advice would have produced a
+# second copy and fixed nothing. "Not on PATH" and "not installed" are
+# different problems with different fixes, and the script has to tell them
+# apart before it gives advice.
+#
+# Prints the path if found anywhere. Exit 0 = found, 1 = genuinely absent.
+locate_tool() {
+  name="$1"
+  if command -v "$name" >/dev/null 2>&1; then
+    command -v "$name"
+    return 0
+  fi
+  # Env vars arrive from Windows with backslashes; normalise them.
+  la="$(printf '%s' "${LOCALAPPDATA:-}" | tr '\\' '/')"
+  pf="$(printf '%s' "${PROGRAMFILES:-}" | tr '\\' '/')"
+  for p in \
+    "$la/Microsoft/WinGet/Links/$name.exe" \
+    "$la/Programs/GitHub CLI/$name.exe" \
+    "$pf/GitHub CLI/$name.exe" \
+    "$la/Programs/$name/$name.exe" \
+    "$HOME/.local/bin/$name" \
+    "$HOME/.local/bin/$name.exe" \
+    "$HOME/.cargo/bin/$name.exe"
+  do
+    case "$p" in ""|"/"*"//"*) continue ;; esac
+    if [ -x "$p" ] || [ -f "$p" ]; then
+      echo "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Turn /c/Users/... back into something you can paste into a Windows PATH box.
+win_dir_of() {
+  d="$(dirname "$1")"
+  if command -v cygpath >/dev/null 2>&1; then cygpath -w "$d" 2>/dev/null || echo "$d"
+  else echo "$d"; fi
+}
 
 echo "Sanad developer setup"
 echo "Repo: $ROOT"
 
 # ---------------------------------------------------------------- 1. uv
 step "1. uv (installs Python 3.12 and every package for you)"
+UV_PATH="$(locate_tool uv || true)"
 if command -v uv >/dev/null 2>&1; then
   ok "uv $(uv --version 2>&1 | awk '{print $2}')"
+elif [ -n "$UV_PATH" ]; then
+  bad "uv IS installed, but your terminal cannot see it (PATH problem)"
+  echo ""
+  echo "  Found it here:  $UV_PATH"
+  echo "  Do NOT install it again. Add its folder to PATH instead:"
+  echo "    export PATH=\"\$PATH:$(dirname "$UV_PATH")\"     (this window only)"
+  echo "  Then re-run this script."
+  exit 1
 else
-  bad "uv is not on PATH"
+  bad "uv is genuinely not installed"
   echo ""
   echo "  Install it, then CLOSE AND REOPEN your terminal:"
   echo '    powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"'
@@ -46,18 +101,42 @@ fi
 
 # -------------------------------------------------------------- 3. gh CLI
 step "3. GitHub CLI (needed to open and read pull requests)"
-if command -v gh >/dev/null 2>&1; then
+GH_PATH="$(locate_tool gh || true)"
+GH_ON_PATH=no
+command -v gh >/dev/null 2>&1 && GH_ON_PATH=yes
+
+if [ "$GH_ON_PATH" = yes ]; then
   ok "gh $(gh --version 2>&1 | head -1 | awk '{print $3}')"
+elif [ -n "$GH_PATH" ]; then
+  bad "gh IS installed, but your terminal cannot see it (PATH problem)"
+  echo ""
+  echo "    Found it here:  $GH_PATH"
+  echo "    Version:        $("$GH_PATH" --version 2>&1 | head -1 | awk '{print $3}')"
+  echo ""
+  echo "    DO NOT install it again. You would end up with two copies and the"
+  echo "    same problem. The program is fine; the terminal just does not know"
+  echo "    where to look."
+  echo ""
+  echo "    Fix, in PowerShell (not Git Bash), then CLOSE AND REOPEN the terminal:"
+  echo "      setx PATH \"\$env:PATH;$(win_dir_of "$GH_PATH")\""
+  echo ""
+  echo "    Or just for right now, in this Git Bash window:"
+  echo "      export PATH=\"\$PATH:$(dirname "$GH_PATH")\""
+else
+  bad "gh is genuinely not installed (not on PATH, not in the usual folders)"
+  echo "    Fix:  winget install --id GitHub.cli    then reopen the terminal"
+fi
+
+# Only ask about login if the terminal can actually run it.
+if [ "$GH_ON_PATH" = yes ]; then
   if gh auth status >/dev/null 2>&1; then
     ok "gh is logged in"
   else
     bad "gh is installed but NOT logged in"
     echo "    Fix:  gh auth login      (choose GitHub.com, HTTPS, browser)"
     echo "    Until you do this you cannot open a PR, and pushed work stays invisible."
+    echo "    That is exactly how three finished branches sat unseen for three days."
   fi
-else
-  bad "gh is not installed"
-  echo "    Fix:  winget install --id GitHub.cli    then reopen the terminal"
 fi
 
 # ------------------------------------------------- 4. branch safety hook
