@@ -1,19 +1,59 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: fea733c on main (CR-02 Part B, the UI dependency swap,
-PR #13). Reached main via PR #17 (hook repair) on top of c67e0e5.
+Last verified commit: b75b584 on main (ST-13 conversion ladder, PR #18).
 Updated: 2026-08-09 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
-- ST-13 Conversion ladder, on branch `feat/S1-ST-13-conversion`. Code
+- ST-14 Parent/child chunking, on branch `feat/S1-ST-14-chunking`. Code
   complete, NOT reviewed, NOT merged. `uv run ruff check .` clean,
-  `uv run pytest -q` 130 passed (93 from main + 37 new). New
+  `uv run pytest -q` 173 passed (130 from main + 43 new). New
+  `chunking.py` implements architecture §7.5: sections cut on H1-H3
+  headings, merged below `parent_merge_below_chars`, split above
+  `parent_split_above_chars`, then each parent windowed into
+  `chunk_child_size_chars` children sharing `chunk_child_overlap_chars`.
+  Needed no new config -- ST-02 pinned all four knobs on day one.
+  Exit gate demonstrated: boundary asserted on BOTH sides at 2,000
+  (1,999 merges / 2,000 stands alone) and at 4,000 (4,000 not split /
+  4,001 split), and the 100-character overlap proven as an equality on
+  the shared TEXT, not on a length.
+  27 mutations injected one at a time, then 5 more after the fixes.
+  Findings worth carrying forward:
+  (a) one survivor, `<=` -> `<` on the split threshold, turned out to be
+      an EQUIVALENT MUTANT, not a vacuous test: at exactly the threshold
+      the early return and the paragraph packer produce byte-identical
+      output. Proven, not assumed, by running both paths. That makes the
+      PACKER the thing guaranteeing no text is lost, so it got its own
+      byte-exact round-trip test;
+  (b) that round-trip test failed to catch a "strip every piece" mutation
+      on its first version, because the blank-line run it relied on landed
+      mid-piece by luck. A whitespace bug that only shows at a boundary
+      needs a test that PUTS it on the boundary -- rewritten at a small
+      non-default limit so the boundaries are arithmetic;
+  (c) and it still could not see a mutation rejoining packed paragraphs
+      with a single newline, because no surviving piece held two
+      paragraphs. Needed a second, differently-shaped test.
+  Self-review after green found the real defects, as on every story so far:
+  (d) `_windows` guarded its own infinite loop from the start while
+      `_split_oversized` had the IDENTICAL loop with no guard at all --
+      `parent_split_above_chars <= 0` hangs forever (proven, killed at
+      10s). Two sibling settings fail SILENTLY, which is worse than a
+      hang: a non-positive child size indexes a document with zero
+      children (unsearchable, looks like a clean sync), and a NEGATIVE
+      overlap leaves gaps so a passage sits in the parent but is never
+      embedded -- the only symptom is a refusal about text Sanad holds.
+      All four now refused up front by `_validate_settings`;
+  (e) the merged-parent label separator was " - ", which on a REAL
+      document rendered "Article 2 - Duree - Article 4 - Rupture". Every
+      test heading had been a tidy "Article 1". Running the thing found
+      what 39 tests could not.
+- Previous: ST-13 Conversion ladder MERGED as b75b584 (PR #18). The
+  earlier claim in this file that it was "on branch, NOT reviewed, NOT
+  merged" was stale; it was reviewed and merged. Third time this file has
+  described a state that no longer existed.
+- Superseded detail, kept because the library traps are still true:
   `conversion.py`: PDF via pymupdf4llm, DOCX via markitdown, TXT/MD
   passthrough, returning CONVERTED / FAILED / SKIPPED with a
   plain-language reason per PRD F-02 and section 11.
-  All three exit-gate items demonstrated on a mixed corpus: the fixture
-  corpus converts with headings and real page counts, a corrupted PDF
-  reports Failed, a scanned PDF reports Skipped WITH the reason.
   26 mutations injected one at a time, every one turned the suite red.
   Three findings worth carrying forward, all from probing the libraries
   rather than trusting their docs:
@@ -48,9 +88,9 @@ Updated: 2026-08-09 by Phase 3 orchestrator
   module level. `uv run ruff check .` clean, `uv run pytest -q` 51 passed
   (2 config + 17 db + 32 workspaces -- the previous entry's per-file split,
   "15 db + 34 workspaces", was miscounted; the 51 total was right).
-- Whole suite on main: ruff clean, 93 passed (2 config + 19 db + 32
-  workspaces + 40 change detection). CI `verify` green on PRs #14 and #15.
-  On this ST-13 branch, with main merged in: 130 passed.
+- Whole suite on main: ruff clean, 130 passed (2 config + 19 db + 32
+  workspaces + 40 change detection + 37 conversion). CI `verify` green on
+  PRs #14, #15 and #18. On this ST-14 branch: 173 passed.
 - CR-02 Part B landed on main (PR #13, fea733c) while ST-13 was in flight:
   the UI dependency is now `jinja2` server-rendered templates, NOT gradio,
   and a new signed spec `docs/phase2/Sanad_UX_Spec_v1.0.md` joined the
@@ -59,28 +99,68 @@ Updated: 2026-08-09 by Phase 3 orchestrator
   config.py finds nothing) -- but every UI story is now built on a
   different base than the original BUILD-PLAN assumed. Read docs/build/CR-02.md
   before starting one.
-- What does NOT exist yet: any UI, any chunking, any embeddings, any
-  retrieval, any sync engine. ST-12 decides what needs ingesting and ST-13
-  can now convert it, but the two are still not wired together: nothing
-  calls `detect_changes` and nothing calls `convert_file` until ST-17.
-  Conversion writes no registry row, no chunk and no sync_item -- it reads
-  bytes and returns text, deliberately, so the ladder is testable with no
-  database and no vector store in existence.
+- What does NOT exist yet: any UI, any embeddings, any retrieval, any sync
+  engine. Three ingestion stages now exist and NONE of them are wired to
+  each other: ST-12 decides what needs ingesting, ST-13 converts it, ST-14
+  splits it, and nothing calls any of them until ST-17. That is deliberate
+  and is what has kept each one unit-testable with no database, no
+  embedder and no vector store in existence. `chunking.py` writes no
+  parent JSON and no vector: §7.5's parent store is ST-16.
+- FIXED 2026-08-09, was the sharpest thing the rubric review found:
+  `chunk_document` was NOT idempotent. Parent ids came from
+  `repo.new_id()`, so the same document chunked twice yielded a disjoint
+  id set (proven by running it, not suspected). §7.5 keys the parent store
+  on that id (`data/parents/<workspace_id>/<parent_id>.json`) and Qdrant
+  payloads carry it, so re-ingesting a CHANGED file minted all-new ids:
+  every previous parent JSON orphaned, and any vector surviving the
+  rewrite pointed at a parent file that no longer existed -- a search hit
+  that resolves to nothing, which a sourced answer cannot survive.
+  Ids are now DERIVED: `uuid5(namespace, "<source_file>\x00<index>")`.
+  Three tests pin it. Removing the random id also removed chunking.py's
+  only `db.repo` import, so the splitter no longer depends on the data
+  layer at all.
+  STILL TRUE FOR ST-16/ST-17, so do not lose it: a document that SHRINKS
+  from ten parents to six leaves ids 6..9 behind. That residue is now
+  deterministic, so ST-17 can compute exactly which ids to delete instead
+  of guessing -- but something still has to delete them, and the parent
+  JSON and its vectors must go as ONE unit or the mismatch returns.
+
+## Numbers (this project had none until 2026-08-09)
+The rubric row is "a number with no threshold is trivia, a threshold with
+no owner is a wish". One number exists so far; the rest arrive with ST-18.
+
+```
+Name:       Chunking time for the G5 corpus
+Measures:   Wall time for chunk_document over ~200 pages of markdown
+Rule:       1,275,492 chars, 600 H1 sections, single call, warm process
+Population: Developer machine (MB's laptop), not a user-facing path
+Window:     Point measurement, re-run per release
+Good:       Under 5s
+Act at:     Over 30s -> chunking has become a G5 factor and needs profiling
+Owner:      YL (ST-18 spike owns the real end-to-end numbers)
+Measured:   0.03s on 2026-08-09 -> 600 parents, 3,600 children
+```
+Read honestly: this says chunking is nowhere near the G5 budget of 10
+minutes for 200 pages. It says NOTHING about the budget itself, because
+embeddings (ST-15) are the expensive stage and have not been written.
+- Carried forward for ST-15: child text from `chunking.py` is RAW. The
+  mandatory `passage: ` prefix (CLAUDE.md hard rule, unit-test enforced)
+  belongs to the embeddings module and must be added exactly ONCE there.
+  A test in test_chunking.py asserts chunking never adds it, so the two
+  halves of that rule cannot both think the other did it.
 
 ## Next (ordered queue, top 3 only)
-1. Review + merge ST-13 (`feat/S1-ST-13-conversion`, pushed, main merged in).
-   The reviewer pass is the one step ST-12 skipped, and ST-10, ST-11 and
-   ST-12 EACH had a later pass find a real defect while the suite was green.
-   Building it was the human's chosen next task: on 2026-08-01 they called a
-   halt to hook work and asked to get back to building.
+1. Review + merge ST-14 (`feat/S1-ST-14-chunking`). Every story so far,
+   ST-10 through ST-13, had a review or a self-review find a real defect
+   while the suite was green; ST-14 already found five that way.
 2. Post-hoc reviewer pass on ST-12 (1862a58), which merged without one.
    Deferred by the human, not forgotten. Owner MB by agreement 2026-07-28,
    a deliberate deviation: BUILD-PLAN line 60 assigns ST-12 to YL.
 3. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR, a
    failing test blocks, INTENT check, dup gate, gitleaks). Almost certainly a
    confirm-and-close, not work. Verify against the story's exit criteria.
-Then ST-14 parent/child chunking, which is the first consumer of the
-markdown headings ST-13 works so hard to preserve.
+Then ST-15 embeddings (E5 with the mandatory prefixes), the first consumer
+of the children ST-14 produces.
 
 ## Data-layer follow-ups (do not lose these)
 Carried from ST-10, plus two the ST-11 reviewer surfaced. 3 and 4 were CLOSED
@@ -162,6 +242,18 @@ their own `chore/` branch, now together with 8.
 
   STILL OPEN, deliberately deprioritized by the human on 2026-08-01 after
   hook work had consumed most of a session. None of it blocks building:
+  OWNER + DATE + FALLBACK, added 2026-08-09 because the rubric review found
+  this blocker had sat since 2026-08-01 with none of the three, which makes
+  it abandoned work rather than blocked work:
+    Owner:    a human. Rule 4 locks agents out of `.claude/hooks/` entirely,
+              so no agent can close this no matter how long it waits.
+    Raised:   2026-08-01. Chased: 2026-08-09 (this entry).
+    Fallback: if it is still open on 2026-08-16, stop calling it a blocker
+              and accept it as a standing gap in writing -- the duplication
+              gate and the post-edit verify gate are simply OFF, and every
+              story from ST-15 on must be reviewed knowing that. It has not
+              blocked a single story so far; carrying it as "blocked"
+              implies work is waiting on it, and none is.
   1. Six sibling hooks still call `python3` and are inert:
      `verify-after-edit.sh` (line 8), `dup-sentry.sh` (7), `stop-gate.sh`
      (10), `log-change.sh` (6), `load-state.sh` (12), `save-state.sh` (7).
@@ -213,7 +305,17 @@ their own `chore/` branch, now together with 8.
   still stands.
 
 ## Done this week
-- ST-13 Conversion ladder. ON BRANCH, not merged -- see Now for detail.
+- ST-14 Parent/child chunking. ON BRANCH, not merged -- see Now for detail.
+  `chunking.py` turns ST-13's markdown into §7.5 parents and children. The
+  lesson worth keeping is about the two verification techniques and what
+  each is blind to: mutation testing found nothing wrong with the module
+  itself (its one survivor was an equivalent mutant), while self-review
+  after green found an unguarded infinite loop and two silent data-loss
+  configurations, and simply RUNNING a realistic document found an
+  unreadable citation label that 39 tests had agreed was fine. Three
+  techniques, three disjoint sets of defects. Running the thing is not
+  optional just because the suite is green.
+- ST-13 Conversion ladder. MERGED as b75b584 (PR #18).
   `conversion.py` implements ADR-07 rung by rung and returns one of three
   outcomes per file with a plain-language reason. The design rule it is
   built on: `convert_file` NEVER raises for a bad document, because PRD
