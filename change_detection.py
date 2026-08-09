@@ -47,7 +47,11 @@ _FINGERPRINT_FIELD_COUNT = 3
 _STATUS_REMOVED = "removed"
 _STATUS_WITHOUT_DERIVED_DATA = frozenset({_STATUS_REMOVED})
 
-_UNSUPPORTED_TYPE_REASON = "unsupported file type"
+# Public: the conversion ladder (ST-13) reports the same reason for the same
+# condition, and one shared constant is the only way that stays true. Two
+# copies of this string would drift the moment either side is reworded, and
+# the user would see two different explanations for one situation.
+UNSUPPORTED_TYPE_REASON = "unsupported file type"
 
 
 class ChangeDetectionError(Exception):
@@ -232,16 +236,20 @@ class ChangeReport:
         return [change for change in self.changes if change.status is status]
 
 
-def _file_type(path: Path) -> str:
+def file_type(path: Path) -> str:
     """Extension without the dot, lower-cased, matching the values
-    db/schema.sql stores in `document.file_type`."""
+    db/schema.sql stores in `document.file_type`.
+
+    Public because the conversion ladder (ST-13) dispatches on exactly
+    this value: if the two modules derived a file's type by different
+    rules, a file could be scanned as one type and converted as another."""
     return path.suffix.lstrip(".").lower()
 
 
 def is_supported(path: Path) -> bool:
     """Whether Sync processes this file type in V1 (PRD F-02). The list
     lives in config.py; never hardcode it a second time."""
-    return _file_type(path) in get_settings().supported_document_extensions
+    return file_type(path) in get_settings().supported_document_extensions
 
 
 def compute_fingerprint(path: Path) -> Fingerprint:
@@ -306,7 +314,7 @@ def scan_folder(folder: str | Path) -> ScanResult:
             continue
         if not is_supported(entry):
             unsupported.append(
-                UnsupportedFile(file_name=entry.name, reason=_UNSUPPORTED_TYPE_REASON)
+                UnsupportedFile(file_name=entry.name, reason=UNSUPPORTED_TYPE_REASON)
             )
             continue
         try:
@@ -380,7 +388,7 @@ def detect_changes(
                 status=_classify_present_file(row, fingerprint),
                 fingerprint=fingerprint,
                 document_id=row["id"] if row is not None else None,
-                file_type=_file_type(Path(file_name)),
+                file_type=file_type(Path(file_name)),
             )
         )
 
