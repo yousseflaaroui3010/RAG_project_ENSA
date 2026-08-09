@@ -12,9 +12,14 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 ROOT="$(pwd)"
 
-PASS=(); FAIL=(); NOTE=()
+PASS=(); FAIL=(); FIX=(); NOTE=()
 ok()   { PASS+=("$1"); echo "  OK      $1"; }
-bad()  { FAIL+=("$1"); echo "  PROBLEM $1"; }
+# bad "what is wrong" "the command that fixes it"
+# The fix is stored, not just printed, because the summary at the bottom is
+# what people actually read. The first version named the problem there and
+# left the cure 30 lines up the scrollback, so a reader who trusted the
+# summary still did not know what to type.
+bad()  { FAIL+=("$1"); FIX+=("${2:-}"); echo "  PROBLEM $1"; }
 note() { NOTE+=("$1"); echo "  NOTE    $1"; }
 step() { echo ""; echo "== $1"; }
 
@@ -73,7 +78,8 @@ UV_PATH="$(locate_tool uv || true)"
 if command -v uv >/dev/null 2>&1; then
   ok "uv $(uv --version 2>&1 | awk '{print $2}')"
 elif [ -n "$UV_PATH" ]; then
-  bad "uv IS installed, but your terminal cannot see it (PATH problem)"
+  bad "uv IS installed, but your terminal cannot see it (PATH problem)" \
+      "export PATH=\"\$PATH:$(dirname "$UV_PATH")\""
   echo ""
   echo "  Found it here:  $UV_PATH"
   echo "  Do NOT install it again. Add its folder to PATH instead:"
@@ -96,7 +102,7 @@ step "2. Project packages"
 if uv sync 2>&1 | tail -3; then
   ok "packages installed and matching uv.lock"
 else
-  bad "uv sync failed, read the error above"
+  bad "uv sync failed, read the error above" "uv sync"
 fi
 
 # -------------------------------------------------------------- 3. gh CLI
@@ -108,7 +114,8 @@ command -v gh >/dev/null 2>&1 && GH_ON_PATH=yes
 if [ "$GH_ON_PATH" = yes ]; then
   ok "gh $(gh --version 2>&1 | head -1 | awk '{print $3}')"
 elif [ -n "$GH_PATH" ]; then
-  bad "gh IS installed, but your terminal cannot see it (PATH problem)"
+  bad "gh IS installed, but your terminal cannot see it (PATH problem)" \
+      "export PATH=\"\$PATH:$(dirname "$GH_PATH")\""
   echo ""
   echo "    Found it here:  $GH_PATH"
   echo "    Version:        $("$GH_PATH" --version 2>&1 | head -1 | awk '{print $3}')"
@@ -123,7 +130,8 @@ elif [ -n "$GH_PATH" ]; then
   echo "    Or just for right now, in this Git Bash window:"
   echo "      export PATH=\"\$PATH:$(dirname "$GH_PATH")\""
 else
-  bad "gh is genuinely not installed (not on PATH, not in the usual folders)"
+  bad "gh is genuinely not installed (not on PATH, not in the usual folders)" \
+      "winget install --id GitHub.cli"
   echo "    Fix:  winget install --id GitHub.cli    then reopen the terminal"
 fi
 
@@ -132,7 +140,7 @@ if [ "$GH_ON_PATH" = yes ]; then
   if gh auth status >/dev/null 2>&1; then
     ok "gh is logged in"
   else
-    bad "gh is installed but NOT logged in"
+    bad "gh is installed but NOT logged in" "gh auth login"
     echo "    Fix:  gh auth login      (choose GitHub.com, HTTPS, browser)"
     echo "    Until you do this you cannot open a PR, and pushed work stays invisible."
     echo "    That is exactly how three finished branches sat unseen for three days."
@@ -170,7 +178,7 @@ step "6. Proving it actually works (not just installed)"
 if uv run ruff check . >/dev/null 2>&1; then
   ok "lint clean"
 else
-  bad "lint failing, run: uv run ruff check ."
+  bad "lint failing" "uv run ruff check ."
 fi
 # Judge the run by its EXIT CODE, never by the last line of output. With -q
 # the last line is the progress dots, so a green run reads as a failure. This
@@ -181,7 +189,7 @@ SUMMARY="$(printf '%s\n' "$TESTOUT" | grep -E '[0-9]+ (passed|failed|error)' | t
 if [ "$TESTRC" -eq 0 ]; then
   ok "tests pass (${SUMMARY:-exit 0})"
 else
-  bad "tests failing (${SUMMARY:-exit $TESTRC}), run: uv run pytest"
+  bad "tests failing (${SUMMARY:-exit $TESTRC})" "uv run pytest"
 fi
 
 # --------------------------------------------------- 7. optional code graph
@@ -211,9 +219,26 @@ echo " Notes   : ${#NOTE[@]}"
 if [ "${#FAIL[@]}" -gt 0 ]; then
   echo ""
   echo " Fix these before you start:"
-  for f in "${FAIL[@]}"; do echo "   - $f"; done
+  i=0
+  while [ "$i" -lt "${#FAIL[@]}" ]; do
+    echo ""
+    echo "   [$((i+1))] ${FAIL[$i]}"
+    if [ -n "${FIX[$i]}" ]; then
+      echo "       RUN THIS:"
+      printf '         %s\n' "${FIX[$i]}"
+    fi
+    i=$((i+1))
+  done
   echo ""
-  echo " Re-run this script after fixing:  bash scripts/setup-dev.sh"
+  echo " Run the fix above, then run this script again:"
+  echo "   bash scripts/setup-dev.sh"
+  echo ""
+  echo " Two notes so you do not undo your own fix:"
+  echo "   - An 'export PATH=...' fix lasts only in THIS terminal window."
+  echo "     Do NOT close it. Scroll up to the matching step for the"
+  echo "     permanent version if you want it to stick for good."
+  echo "   - An 'install' fix is the opposite: close and reopen the terminal"
+  echo "     afterwards, or the new program stays invisible."
   exit 1
 fi
 echo ""
