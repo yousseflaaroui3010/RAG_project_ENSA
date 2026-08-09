@@ -73,6 +73,23 @@ class Settings(BaseSettings):
     # 500 MB PDF never lands in memory whole.
     hash_read_chunk_bytes: int = 1024 * 1024
 
+    # --- Conversion ladder (ST-13, ADR-07, PRD F-02) ---
+    # Minimum non-whitespace characters a converted document must yield
+    # before Sync accepts it as having a readable text layer. Below this it
+    # is reported Skipped, which is the binding V1 behaviour for a scanned
+    # PDF (PRD F-16: "reported as Skipped with the reason stated").
+    # Default 1 = "any real character at all", the strictly honest reading;
+    # raise it only if scanner junk (stray page numbers on image-only pages)
+    # starts passing as a text layer on a real corpus.
+    conversion_min_text_chars: int = 1
+    # Codec for the TXT / MD passthrough rung. "utf-8-sig" reads plain UTF-8
+    # unchanged AND strips the byte-order mark Windows editors prepend, which
+    # would otherwise become an invisible first character of the first
+    # heading and break the chunker's heading match (architecture §7.5).
+    # Decoding is strict on purpose: a file that is not this encoding is
+    # reported Failed rather than silently mojibaked into the index.
+    text_file_encoding: str = "utf-8-sig"
+
     # --- Store paths (architecture §7.5, LD-06 data locality) ---
     # All under data/, git-ignored, operator-controlled disk.
     qdrant_storage_path: str = "data/qdrant/"

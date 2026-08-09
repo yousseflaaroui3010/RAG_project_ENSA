@@ -1,10 +1,40 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: c67e0e5 on main (journal + guard.sh reconcile, PR #15).
-Updated: 2026-08-01 by Phase 3 orchestrator
+Last verified commit: fea733c on main (CR-02 Part B, the UI dependency swap,
+PR #13). Reached main via PR #17 (hook repair) on top of c67e0e5.
+Updated: 2026-08-09 by Phase 3 orchestrator
 
 ## Now (the one task in flight)
-- Nothing in flight. ST-12 MERGED as 1862a58 (PR #14, squash).
+- ST-13 Conversion ladder, on branch `feat/S1-ST-13-conversion`. Code
+  complete, NOT reviewed, NOT merged. `uv run ruff check .` clean,
+  `uv run pytest -q` 130 passed (93 from main + 37 new). New
+  `conversion.py`: PDF via pymupdf4llm, DOCX via markitdown, TXT/MD
+  passthrough, returning CONVERTED / FAILED / SKIPPED with a
+  plain-language reason per PRD F-02 and section 11.
+  All three exit-gate items demonstrated on a mixed corpus: the fixture
+  corpus converts with headings and real page counts, a corrupted PDF
+  reports Failed, a scanned PDF reports Skipped WITH the reason.
+  26 mutations injected one at a time, every one turned the suite red.
+  Three findings worth carrying forward, all from probing the libraries
+  rather than trusting their docs:
+  (a) a password-protected PDF OPENS fine in pymupdf and even answers
+      `page_count`; only `needs_pass` tells the truth, and without that
+      check pymupdf4llm dies on an undeclared TypeError mid-batch;
+  (b) markitdown does NOT raise on a .docx it cannot parse as Word -- it
+      falls through to another converter and returns the result as a
+      SUCCESS. A corrupted .docx came back as its own raw bytes. That is
+      the worst failure mode in the module, because nothing announces it,
+      and it is why the DOCX rung validates the OOXML package itself;
+  (c) `pymupdf.FileNotFoundError` SHADOWS the builtin and subclasses
+      RuntimeError, so `except OSError` never catches a missing PDF.
+  And two the mutation/self-review split is worth remembering for:
+  (d) mutation testing found a redundant `is_zipfile` pre-check by
+      SURVIVING -- a mutation nothing catches can mean dead code, not a
+      vacuous test. Read the survivor before blaming the test;
+  (e) self-review after green found a `DocumentSkippedError` class that
+      nothing raised. Mutation testing structurally cannot see a branch
+      no code reaches; only reading the diff finds those.
+- Previous: ST-12 MERGED as 1862a58 (PR #14, squash).
 - CORRECTION, and the reason this file was stale: an earlier entry here said
   ST-12 was "NOT reviewed, NOT merged" while 1862a58 was already on main. It
   shipped WITHOUT the reviewer pass the Next queue was explicitly waiting on.
@@ -20,27 +50,45 @@ Updated: 2026-08-01 by Phase 3 orchestrator
   "15 db + 34 workspaces", was miscounted; the 51 total was right).
 - Whole suite on main: ruff clean, 93 passed (2 config + 19 db + 32
   workspaces + 40 change detection). CI `verify` green on PRs #14 and #15.
-- What does NOT exist yet: any UI, any conversion, any chunking, any
-  embeddings, any retrieval, any sync engine. ST-12 decides what needs
-  ingesting but nothing consumes that decision yet -- `detect_changes` has
-  no caller until ST-17.
+  On this ST-13 branch, with main merged in: 130 passed.
+- CR-02 Part B landed on main (PR #13, fea733c) while ST-13 was in flight:
+  the UI dependency is now `jinja2` server-rendered templates, NOT gradio,
+  and a new signed spec `docs/phase2/Sanad_UX_Spec_v1.0.md` joined the
+  write-locked pack. It touches no ingestion code -- ST-13 verified clean
+  against it (`grep -rn gradio` over conversion.py, change_detection.py and
+  config.py finds nothing) -- but every UI story is now built on a
+  different base than the original BUILD-PLAN assumed. Read docs/build/CR-02.md
+  before starting one.
+- What does NOT exist yet: any UI, any chunking, any embeddings, any
+  retrieval, any sync engine. ST-12 decides what needs ingesting and ST-13
+  can now convert it, but the two are still not wired together: nothing
+  calls `detect_changes` and nothing calls `convert_file` until ST-17.
+  Conversion writes no registry row, no chunk and no sync_item -- it reads
+  bytes and returns text, deliberately, so the ladder is testable with no
+  database and no vector store in existence.
 
 ## Next (ordered queue, top 3 only)
-1. ST-13 Conversion ladder PDF/DOCX/TXT/MD. UNBLOCKED, and the human's
-   chosen next task: on 2026-08-01 they called a halt to hook work and asked
-   to get back to building. Do this before the two items below.
+1. Review + merge ST-13 (`feat/S1-ST-13-conversion`, pushed, main merged in).
+   The reviewer pass is the one step ST-12 skipped, and ST-10, ST-11 and
+   ST-12 EACH had a later pass find a real defect while the suite was green.
+   Building it was the human's chosen next task: on 2026-08-01 they called a
+   halt to hook work and asked to get back to building.
 2. Post-hoc reviewer pass on ST-12 (1862a58), which merged without one.
    Deferred by the human, not forgotten. Owner MB by agreement 2026-07-28,
    a deliberate deviation: BUILD-PLAN line 60 assigns ST-12 to YL.
 3. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR, a
    failing test blocks, INTENT check, dup gate, gitleaks). Almost certainly a
    confirm-and-close, not work. Verify against the story's exit criteria.
+Then ST-14 parent/child chunking, which is the first consumer of the
+markdown headings ST-13 works so hard to preserve.
 
 ## Data-layer follow-ups (do not lose these)
 Carried from ST-10, plus two the ST-11 reviewer surfaced. 3 and 4 were CLOSED
 by ST-11, 5 and 7 by ST-12; all kept here so the closures stay auditable.
-1, 2 and 6 remain OPEN and now have no story assigned -- fold them into
-ST-13 (the next story that touches the data layer) or raise them as a chore.
+1, 2 and 6 remain OPEN and have no story assigned. ST-13 did NOT fold them
+in as this line once suggested: it touches no SQL and no db/repo.py, so
+they would have been unreviewable drive-by edits in its diff. They need
+their own `chore/` branch, now together with 8.
 
 1. OPEN. db/repo.py - `init_db` splits schema.sql on `;` after stripping
    full-line comments. Verified safe for the current schema (no triggers, no
@@ -79,6 +127,16 @@ ST-13 (the next story that touches the data layer) or raise them as a chore.
    was being ignored entirely. It now asserts a ceiling as well. Generalize
    the lesson: when a mutation restores a DEFAULT rather than removing
    behaviour, a one-sided bound cannot see it.
+8. OPEN, new from ST-13, and NOT a data-layer item -- filed here so it is
+   not lost. `.env.example` has drifted from `config.py`: it documents the
+   model, embedding, agent, chunking, store-path and server settings but
+   NOT `supported_document_extensions`, `hash_read_chunk_bytes`,
+   `sqlite_busy_timeout_seconds`, or the four ST-11 workspace-validation
+   limits. ST-13 added its own two (`CONVERSION_MIN_TEXT_CHARS`,
+   `TEXT_FILE_ENCODING`) and deliberately did NOT backfill the others:
+   that is an unrelated drive-by in a diff a reviewer is grading against
+   one story's exit gate (scoped boy-scout rule). One `chore/` branch
+   closes it, and it is a good candidate to fold in with 1, 2 and 6.
 
 ## Blockers / waiting on human
 - SAFETY SYSTEM: critical half FIXED 2026-08-01, remainder is low-priority
@@ -155,6 +213,23 @@ ST-13 (the next story that touches the data layer) or raise them as a chore.
   still stands.
 
 ## Done this week
+- ST-13 Conversion ladder. ON BRANCH, not merged -- see Now for detail.
+  `conversion.py` implements ADR-07 rung by rung and returns one of three
+  outcomes per file with a plain-language reason. The design rule it is
+  built on: `convert_file` NEVER raises for a bad document, because PRD
+  F-02 criterion 3 says one broken file costs one row and the batch
+  finishes. A caller that must wrap it in try/except to survive a real
+  folder has the criterion backwards.
+  37 tests, 93 -> 130, no converter mocked and no binary fixture
+  committed: real PDFs (including a real AES-256 encrypted one) come from
+  pymupdf, a real OOXML package from stdlib `zipfile`. That mattered --
+  every one of the three library traps above was found by RUNNING the
+  libraries against hostile input, and none of them is in a doc page.
+  Also worth keeping: two of the module's own defects were found by the
+  two different techniques, and neither technique could have found the
+  other's. A surviving mutation meant dead code (the redundant
+  `is_zipfile`), and reading the diff after green found a class nothing
+  raised. Run both.
 - ST-12 Content hashing + change detection. MERGED, PR #14 (1862a58),
   but NOT reviewed before merge -- see the correction under Now. New
   `change_detection.py` implements the architecture §5.1 hash-vs-registry
