@@ -49,3 +49,7 @@ venv/
 Thumbs.db
 .idea/
 .vscode/
+
+# --- Local backups and archives (never tracked) ---
+*.bak
+*.zip
