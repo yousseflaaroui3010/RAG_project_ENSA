@@ -53,3 +53,38 @@ Thumbs.db
 # --- Local backups and archives (never tracked) ---
 *.bak
 *.zip
+*.bak
+*.retired
+.claude.json
+**/node_modules/
+**/.env
+**/.env.*
+*.key
+*.pem
+settings.local.json
+evals/fixture/node_modules/
+# --- Claude harness installer payload (NOT Sanad source) ---
+# Unpacked here by claude-harness.zip; install.ps1 copies it to ~/.claude.
+# It must never be committed: it is a personal, cross-project control plane,
+# not part of this product. Mirrored in pyproject [tool.ruff] extend-exclude
+# and in .cbmignore; if you add an entry, add it in all three.
+/agents/
+/commands/
+/hooks/
+/rules/
+/rules-scoped/
+/skills/
+/lessons/
+/evals/
+/history/
+/settings.json
+/install.ps1
+
+# --- Local code-graph artifact (regenerated, not shared) ---
+.codebase-memory/
+
+# --- Stray duplicates from botched extracts ---
+# Windows drops these when an archive is unpacked over existing files.
+# 'README copy.md' is the harness's own README, not Sanad's.
+* copy
+* copy.*
