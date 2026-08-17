@@ -50,6 +50,15 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# The Claude harness installer unpacks its payload into this folder before
+# copying it to ~/.claude. It is not Sanad source, it is not ours to lint,
+# and its sample scripts fail our line-length rule. Excluded so `ruff check .`
+# reports on Sanad only. Same list as .gitignore and .cbmignore; if you add
+# one, add all three.
+extend-exclude = [
+    "agents", "commands", "hooks", "rules", "rules-scoped",
+    "skills", "lessons", "evals", "history",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
