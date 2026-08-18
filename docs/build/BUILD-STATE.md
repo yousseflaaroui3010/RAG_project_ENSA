@@ -1,51 +1,20 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: b75b584 on main (ST-13 conversion ladder, PR #18).
-Updated: 2026-08-09 by Phase 3 orchestrator
+Last verified commit: 275886f on main (harness migration completed, PR #25).
+Updated: 2026-08-18 by Phase 3 orchestrator, catching up three merges of
+journal drift: ST-14, ST-15 and the harness migration all landed on main
+without a BUILD-STATE update. Verification claims below for those three
+are drawn from the commit bodies of 711f7e0, 8e5a734 and 275886f (each
+records ruff/pytest output at merge time); this session did not
+independently re-run ST-14/ST-15's suites AT their merge commits. It did
+independently re-run `uv run ruff check .` and `uv run pytest -q` on a
+branch cut from 275886f (chore/separate-harness-payload, after moving the
+harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
+275886f's own commit body claims, so the count is corroborated, not just
+copied.
 
-## Now (the one task in flight)
-- ST-14 Parent/child chunking, on branch `feat/S1-ST-14-chunking`. Code
-  complete, NOT reviewed, NOT merged. `uv run ruff check .` clean,
-  `uv run pytest -q` 173 passed (130 from main + 43 new). New
-  `chunking.py` implements architecture §7.5: sections cut on H1-H3
-  headings, merged below `parent_merge_below_chars`, split above
-  `parent_split_above_chars`, then each parent windowed into
-  `chunk_child_size_chars` children sharing `chunk_child_overlap_chars`.
-  Needed no new config -- ST-02 pinned all four knobs on day one.
-  Exit gate demonstrated: boundary asserted on BOTH sides at 2,000
-  (1,999 merges / 2,000 stands alone) and at 4,000 (4,000 not split /
-  4,001 split), and the 100-character overlap proven as an equality on
-  the shared TEXT, not on a length.
-  27 mutations injected one at a time, then 5 more after the fixes.
-  Findings worth carrying forward:
-  (a) one survivor, `<=` -> `<` on the split threshold, turned out to be
-      an EQUIVALENT MUTANT, not a vacuous test: at exactly the threshold
-      the early return and the paragraph packer produce byte-identical
-      output. Proven, not assumed, by running both paths. That makes the
-      PACKER the thing guaranteeing no text is lost, so it got its own
-      byte-exact round-trip test;
-  (b) that round-trip test failed to catch a "strip every piece" mutation
-      on its first version, because the blank-line run it relied on landed
-      mid-piece by luck. A whitespace bug that only shows at a boundary
-      needs a test that PUTS it on the boundary -- rewritten at a small
-      non-default limit so the boundaries are arithmetic;
-  (c) and it still could not see a mutation rejoining packed paragraphs
-      with a single newline, because no surviving piece held two
-      paragraphs. Needed a second, differently-shaped test.
-  Self-review after green found the real defects, as on every story so far:
-  (d) `_windows` guarded its own infinite loop from the start while
-      `_split_oversized` had the IDENTICAL loop with no guard at all --
-      `parent_split_above_chars <= 0` hangs forever (proven, killed at
-      10s). Two sibling settings fail SILENTLY, which is worse than a
-      hang: a non-positive child size indexes a document with zero
-      children (unsearchable, looks like a clean sync), and a NEGATIVE
-      overlap leaves gaps so a passage sits in the parent but is never
-      embedded -- the only symptom is a refusal about text Sanad holds.
-      All four now refused up front by `_validate_settings`;
-  (e) the merged-parent label separator was " - ", which on a REAL
-      document rendered "Article 2 - Duree - Article 4 - Rupture". Every
-      test heading had been a tidy "Article 1". Running the thing found
-      what 39 tests could not.
+## Now
+Nothing in flight. Next up is ST-16 (see Next below).
 - Previous: ST-13 Conversion ladder MERGED as b75b584 (PR #18). The
   earlier claim in this file that it was "on branch, NOT reviewed, NOT
   merged" was stale; it was reviewed and merged. Third time this file has
@@ -99,13 +68,16 @@ Updated: 2026-08-09 by Phase 3 orchestrator
   config.py finds nothing) -- but every UI story is now built on a
   different base than the original BUILD-PLAN assumed. Read docs/build/CR-02.md
   before starting one.
-- What does NOT exist yet: any UI, any embeddings, any retrieval, any sync
-  engine. Three ingestion stages now exist and NONE of them are wired to
-  each other: ST-12 decides what needs ingesting, ST-13 converts it, ST-14
-  splits it, and nothing calls any of them until ST-17. That is deliberate
-  and is what has kept each one unit-testable with no database, no
-  embedder and no vector store in existence. `chunking.py` writes no
-  parent JSON and no vector: §7.5's parent store is ST-16.
+- What does NOT exist yet: any UI, any retrieval, any vector store, any
+  sync engine, and `app.py` does not exist so Sanad cannot be launched.
+  Four ingestion/indexing stages now exist and NONE of them are wired to
+  each other: ST-12 decides what needs ingesting, ST-13 converts it,
+  ST-14 splits it, ST-15 embeds the children -- and nothing calls any of
+  them until ST-17. That is deliberate and is what has kept each one
+  unit-testable with no database, no vector store in existence.
+  `chunking.py` writes no parent JSON and no vector, `embeddings.py`
+  writes nothing anywhere: §7.5's parent store and the Qdrant write are
+  both ST-16.
 - FIXED 2026-08-09, was the sharpest thing the rubric review found:
   `chunk_document` was NOT idempotent. Parent ids came from
   `repo.new_id()`, so the same document chunked twice yielded a disjoint
@@ -143,24 +115,30 @@ Measured:   0.03s on 2026-08-09 -> 600 parents, 3,600 children
 Read honestly: this says chunking is nowhere near the G5 budget of 10
 minutes for 200 pages. It says NOTHING about the budget itself, because
 embeddings (ST-15) are the expensive stage and have not been written.
-- Carried forward for ST-15: child text from `chunking.py` is RAW. The
-  mandatory `passage: ` prefix (CLAUDE.md hard rule, unit-test enforced)
-  belongs to the embeddings module and must be added exactly ONCE there.
-  A test in test_chunking.py asserts chunking never adds it, so the two
-  halves of that rule cannot both think the other did it.
+- CLOSED by ST-15 (8e5a734). Child text from `chunking.py` is RAW; the
+  mandatory `passage: `/`query: ` prefixes now live behind `embeddings.py`'s
+  one private encoder seam, added exactly once. See ST-15's Done entry
+  for the review finding this almost slipped through anyway: a version of
+  the prefix tests that passed even with the config prefix emptied out.
 
 ## Next (ordered queue, top 3 only)
-1. Review + merge ST-14 (`feat/S1-ST-14-chunking`). Every story so far,
-   ST-10 through ST-13, had a review or a self-review find a real defect
-   while the suite was green; ST-14 already found five that way.
+1. ST-16 Vector store (per-workspace Qdrant collections) + parent JSON
+   store (owner YL per BUILD-PLAN). Depends on ST-14 and ST-15, both now
+   merged, so this is unblocked. BUILD-PLAN exit gate: an isolation test
+   (an HR-workspace query never returns manuals-workspace chunks) and
+   parents resolving by id. Carries forward from ST-14's Done entry: a
+   document that shrinks from ten parents to six leaves derived ids 6..9
+   behind, and ST-16/ST-17 must delete the parent JSON and its vectors as
+   ONE unit or a search hit can resolve to a parent file that no longer
+   exists.
 2. Post-hoc reviewer pass on ST-12 (1862a58), which merged without one.
    Deferred by the human, not forgotten. Owner MB by agreement 2026-07-28,
    a deliberate deviation: BUILD-PLAN line 60 assigns ST-12 to YL.
 3. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR, a
    failing test blocks, INTENT check, dup gate, gitleaks). Almost certainly a
    confirm-and-close, not work. Verify against the story's exit criteria.
-Then ST-15 embeddings (E5 with the mandatory prefixes), the first consumer
-of the children ST-14 produces.
+After ST-16: ST-17 sync engine end-to-end (depends on ST-12, ST-13, ST-16),
+the first story that wires the four existing ingestion modules together.
 
 ## Data-layer follow-ups (do not lose these)
 Carried from ST-10, plus two the ST-11 reviewer surfaced. 3 and 4 were CLOSED
@@ -305,7 +283,57 @@ their own `chore/` branch, now together with 8.
   still stands.
 
 ## Done this week
-- ST-14 Parent/child chunking. ON BRANCH, not merged -- see Now for detail.
+- Harness migration completed. MERGED as 275886f (PR #25). Finished a
+  half-done move: the Claude harness installer zip had unpacked into the
+  repo root instead of a staging folder (./agents, ./commands, ./hooks,
+  ./rules, ./skills, ./evals), burying Sanad's ~770-node code graph under
+  5,637 nodes of vendored payload and failing ruff on 3 lines that were
+  never Sanad's. Payload ignored in three places kept in step
+  (.gitignore, ruff extend-exclude, new .cbmignore); old in-repo control
+  plane deleted (41 files: .claude/agents, .claude/hooks, .claude/rules,
+  .claude/skills, .claude/settings.json) since the control plane now
+  lives at the user level (`~/.claude`); CLAUDE.md corrected to stop
+  citing removed paths and to name the agents that actually exist
+  (architect/scout/verifier/coach). Per commit body: ruff clean (down
+  from 3 errors), 191 passed/1 skipped unchanged, graph rebuilt to 770
+  nodes/2,393 edges (down from 5,637) with zero skipped/parse-partial, CI
+  verify green. FOLLOW-UP found this session (2026-08-18): the payload
+  had regrown in the repo root again after this merge (a second
+  half-finished unpack), moved out to ~/claude-setup/ and the by-then-dead
+  ignore entries removed on chore/separate-harness-payload -- see that
+  branch's CHANGELOG-AI line. Graph re-verified at 769 nodes/2,392 edges
+  (one less than 275886f's 770/2,393, accounted for by .cbmignore's own
+  deletion removing one node).
+- ST-15 Embeddings with enforced passage/query prefixes. MERGED as
+  8e5a734. `embeddings.py` implements ADR-05's binding rule -- every
+  indexed chunk embedded with `passage: `, every query with `query: `,
+  because multilingual-e5-base needs both even for non-English text and
+  silently degrades retrieval quality if either is missing, with no error
+  raised. Built as one private encoder seam behind three public
+  functions so the rule cannot be bypassed. Independent review graded
+  7/10 and found three blocking defects, all fixed before merge:
+  (a) the prefix tests were self-referential -- they built the expected
+      prefixed string from the same `config.embedding_passage_prefix` the
+      code reads, so emptying that setting in config left every
+      assertion passing. This is the exact silent degradation ADR-05
+      exists to prevent, reproduced with a green suite. Fixed by pinning
+      expected prefixes as literals plus a separate test pinning config
+      against the model card;
+  (b) `load_model` was public and returned the raw encoder, so
+      `load_model().encode(text)` bypassed the seam entirely, making the
+      module's central claim false. Now private;
+  (c) `embed_passages("text")` embedded one vector per CHARACTER, because
+      a bare `str` satisfies `Sequence[str]`. Now raises.
+  Also added: empty-text errors carry the batch index (chunking keeps any
+  truthy window, including pure-whitespace ones); a vector-count check
+  protecting the child/vector alignment ST-16 will rely on; model cache
+  keyed on model name so it survives `get_settings.cache_clear()`.
+  191 passed and 1 skipped (up from 173 at branch point), skip is the
+  real-model test, opt-in via `SANAD_RUN_MODEL_TESTS=1`. All three fixes
+  mutation-proven: emptying the config prefix now fails 6 tests (was 0);
+  removing the code-side passage prefix fails 5, the query prefix fails
+  1. CI green in 54s.
+- ST-14 Parent/child chunking. MERGED as 711f7e0 (PR #20).
   `chunking.py` turns ST-13's markdown into §7.5 parents and children. The
   lesson worth keeping is about the two verification techniques and what
   each is blind to: mutation testing found nothing wrong with the module
@@ -315,6 +343,37 @@ their own `chore/` branch, now together with 8.
   unreadable citation label that 39 tests had agreed was fine. Three
   techniques, three disjoint sets of defects. Running the thing is not
   optional just because the suite is green.
+  27 mutations injected one at a time, then 5 more after the fixes, plus
+  boundary tests asserted on BOTH sides at 2,000 and 4,000 characters and
+  a 100-character overlap proven as an equality on the shared TEXT.
+  Findings worth carrying forward:
+  (a) one survivor, `<=` -> `<` on the split threshold, turned out to be
+      an EQUIVALENT MUTANT: at exactly the threshold the early return and
+      the paragraph packer produce byte-identical output, proven by
+      running both paths -- which makes the PACKER the thing guaranteeing
+      no text is lost, so it got its own byte-exact round-trip test;
+  (b) that round-trip test failed to catch a "strip every piece" mutation
+      on its first version, because the blank-line run it relied on
+      landed mid-piece by luck. Rewritten at a small non-default limit so
+      the boundaries are arithmetic, not luck;
+  (c) it still could not see a mutation rejoining packed paragraphs with a
+      single newline, needing a second, differently-shaped test.
+  Self-review after green found the real defects, as on every story so far:
+  (d) `_windows` guarded its own infinite loop from the start while
+      `_split_oversized` had the IDENTICAL loop with no guard --
+      `parent_split_above_chars <= 0` hangs forever (proven, killed at
+      10s). Two sibling settings failed SILENTLY, worse than a hang: a
+      non-positive child size indexes a document with zero children, and
+      a NEGATIVE overlap leaves gaps so a passage sits in the parent but
+      is never embedded. All four now refused up front by
+      `_validate_settings`;
+  (e) the merged-parent label separator was " - ", which on a REAL
+      document rendered "Article 2 - Duree - Article 4 - Rupture" --
+      unreadable as a range. Every test heading had been a tidy
+      "Article 1". Fixed to " ... ". Parent ids are also now DERIVED
+      (`uuid5` over source_file + position) rather than random, making
+      `chunk_document` idempotent and removing chunking.py's only
+      `db.repo` import.
 - ST-13 Conversion ladder. MERGED as b75b584 (PR #18).
   `conversion.py` implements ADR-07 rung by rung and returns one of three
   outcomes per file with a plain-language reason. The design rule it is
