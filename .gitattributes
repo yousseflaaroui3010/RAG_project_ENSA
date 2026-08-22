@@ -8,8 +8,8 @@
 # Caveat: union can leave a duplicate line if two branches append the same
 # entry. That is visible in review and trivial to delete, which is a far
 # cheaper failure than a hand-resolved conflict on every merge.
-docs/build/CHANGELOG-AI.md  merge=union
-docs/build/DECISIONS.md     merge=union
+docs/journal/CHANGELOG-AI.md  merge=union
+docs/journal/DECISIONS.md     merge=union
 
 # BUILD-STATE.md is deliberately NOT union. It is a mutable snapshot, not an
 # append-only log, so unioning it would interleave two contradictory pictures
