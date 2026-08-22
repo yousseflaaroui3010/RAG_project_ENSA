@@ -32,8 +32,32 @@ venv/
 # uv.lock IS committed on purpose (exact-version authority, ADR-10)
 # (anchored to repo root so they never swallow docs/journal/)
 
-# --- Claude Code local logs and markers (not source) ---
-.claude/logs/
+# --- Claude Code control plane: NOT part of this repository ---
+# The harness (agents, skills, hooks, rules, commands, settings) is tooling,
+# not Sanad. It was taken out of the repo across PRs #25, #28 and #29, came
+# back at project level in PR #31, and is now out again for good.
+#
+# Two reasons it does not belong here. It buried Sanad's own ~770-node code
+# graph under thousands of nodes of vendored payload and failed ruff on lines
+# that were never Sanad's; and a reviewer grading a story diff should never
+# have to page through harness churn to find the twenty lines that are the
+# actual change.
+#
+# CONSEQUENCE, stated plainly rather than discovered later: any local repair
+# to .claude/hooks/ now lives on ONE machine and is invisible to the other
+# teammate. Durable hook fixes belong in ~/.claude/hooks/, which is what every
+# project on a machine reads from.
+.claude/
+
+# MCP server wiring is machine-local for the same reason .claude/ is. On this
+# machine it has to name an absolute path to the 0.10.8 binary, because the
+# `codebase-memory-mcp` shim on PATH is a stale npm 0.10.5 and loses a version
+# race to the already-running server, so the tools never attach. That path
+# carries a username and a Windows-only layout; committing it hands the other
+# teammate a config that fails silently rather than loudly. The durable fix is
+# to update the global install so PATH resolves to the current binary, after
+# which no absolute path is needed here at all.
+.mcp.json
 
 # --- Agent worktrees (live git worktrees; never a tracked gitlink) ---
 .claude/worktrees/

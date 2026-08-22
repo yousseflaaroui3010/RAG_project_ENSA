@@ -197,6 +197,49 @@ their own `chore/` branch, now together with 8.
    closes it, and it is a good candidate to fold in with 1, 2 and 6.
 
 ## Blockers / waiting on human
+- HARNESS GAPS still open after `chore/harness-fit` (2026-08-22). All six are
+  HUMAN-ONLY: the permissions deny-list blocks `Edit(**/.claude/hooks/**)`,
+  `Edit(**/.claude/settings.json)` and `Edit(~/.claude/**)`, so no agent can
+  close any of them. That lock is correct and should stay; it is recorded here
+  so the gaps do not quietly become facts.
+    Owner:    a human (YL). Raised 2026-08-22.
+    Fallback: if still open on 2026-09-05, stop calling these fixed-in-progress
+              and accept them in writing as standing gaps.
+  1. `.claude/settings.json` still registers the CBM hooks as bare
+     extensionless paths (`~/.claude/hooks/cbm-session-reminder`). On Windows
+     that spawns a cmd shell which prints its banner and echoes the hook JSON
+     instead of running the script -- that is the `Microsoft Windows [Version
+     ...]` noise at the top of every session. They are also REDUNDANT: the
+     user-level settings already registers all of them correctly via
+     `cmd.exe /d /v:off /s /c '"...cbm-*.cmd"'`. Fix is deletion, not
+     rewriting: drop the `cbm-*` entry from all four SessionStart matchers and
+     from SubagentStart, and delete the whole `"matcher": "Grep|Glob"` group.
+  2. `~/.claude/hooks/` carries the SAME two defects fixed here in 368e3ea:
+     `gate.mjs` still has the unconditional npm early-exit, `config-guard.mjs`
+     still has zero `guardedPaths` references. Every OTHER project on this
+     machine therefore still has a dead Stop gate and no spec lock. Verified
+     by grep, not assumed.
+  3. Guard gap, found by tripping it: `config-guard.mjs`'s protected-path
+     regex is `/(^|[^\w.])\.claude([\/\\]|$)/i`, which requires `.claude` to be
+     followed by a slash or end-of-string. A bare `.claude` argument (as in
+     `git rm -r --cached .claude`) does NOT match and passes. That is how this
+     session's own untracking got through. Narrow but real.
+  4. Guard false-positive on READ-ONLY inspection, hit twice this session: any
+     command containing `>` counts as a write, so `diff -q a b >/dev/null` plus
+     a mention of `.claude` is blocked. Same shape as the old shell guard's
+     `WRITE_VERBS` bug. Diagnose with the Read/Grep tools, not shell.
+  5. `gitleaks` is NOT installed on this machine -- checked five install paths,
+     `Get-Command` and `winget list`, all negative. gate.yml step 4 therefore
+     CANNOT be run locally, so "the whole gate green before handing over a
+     push" is currently unachievable here. A proxy scan of the committed diff
+     for secret shapes came back clean, which is weaker and is labelled as
+     such. Install gitleaks or accept CI as the only place that step runs.
+  6. UNVERIFIED: the CBM MCP tools attaching. `.mcp.json` now names the 0.10.8
+     binary directly and is gitignored as machine-local, but no session has
+     started since, so the whole of this session ran with the MCP unavailable
+     and the graph driven through `codebase-memory-mcp cli` by hand. Next
+     session start settles it.
+
 - SAFETY SYSTEM: critical half FIXED 2026-08-01, remainder is low-priority
   debt. Full history so a future session does not re-litigate it.
 
@@ -283,6 +326,48 @@ their own `chore/` branch, now together with 8.
   still stands.
 
 ## Done this week
+- Harness repaired, branch `chore/harness-fit` (2026-08-22). The control
+  plane came BACK into the repo at project level (PR #31, `.claude/` now
+  git-tracked, 96 files) after PRs #25/#28/#29 spent four merges taking it
+  out. Whether it belongs in the repo is a HUMAN decision and is still open.
+  What is settled is that it was not enforcing anything. Three defects, each
+  found by firing the hooks rather than reading them:
+  (a) the Stop gate was a permanent no-op. `gate.mjs` hard-exited on a
+      missing package.json/node_modules BEFORE calling `checks()`, and
+      `checks()` returned [] without a package.json anyway. A Python/uv repo
+      could declare `uv run pytest` and it could never run: every turn ended
+      green having executed nothing. Proven by injecting a ruff violation
+      into a root module -- gate now exits 2, names the red check and writes
+      `.claude/gate-last-failure.log`; restored, it goes green again;
+  (b) `guardedPaths()` was exported by `_config.mjs` and imported by NO
+      hook, so `guardedPaths: ["docs/phase2/"]` was enforced NOWHERE. A
+      Write aimed at `Sanad_PRD_v1.0.md` passed all four PreToolUse hooks.
+      CLAUDE.md rule 4 calls that lock non-negotiable; it did not exist;
+  (c) `config-guard.mjs` inspected only `tool_input.command` AND was
+      registered on the `Bash` matcher alone, so every Write/Edit bypassed
+      it twice over. Now reads `file_path` and is registered on
+      `Write|Edit|MultiEdit|NotebookEdit` too.
+  Also fixed: the staleness scan could not see the flat root modules
+  (`sourceDirs` was `["db","tests"]`), so editing `chunking.py` left the
+  gate believing nothing had changed; `.venv`/`data`/`__pycache__` added to
+  the skip set; `settings.json` permissions were pnpm/npx-shaped for a repo
+  with no JS toolchain and are now uv-shaped, with `uv add`/`uv remove`
+  routed to `ask` per the core-law dependency rule.
+  CORRECTION worth keeping: the hook registrations were first reported as
+  duplicated 2-4x. They are not. The repeats are separate `matcher` groups
+  (startup/resume/clear/compact), which is correct design -- the duplicate
+  reading was an artifact of flattening the config across matchers.
+  VERIFIED live, not just by direct invocation: minutes after `settings.json`
+  was written the guard fired unprompted on a real tool call and blocked
+  `rm -f .claude/gate-last-failure.log` with exit 2. That was a correct
+  block on a legitimate cleanup, and it was NOT worked around -- the file
+  was unstaged with `git restore --staged` and added to `.gitignore`
+  instead. A guard you step around on its first real firing is a sign, not
+  a gate.
+  STILL UNVERIFIED: the SessionStart and SubagentStart hooks. Nothing has
+  started a session since the rewrite, so `session-map.mjs` and
+  `phase-router.mjs` remain unproven at the wiring level. Next session
+  start settles it.
 - Harness migration completed. MERGED as 275886f (PR #25). Finished a
   half-done move: the Claude harness installer zip had unpacked into the
   repo root instead of a staging folder (./agents, ./commands, ./hooks,
