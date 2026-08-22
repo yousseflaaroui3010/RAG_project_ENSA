@@ -7,7 +7,7 @@ inline SQL here (.claude/rules/backend.md).
 
 Single module, not a package: five verbs (create, rename, delete, list,
 get) plus a legal-flag toggle over one table is not enough surface to
-justify package-splitting yet (see docs/build/DECISIONS.md). Revisit if
+justify package-splitting yet (see docs/journal/DECISIONS.md). Revisit if
 ST-12+ adds enough workspace-adjacent logic to warrant sub-modules.
 
 PRD F-01 (docs/phase2/Sanad_PRD_v1.0.md):

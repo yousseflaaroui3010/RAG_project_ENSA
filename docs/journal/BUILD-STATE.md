@@ -66,7 +66,7 @@ Nothing in flight. Next up is ST-16 (see Next below).
   write-locked pack. It touches no ingestion code -- ST-13 verified clean
   against it (`grep -rn gradio` over conversion.py, change_detection.py and
   config.py finds nothing) -- but every UI story is now built on a
-  different base than the original BUILD-PLAN assumed. Read docs/build/CR-02.md
+  different base than the original BUILD-PLAN assumed. Read docs/journal/CR-02.md
   before starting one.
 - What does NOT exist yet: any UI, any retrieval, any vector store, any
   sync engine, and `app.py` does not exist so Sanad cannot be launched.

@@ -30,7 +30,7 @@ venv/
 /dist/
 /build/
 # uv.lock IS committed on purpose (exact-version authority, ADR-10)
-# (anchored to repo root so they never swallow docs/build/)
+# (anchored to repo root so they never swallow docs/journal/)
 
 # --- Claude Code local logs and markers (not source) ---
 .claude/logs/
@@ -39,7 +39,7 @@ venv/
 .claude/worktrees/
 
 # --- Per-agent scratch memory (machine-local, unreviewed, goes stale) ---
-# Durable facts belong in docs/build/BUILD-STATE.md and DECISIONS.md, which
+# Durable facts belong in docs/journal/BUILD-STATE.md and DECISIONS.md, which
 # are reviewed and versioned. Committing agent memory would duplicate those
 # and let an unreviewed copy contradict them.
 .claude/agent-memory/
