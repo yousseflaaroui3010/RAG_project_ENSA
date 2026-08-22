@@ -197,6 +197,49 @@ their own `chore/` branch, now together with 8.
    closes it, and it is a good candidate to fold in with 1, 2 and 6.
 
 ## Blockers / waiting on human
+- HARNESS GAPS still open after `chore/harness-fit` (2026-08-22). All six are
+  HUMAN-ONLY: the permissions deny-list blocks `Edit(**/.claude/hooks/**)`,
+  `Edit(**/.claude/settings.json)` and `Edit(~/.claude/**)`, so no agent can
+  close any of them. That lock is correct and should stay; it is recorded here
+  so the gaps do not quietly become facts.
+    Owner:    a human (YL). Raised 2026-08-22.
+    Fallback: if still open on 2026-09-05, stop calling these fixed-in-progress
+              and accept them in writing as standing gaps.
+  1. `.claude/settings.json` still registers the CBM hooks as bare
+     extensionless paths (`~/.claude/hooks/cbm-session-reminder`). On Windows
+     that spawns a cmd shell which prints its banner and echoes the hook JSON
+     instead of running the script -- that is the `Microsoft Windows [Version
+     ...]` noise at the top of every session. They are also REDUNDANT: the
+     user-level settings already registers all of them correctly via
+     `cmd.exe /d /v:off /s /c '"...cbm-*.cmd"'`. Fix is deletion, not
+     rewriting: drop the `cbm-*` entry from all four SessionStart matchers and
+     from SubagentStart, and delete the whole `"matcher": "Grep|Glob"` group.
+  2. `~/.claude/hooks/` carries the SAME two defects fixed here in 368e3ea:
+     `gate.mjs` still has the unconditional npm early-exit, `config-guard.mjs`
+     still has zero `guardedPaths` references. Every OTHER project on this
+     machine therefore still has a dead Stop gate and no spec lock. Verified
+     by grep, not assumed.
+  3. Guard gap, found by tripping it: `config-guard.mjs`'s protected-path
+     regex is `/(^|[^\w.])\.claude([\/\\]|$)/i`, which requires `.claude` to be
+     followed by a slash or end-of-string. A bare `.claude` argument (as in
+     `git rm -r --cached .claude`) does NOT match and passes. That is how this
+     session's own untracking got through. Narrow but real.
+  4. Guard false-positive on READ-ONLY inspection, hit twice this session: any
+     command containing `>` counts as a write, so `diff -q a b >/dev/null` plus
+     a mention of `.claude` is blocked. Same shape as the old shell guard's
+     `WRITE_VERBS` bug. Diagnose with the Read/Grep tools, not shell.
+  5. `gitleaks` is NOT installed on this machine -- checked five install paths,
+     `Get-Command` and `winget list`, all negative. gate.yml step 4 therefore
+     CANNOT be run locally, so "the whole gate green before handing over a
+     push" is currently unachievable here. A proxy scan of the committed diff
+     for secret shapes came back clean, which is weaker and is labelled as
+     such. Install gitleaks or accept CI as the only place that step runs.
+  6. UNVERIFIED: the CBM MCP tools attaching. `.mcp.json` now names the 0.10.8
+     binary directly and is gitignored as machine-local, but no session has
+     started since, so the whole of this session ran with the MCP unavailable
+     and the graph driven through `codebase-memory-mcp cli` by hand. Next
+     session start settles it.
+
 - SAFETY SYSTEM: critical half FIXED 2026-08-01, remainder is low-priority
   debt. Full history so a future session does not re-litigate it.
 

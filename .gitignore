@@ -49,6 +49,16 @@ venv/
 # project on a machine reads from.
 .claude/
 
+# MCP server wiring is machine-local for the same reason .claude/ is. On this
+# machine it has to name an absolute path to the 0.10.8 binary, because the
+# `codebase-memory-mcp` shim on PATH is a stale npm 0.10.5 and loses a version
+# race to the already-running server, so the tools never attach. That path
+# carries a username and a Windows-only layout; committing it hands the other
+# teammate a config that fails silently rather than loudly. The durable fix is
+# to update the global install so PATH resolves to the current binary, after
+# which no absolute path is needed here at all.
+.mcp.json
+
 # --- Agent worktrees (live git worktrees; never a tracked gitlink) ---
 .claude/worktrees/
 
