@@ -32,16 +32,33 @@ const SOURCE_EXT = new Set([
   ".vue", ".svelte", ".py", ".go", ".rs", ".rb", ".java", ".kt", ".cs", ".php", ".sql",
 ]);
 
+// Directories the staleness scan must never walk into. `.venv` alone holds
+// tens of thousands of files and would make this scan cost more than the
+// checks it is trying to avoid running, while `data/` is a derived store
+// whose churn says nothing about whether the source changed.
+const SKIP_DIRS = new Set([
+  "node_modules", ".git", "dist", "build",
+  ".venv", "venv", "env", "__pycache__",
+  ".pytest_cache", ".ruff_cache", ".mypy_cache",
+  ".claude", "data", ".ipynb_checkpoints", "site-packages",
+]);
+
 const input = parseStdin();
 
 // LOOP GUARD 1.
 if (input.stop_hook_active === true) process.exit(0);
 
-if (!existsSync(join(ROOT, "package.json"))) process.exit(0);
-if (!existsSync(join(ROOT, "node_modules"))) process.exit(0);
-
 const CHECKS = checks();
 if (CHECKS.length === 0) process.exit(0);
+
+// Only an npm-SHAPED check needs npm's artifacts. Demanding package.json and
+// node_modules unconditionally is what made this gate a silent no-op on every
+// project that is not a Node project: it exited right here, before running a
+// single check, and the turn ended reporting green. A gate that has never
+// executed is untested, not passing.
+const needsNode = CHECKS.some((c) => /^\s*(npm|pnpm|yarn|bun)\b/.test(c.cmd));
+if (needsNode && !existsSync(join(ROOT, "package.json"))) process.exit(0);
+if (needsNode && !existsSync(join(ROOT, "node_modules"))) process.exit(0);
 
 function newestSourceMtime(dir, acc = 0) {
   let entries;
@@ -51,7 +68,7 @@ function newestSourceMtime(dir, acc = 0) {
     return acc;
   }
   for (const e of entries) {
-    if (e.name === "node_modules" || e.name === ".git" || e.name === "dist" || e.name === "build") continue;
+    if (SKIP_DIRS.has(e.name)) continue;
     const p = join(dir, e.name);
     if (e.isDirectory()) acc = newestSourceMtime(p, acc);
     else if (SOURCE_EXT.has(extname(e.name))) {
@@ -65,7 +82,30 @@ function newestSourceMtime(dir, acc = 0) {
   return acc;
 }
 
-let newest = 0;
+// Source files sitting directly in the repository root, which no sourceDirs
+// entry can name. This project keeps its modules flat on purpose
+// (chunking.py, embeddings.py, workspaces.py, ...), so without this the
+// staleness check never saw the code at all: editing the main module left
+// `newest` untouched and the gate skipped itself as "nothing changed since
+// the last green run" — green, having verified nothing.
+function newestRootFileMtime() {
+  let acc = 0;
+  try {
+    for (const e of readdirSync(ROOT, { withFileTypes: true })) {
+      if (!e.isFile() || !SOURCE_EXT.has(extname(e.name))) continue;
+      try {
+        acc = Math.max(acc, statSync(join(ROOT, e.name)).mtimeMs);
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return acc;
+}
+
+let newest = newestRootFileMtime();
 for (const d of sourceDirs()) newest = Math.max(newest, newestSourceMtime(join(ROOT, d)));
 
 const key = ROOT.replace(/[^\w]/g, "_").slice(-60);

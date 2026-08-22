@@ -35,6 +35,10 @@ venv/
 # --- Claude Code local logs and markers (not source) ---
 .claude/logs/
 
+# Transient evidence written by the Stop gate when a check goes red. Local to
+# one machine and one moment; the durable record is docs/journal/.
+.claude/gate-last-failure.log
+
 # --- Agent worktrees (live git worktrees; never a tracked gitlink) ---
 .claude/worktrees/
 

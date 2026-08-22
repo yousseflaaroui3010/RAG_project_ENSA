@@ -283,6 +283,48 @@ their own `chore/` branch, now together with 8.
   still stands.
 
 ## Done this week
+- Harness repaired, branch `chore/harness-fit` (2026-08-22). The control
+  plane came BACK into the repo at project level (PR #31, `.claude/` now
+  git-tracked, 96 files) after PRs #25/#28/#29 spent four merges taking it
+  out. Whether it belongs in the repo is a HUMAN decision and is still open.
+  What is settled is that it was not enforcing anything. Three defects, each
+  found by firing the hooks rather than reading them:
+  (a) the Stop gate was a permanent no-op. `gate.mjs` hard-exited on a
+      missing package.json/node_modules BEFORE calling `checks()`, and
+      `checks()` returned [] without a package.json anyway. A Python/uv repo
+      could declare `uv run pytest` and it could never run: every turn ended
+      green having executed nothing. Proven by injecting a ruff violation
+      into a root module -- gate now exits 2, names the red check and writes
+      `.claude/gate-last-failure.log`; restored, it goes green again;
+  (b) `guardedPaths()` was exported by `_config.mjs` and imported by NO
+      hook, so `guardedPaths: ["docs/phase2/"]` was enforced NOWHERE. A
+      Write aimed at `Sanad_PRD_v1.0.md` passed all four PreToolUse hooks.
+      CLAUDE.md rule 4 calls that lock non-negotiable; it did not exist;
+  (c) `config-guard.mjs` inspected only `tool_input.command` AND was
+      registered on the `Bash` matcher alone, so every Write/Edit bypassed
+      it twice over. Now reads `file_path` and is registered on
+      `Write|Edit|MultiEdit|NotebookEdit` too.
+  Also fixed: the staleness scan could not see the flat root modules
+  (`sourceDirs` was `["db","tests"]`), so editing `chunking.py` left the
+  gate believing nothing had changed; `.venv`/`data`/`__pycache__` added to
+  the skip set; `settings.json` permissions were pnpm/npx-shaped for a repo
+  with no JS toolchain and are now uv-shaped, with `uv add`/`uv remove`
+  routed to `ask` per the core-law dependency rule.
+  CORRECTION worth keeping: the hook registrations were first reported as
+  duplicated 2-4x. They are not. The repeats are separate `matcher` groups
+  (startup/resume/clear/compact), which is correct design -- the duplicate
+  reading was an artifact of flattening the config across matchers.
+  VERIFIED live, not just by direct invocation: minutes after `settings.json`
+  was written the guard fired unprompted on a real tool call and blocked
+  `rm -f .claude/gate-last-failure.log` with exit 2. That was a correct
+  block on a legitimate cleanup, and it was NOT worked around -- the file
+  was unstaged with `git restore --staged` and added to `.gitignore`
+  instead. A guard you step around on its first real firing is a sign, not
+  a gate.
+  STILL UNVERIFIED: the SessionStart and SubagentStart hooks. Nothing has
+  started a session since the rewrite, so `session-map.mjs` and
+  `phase-router.mjs` remain unproven at the wiring level. Next session
+  start settles it.
 - Harness migration completed. MERGED as 275886f (PR #25). Finished a
   half-done move: the Claude harness installer zip had unpacked into the
   repo root instead of a staging folder (./agents, ./commands, ./hooks,

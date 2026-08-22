@@ -114,12 +114,34 @@ export function packageScripts() {
 // skipped rather than failed — a stack with no typecheck step is not a
 // project in breach, it is a project without that step.
 export function checks() {
+  const declared =
+    Array.isArray(raw.checks) && raw.checks.length > 0 ? raw.checks : null;
+
+  // A check may declare a literal `cmd`. That form wins and needs no
+  // package.json, because not every project is a Node project.
+  //
+  // Without this branch a Python/uv, Go or Rust repo could declare checks
+  // that can NEVER run: `packageScripts()` returns null, the function
+  // returns [] and the gate reports green having executed nothing at all.
+  // That is not a hypothetical — it is exactly what this repo was doing.
+  if (declared) {
+    const explicit = declared
+      .filter(
+        (c) =>
+          c &&
+          typeof c === "object" &&
+          typeof c.cmd === "string" &&
+          c.cmd.trim() !== "",
+      )
+      .map((c) => ({ name: c.name ?? c.cmd, cmd: c.cmd }));
+    if (explicit.length > 0) return explicit;
+  }
+
   const scripts = packageScripts();
   if (!scripts) return [];
-  const wanted =
-    Array.isArray(raw.checks) && raw.checks.length > 0
-      ? raw.checks.map((c) => (typeof c === "string" ? { name: c, script: c } : c))
-      : ["typecheck", "lint", "test"].map((s) => ({ name: s, script: s }));
+  const wanted = declared
+    ? declared.map((c) => (typeof c === "string" ? { name: c, script: c } : c))
+    : ["typecheck", "lint", "test"].map((s) => ({ name: s, script: s }));
   return wanted
     .filter((c) => c && c.script && Object.hasOwn(scripts, c.script))
     .map((c) => ({ name: c.name ?? c.script, cmd: runScript(c.script) }));

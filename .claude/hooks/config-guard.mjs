@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 
+import { ROOT, guardedPaths } from "./_config.mjs";
+
 // Blocks writes whose RESOLVED TARGET is a protected path.
 // Mentioning a path in prose is not writing to it.
 // A guard that cannot read its input must BLOCK.
@@ -16,9 +18,6 @@ try { d = JSON.parse(raw); } catch (e) {
   console.error("CONFIG-GUARD: hook input was not readable JSON. Blocking.\nReason: " + e.message);
   process.exit(2);
 }
-const cmd = d?.tool_input?.command;
-if (typeof cmd !== "string" || cmd === "") process.exit(0);
-
 const PROTECTED = [
   /(^|[^\w.])\.claude([\/\\]|$)/i,
   /(^|[\/\\])\.env(\.[\w-]+)?$/i,
@@ -28,7 +27,62 @@ const PROTECTED = [
   /(^|[\/\\])harness\.json$/i,
   /(^|[\/\\])PHASE$/
 ];
-const isProtected = t => PROTECTED.some(r => r.test(String(t).replace(/^["']|["']$/g, "")));
+
+// The .claude rule is deliberately NOT applied to Write/Edit, only to Bash.
+// Locking a tool out of .claude with a hook that lives inside .claude means
+// nobody can ever repair the harness with tools again — which is the exact
+// dead end that cost this project a session. Bash writes there stay blocked;
+// a deliberate, reviewable Edit does not. Recorded rather than silently
+// weakened. The paths that actually matter for graded work are below.
+const FILE_PROTECTED = PROTECTED.filter(
+  (r) => String(r) !== String(/(^|[^\w.])\.claude([\/\\]|$)/i),
+);
+
+// Paths this project declares off-limits in .claude/harness.json.
+// `guardedPaths()` was exported by _config.mjs and imported by NOBODY, so
+// `guardedPaths: ["docs/phase2/"]` — the signed-spec lock CLAUDE.md rule 4
+// calls non-negotiable — was enforced nowhere at all. Proven by firing a
+// Write at Sanad_PRD_v1.0.md and watching all four PreToolUse hooks pass it.
+const norm = (p) => String(p).replace(/\\/g, "/").replace(/^["']|["']$/g, "");
+const GUARDED = guardedPaths()
+  .map((g) => norm(g).replace(/\/+$/, "").toLowerCase())
+  .filter(Boolean);
+
+function underGuarded(target) {
+  let t = norm(target).toLowerCase();
+  const root = norm(ROOT).toLowerCase().replace(/\/+$/, "");
+  if (root && t.startsWith(root + "/")) t = t.slice(root.length + 1);
+  t = t.replace(/^\.\//, "");
+  return GUARDED.some((g) => t === g || t.startsWith(g + "/"));
+}
+
+const matches = (list, t) => {
+  const s = String(t).replace(/^["']|["']$/g, "");
+  return list.some((r) => r.test(s)) || underGuarded(s);
+};
+const isProtected = (t) => matches(PROTECTED, t);
+
+// Write / Edit name their target directly, and this branch did not exist:
+// the hook read only `tool_input.command`, so EVERY Write and Edit walked
+// straight past it (line 19 of the original, `if (typeof cmd !== "string")
+// process.exit(0)`). A path-based guard that only reads Bash commands is not
+// a guard.
+const TOOL = String(d?.tool_name ?? "");
+if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(TOOL)) {
+  const fp = d?.tool_input?.file_path ?? d?.tool_input?.notebook_path;
+  if (typeof fp === "string" && fp !== "" && matches(FILE_PROTECTED, fp)) {
+    console.error(`BLOCKED: that path is write-locked.
+  target: ${fp}
+Signed specification packs and secret files are not edited by a tool.
+If the spec is wrong or ambiguous, escalate it — one question, numbered
+options, recommendation marked. Do not edit your way around it.`);
+    process.exit(2);
+  }
+  process.exit(0);
+}
+
+const cmd = d?.tool_input?.command;
+if (typeof cmd !== "string" || cmd === "") process.exit(0);
 
 // Strip quoted strings and comments: prose is not a target.
 const bare = cmd
