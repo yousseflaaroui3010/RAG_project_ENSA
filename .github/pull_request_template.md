@@ -37,7 +37,7 @@ uv run pytest -q
 
 ## Acceptance criteria
 
-<!-- Paste the story's exit gate from docs/build/BUILD-PLAN.md and check each line. -->
+<!-- Paste the story's exit gate from docs/journal/BUILD-PLAN.md and check each line. -->
 
 - [ ]
 

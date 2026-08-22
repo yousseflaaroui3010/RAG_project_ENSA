@@ -13,7 +13,7 @@ that has a fully local mode (Ollama).
 
 **Status:** in build. Sprint-0 foundation is merged; the pipeline below is the
 signed target architecture, not all of it is coded yet. The live picture of what
-works today is [BUILD-STATE.md](docs/build/BUILD-STATE.md).
+works today is [BUILD-STATE.md](docs/journal/BUILD-STATE.md).
 
 ---
 
@@ -148,8 +148,8 @@ New to the project? Start with [docs/START-HERE.md](docs/START-HERE.md).
 | [PRD](docs/phase2/Sanad_PRD_v1.0.md) | What the product does: features F-01 to F-16 with acceptance criteria |
 | [Architecture](docs/phase2/Sanad_Architecture_v1.0.md) | How it is built: module map, runtime flows, data layer, stack pins, ADRs |
 | [Project plan](docs/phase2/Sanad_ProjectPlan_v1.0.md) | When and by whom: stories ST-01 to ST-52 |
-| [BUILD-STATE](docs/build/BUILD-STATE.md) | What is actually working right now |
-| [DECISIONS](docs/build/DECISIONS.md) | Every real choice and its trade-off |
+| [BUILD-STATE](docs/journal/BUILD-STATE.md) | What is actually working right now |
+| [DECISIONS](docs/journal/DECISIONS.md) | Every real choice and its trade-off |
 
 ## Data locality
 

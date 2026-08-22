@@ -130,7 +130,7 @@ class Fingerprint:
         would be a deviation from a signed artifact. Packing the guard
         into the existing column keeps the schema exactly as signed and
         loses nothing: the format is documented, parseable and
-        round-trips through `parse` (see docs/build/DECISIONS.md)."""
+        round-trips through `parse` (see docs/journal/DECISIONS.md)."""
         return _FINGERPRINT_SEPARATOR.join(
             (self.algorithm, self.hex_digest, str(self.size_bytes))
         )
