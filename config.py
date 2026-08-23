@@ -62,6 +62,31 @@ class Settings(BaseSettings):
     chunk_child_overlap_chars: int = 100
     parent_merge_below_chars: int = 2000
     parent_split_above_chars: int = 4000
+    # Regex for the unit a document is actually CITED by, used to label a
+    # parent or child more precisely than its enclosing heading can.
+    #
+    # Architecture §7.5 fixes where parents are SPLIT (markdown headings
+    # H1-H3) and names `section_label` as a field, but never says how the
+    # label is computed -- so this refines the label without deviating
+    # from the signed spec.
+    #
+    # It exists because heading-based labels are wrong on real legal text,
+    # measured rather than assumed: the Moroccan labour code is 313,255
+    # characters with 588 distinct "Article N" and only 22 markdown
+    # headings, so splitting on headings gives many parents that all carry
+    # one heading and a passage from Article 235 gets cited as
+    # "Titre II : Definitions" (PRD F-03).
+    #
+    # CASE-SENSITIVE on purpose, and that is the whole trick: in the same
+    # document, capital "Article 42" starts an article (588 of them, every
+    # one distinct) while lowercase "l'article 26" is a cross-reference
+    # (234 of them, only 163 distinct). Lower-casing the match would label
+    # parents by the articles they merely MENTION.
+    #
+    # Set to "" to switch the behaviour off and fall back to headings
+    # alone, which is the right setting for a corpus with no numbered
+    # citable unit.
+    parent_citation_marker_pattern: str = r"Article\s+\d+"
 
     # --- Change detection (ST-12, PRD F-02, architecture §5.1) ---
     # File extensions Sync fingerprints and hands to the conversion ladder.

@@ -698,3 +698,98 @@ def test_clean_label_returns_none_rather_than_an_empty_string():
     assert chunking._clean_label("   ") is None
     assert chunking._clean_label("Article 12") == "Article 12"
 
+
+
+# --- citation markers inside a parent (F-03 precision) ---------------------
+
+
+def _legal_document(first: int, last: int, body_chars: int = 900) -> str:
+    """A legal-code shaped document: ONE heading, many numbered articles.
+
+    That shape is the whole point. Measured on the real Moroccan labour
+    code: 313,255 characters, 588 distinct "Article N", and only 22
+    markdown headings. Splitting on headings alone therefore gives many
+    parents that all carry one heading, so every fixture in this file
+    with a tidy heading per section is unrepresentative of the documents
+    the product is for."""
+    parts = ["# Titre II : Definitions\n"]
+    for n in range(first, last + 1):
+        parts.append(f"\nArticle {n} :{_body(body_chars)}\n")
+    return "".join(parts)
+
+
+def test_a_split_parent_is_labelled_by_the_articles_it_contains():
+    """PRD F-03: the label is the citation. Labelling every piece of a
+    long section "Titre II : Definitions" points the reader at the wrong
+    part of the document -- it is not vague, it is wrong.
+
+    This is chunking's own rule, from `_merged_label`: "Labelling a
+    parent that spans Articles 1 to 3 as 'Article 1' would cite a
+    sentence from Article 3 under the wrong heading". That rule was
+    applied to the MERGE path; this pins it on the SPLIT path."""
+    doc = _chunk(_legal_document(1, 40))
+
+    labels = [p.section_label for p in doc.parents]
+
+    assert len(doc.parents) > 1, "fixture too small to split"
+    assert len(set(labels)) > 1, "every parent carried the same label"
+    assert all("Article" in (lbl or "") for lbl in labels)
+
+
+def test_a_parent_spanning_several_articles_is_labelled_as_a_range():
+    doc = _chunk(_legal_document(1, 40))
+
+    ranged = [p.section_label for p in doc.parents if " ... " in (p.section_label or "")]
+
+    assert ranged, "no parent was labelled with a range"
+    first, last = ranged[0].split(" ... ")
+    assert first.startswith("Article ")
+    assert last.startswith("Article ")
+    assert int(first.split()[1]) < int(last.split()[1])
+
+
+def test_a_child_is_labelled_by_the_article_it_actually_sits_in():
+    """The child is what matches a query, so its label is what the source
+    card shows. A child holding Article 30 must not be cited as the
+    parent's whole range."""
+    doc = _chunk(_legal_document(1, 40))
+
+    labelled = [c for c in doc.children if c.section_label == "Article 30"]
+
+    assert labelled, "no child was cited by its own article"
+    assert all("Article 30" in c.text for c in labelled)
+
+
+def test_a_document_with_no_citation_markers_keeps_its_heading():
+    """No regression for prose. The technical manuals in the second
+    workspace have no article numbers at all."""
+    doc = _chunk(_doc(("Guide d'installation", _body(2500))))
+
+    assert [p.section_label for p in doc.parents] == ["Guide d'installation"]
+
+
+def test_a_lowercase_cross_reference_is_not_treated_as_a_citation_marker():
+    """Measured on the real corpus: 588 capital "Article N" (every one
+    distinct, one per article) against 234 lowercase "article N" that are
+    cross-references -- "prevu a l'article 26". Case is the only thing
+    separating a citable marker from a mention of one, so the match is
+    case-sensitive and this test is what holds it that way."""
+    markdown = _doc(("Guide", "Voir l'article 26 ci-dessus. " + _body(2500)))
+
+    doc = _chunk(markdown)
+
+    assert [p.section_label for p in doc.parents] == ["Guide"]
+
+
+def test_a_marker_broken_across_a_line_is_normalised_in_the_label():
+    """`Article\s+\d+` matches across a newline, and converted PDFs really
+    do split a heading over two lines. Without normalising, the label
+    carries the newline into the source card.
+
+    Found by mutation testing: replacing the whitespace normalisation
+    survived the whole suite, because every other fixture happens to keep
+    its marker on one line."""
+    body = _body(2500)
+    doc = _chunk(f"# Titre\n\nArticle\n42 :{body}")
+
+    assert doc.parents[0].section_label == "Article 42"
