@@ -25,6 +25,36 @@ Qdrant embedded, SQLite, `intfloat/multilingual-e5-base`.
 | `docs/journal/BUILD-PLAN.md` | Stories ST-01 to ST-52 with owners and exit gates |
 | `prompts/` | Product prompt registry |
 
+## Start here: query the graph before you read files
+
+This repo is indexed in codebase-memory (892 nodes / 3,228 edges, every
+source file covered, 0 skipped). **Structure questions go to the graph
+first, not to Read/Grep/Glob.** Flat-layout repo, ~3,900 lines across 9
+root modules: reading three files to answer "who calls X" costs more
+tokens than the whole graph query does.
+
+Project name for every call: `C-Users-lenovo-Documents-Projects-RAG_project_ENSA`
+
+| Question | Call |
+|---|---|
+| Does X already exist? | `search_graph` (`query=` natural language, or `name_pattern=`) |
+| Who calls X / what does X call? | `trace_path` (`direction=inbound`/`outbound`) |
+| Is this file fully indexed? | `check_index_coverage` before any "X is absent" claim |
+| Orientation in an unfamiliar area | `get_architecture` |
+
+The MCP tools are deferred: load them with `ToolSearch` (`select:mcp__codebase-memory-mcp__search_graph,...`) before the first call.
+
+**Where the graph does NOT help, so do not force it:** signed prose in
+`docs/phase2/`, the journal, config files, `db/schema.sql`, and anything
+greenfield. Read those. ST-17 found a binding requirement (UX spec 7.2:
+Removed rows must carry a reason) that only existed in prose — no graph
+query could have surfaced it.
+
+**Absence protocol, non-negotiable here:** never conclude something is
+missing from a Read/Grep sweep alone. It takes graph search + project-wide
+grep + a written scope line in the report. A denied or empty-because-blocked
+call is UNVERIFIED, never a negative finding.
+
 ## Rules
 
 The working rules, agents and skills live in `~/.claude/`, shared across
