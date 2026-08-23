@@ -247,6 +247,40 @@ embeddings (ST-15) are the expensive stage and have not been written.
   for the review finding this almost slipped through anyway: a version of
   the prefix tests that passed even with the config prefix emptied out.
 
+## OPEN ESCALATION: citations name the wrong part of a long document
+Raised 2026-08-23 by the ST-17 real-document run. Needs a HUMAN decision
+because the good fix deviates from a signed spec (CLAUDE.md rule 1).
+
+MEASURED, not suspected, on the real Moroccan labour code:
+  313,255 chars | 119 pages | 588 distinct "Article N" | 22 markdown headings
+  -> 84 parents carrying 10 distinct labels
+So a passage from Article 235 is cited as "Titre II : Definitions". That
+is not merely vague: it points the reader at the wrong part of the file.
+F-03 ("every answer cites file name and section label") is in the
+never-cut set, so this is not cosmetic.
+
+The rule being broken is chunking's OWN, stated in `_merged_label`:
+"Labelling a parent that spans Articles 1 to 3 as 'Article 1' would cite
+a sentence from Article 3 under the wrong heading -- a quietly wrong
+citation." ST-14 applied that to the MERGE path. The SPLIT path
+(`chunk_document` -> `_split_oversized`) gives every piece of one
+oversized section the same label, which is the same defect.
+
+Three options, and the choice is a product decision:
+  (a) label split parents "Titre II : Definitions (2 of 9)". Stays inside
+      7.5, honest, still does not say "Article 235".
+  (b) also split on a configurable citation pattern (`^Article \d+`).
+      Precise and what a legal corpus actually needs. DEVIATES from
+      architecture 7.5 ("parents split on markdown headings H1-H3"), so
+      it needs a change request against the signed pack, not a code edit.
+  (c) accept it and let ST-24/ST-27 present the label as approximate.
+Recommendation: (b) via a change request, with (a) as the interim. Not
+started -- no story owns it. DECISIONS row filed.
+
+SEPARATE and already fixed on `fix/S1-citation-label-markup`: heading
+markup was leaking into the label itself (`**G-** **<u>Securite sociale
+et charges sociales</u>**`). That one needed no spec change.
+
 ## Next (ordered queue, top 3 only)
 1. ST-07 corpus v1 (MB). THE ONLY THING BLOCKING ST-18, and it needs no
    code: the labour-code PDF, two HR/CNSS guides, and the manuals
