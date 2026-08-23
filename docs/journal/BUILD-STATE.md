@@ -1,12 +1,15 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: 0f12094 on main. Updated: 2026-08-23 by the ST-17
-session, which ran gate.yml steps 1-3 by hand in gate.yml order on the
+Last verified commit: 0210408 on main (ST-17, PR #35, squash). Updated:
+2026-08-23 by the ST-17 session. The gate was run by hand in gate.yml
+order on the branch AND re-run ON MAIN after the merge, not only on the
 branch: `uv sync --frozen` clean, `uv run ruff check .` exit 0, `uv run
 pytest` exit 0 with 318 passed / 2 skipped (272 / 2 at the branch point).
-gate.yml step 4, gitleaks, was NOT run -- re-checked this session against
-PATH, `Program Files` and `~/go/bin`, all negative. Still not installed on
-this machine; CI remains the only place that step executes.
+CI `verify` green on PR #35 with all four gate.yml steps succeeding,
+including the gitleaks scan. gitleaks step 4 was NOT run locally --
+re-checked this session against PATH, `Program Files` and `~/go/bin`, all
+negative. Still not installed on this machine; CI remains the only place
+that step executes.
 
 RESOLVED this session, and it had been open since 2026-08-22: the CBM MCP
 tools DO attach. `list_projects` answered on the first call and the repo is
@@ -38,18 +41,28 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-ST-17 sync engine BUILT, on branch `feat/S1-ST-17-sync-engine`, NOT
-pushed and NOT reviewed. Two commits. 318 passed / 2 skipped, ruff clean,
-`uv sync --frozen` clean. This is the story that makes Sanad ingest
-anything: `sync.py` is the first caller of ST-12, ST-13, ST-14, ST-15 and
-ST-16, all five of which were individually green and collectively
-untested until now.
+ST-17 MERGED as 0210408 (PR #35, squash), and re-verified ON main after
+the merge rather than only on the branch: `uv sync --frozen` clean, ruff
+exit 0, 318 passed / 2 skipped. CI `verify` green on the PR with all four
+gate.yml steps. This is the story that makes Sanad ingest anything:
+`sync.py` is the first caller of ST-12, ST-13, ST-14, ST-15 and ST-16,
+all five of which were individually green and collectively untested until
+now.
 
-OWNERSHIP DEVIATION, flagged rather than absorbed: BUILD-PLAN line 65
-assigns ST-17 to YL and this machine commits as `meriem-mb` (MB). Same
-shape as the ST-12 deviation recorded for 2026-07-28. A human decides
-whether to reassign the plan row; it is left as signed. DECISIONS row
-filed.
+TWO DEVIATIONS, both recorded as DECISIONS rows rather than absorbed:
+- ownership: BUILD-PLAN line 65 assigns ST-17 to YL and this machine
+  commits as `meriem-mb` (MB). Same shape as the ST-12 deviation of
+  2026-07-28. The plan row is left as signed; a human decides.
+- MERGED WITHOUT THE RULE-5 REVIEW PASS, at the human's explicit
+  instruction on 2026-08-23. CLAUDE.md rule 5 exists because a green
+  suite has never once been sufficient on this project: ST-10 shipped a
+  defect an independent re-review caught, ST-11 took three rounds each
+  finding a real defect while the suite was green, and ST-12 merged
+  without a review and is STILL owed one. ST-17 is the largest single
+  diff in the project so far (+2,189 lines) and now carries the same
+  debt. The PR body names the two places to start: the cross-module
+  `change_detection` split, and the write-ordering claim. This is a debt,
+  not a closed item.
 
 What is proven, and how:
 - PRD F-02's four criteria on real fixtures, not mocks: real SQLite, real
@@ -235,20 +248,23 @@ embeddings (ST-15) are the expensive stage and have not been written.
   the prefix tests that passed even with the config prefix emptied out.
 
 ## Next (ordered queue, top 3 only)
-1. Review ST-17 and open its PR. The branch is green and unpushed. Start
-   the review at the `change_detection.py` split described under Now: it
-   is a cross-module change inside a story's diff, which is exactly what
-   CLAUDE.md's scoped boy-scout rule tells a reviewer to be suspicious
-   of. The argument for doing it here rather than in its own `chore/`
-   branch is that ST-17's own exit gate ("six statuses correct") is false
-   without it -- judge that argument rather than accepting it.
-2. ST-07 corpus v1 (MB): the labour-code PDF plus two HR/CNSS guides plus
-   the manuals workspace. It is now the single blocker on ST-18, and
-   ST-18 is the story that produces the project's first real G4/G5
-   numbers. Nothing else in the queue needs it, and it needs no code.
-3. Post-hoc reviewer pass on ST-12 (1862a58), which merged without one.
-   Deferred by the human, not forgotten. Owner MB by agreement 2026-07-28,
-   a deliberate deviation: BUILD-PLAN line 60 assigns ST-12 to YL.
+1. ST-07 corpus v1 (MB). THE ONLY THING BLOCKING ST-18, and it needs no
+   code: the labour-code PDF, two HR/CNSS guides, and the manuals
+   workspace files, with source and date logged per file, French text
+   selectable rather than scanned. Until these exist on disk, ST-18
+   cannot produce a G4/G5 number that means anything. `data/` currently
+   holds one stray `parents/` test artifact and nothing else.
+2. ST-18 SPIKE, the moment ST-07 lands: index the real corpus, measure
+   G4/G5 and 20-question latency, give the OR-1 verdict. ST-17 left it
+   three things to measure that are already known to be unmeasured --
+   the per-file registry commit cost, the cost of re-attempting a
+   `failed` or `skipped` file on every sync (a scanned 200-page PDF is
+   re-converted each run by design), and whether the sparse retrieval
+   branch actually improves anything on real text, which ST-16 explicitly
+   could not prove with fakes.
+3. Post-hoc reviewer passes now owed on TWO stories: ST-12 (1862a58) and
+   ST-17 (0210408), both merged without one. ST-12's is owner MB by
+   agreement 2026-07-28, a deliberate deviation from BUILD-PLAN line 60.
 
 NOT ST-18, and this is unchanged from the last session's entry: it
 depends on ST-07's corpus and `data/` on this machine holds nothing but a
