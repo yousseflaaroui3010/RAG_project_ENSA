@@ -521,6 +521,43 @@ def test_a_changed_file_does_not_answer_with_its_old_text(
     assert all("dix heures par jour" not in hit.chunk_text for hit in hits)
 
 
+def test_an_interrupted_write_never_leaves_a_vector_without_its_parent(
+    folder, run_sync, store, workspace, parents_path, monkeypatch
+):
+    """The write order is a safety property, so it gets a test that can
+    tell the two orders apart rather than a comment claiming it.
+
+    The second of the two writes is made to fail. Parents first (correct)
+    means the crash happens before any vector exists, so every vector in
+    the store still resolves. Vectors first would leave points whose
+    parent file was never written -- a search hit that resolves to
+    nothing, which is the one failure a sourced-answer product cannot
+    absorb. Swap the two calls in `_ingest` and this test goes red."""
+    _write(folder, "code.md", HR_TEXT)
+
+    def explode(**_kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(parent_store, "save_parents", explode)
+
+    report = run_sync()
+
+    assert _results(report) == {"code.md": SyncResult.FAILED}
+    name = vector_store.collection_name(workspace.id)
+    points = (
+        store.scroll(name, limit=1000, with_payload=True)[0]
+        if store.collection_exists(name)
+        else []
+    )
+    for point in points:
+        # Raises ParentNotFoundError if the citation is broken.
+        parent_store.get_parent(
+            workspace_id=workspace.id,
+            parent_id=point.payload["parent_id"],
+            base_path=parents_path,
+        )
+
+
 # --- skipped ----------------------------------------------------------------
 
 
@@ -556,6 +593,55 @@ def test_a_file_with_no_readable_text_is_skipped(folder, run_sync, db_path, work
     assert _documents(db_path, workspace.id)["empty.md"]["status"] == (
         DocumentStatus.SKIPPED
     )
+
+
+def test_a_sync_that_indexed_nothing_still_counts_as_synced(
+    folder, run_sync, store, workspace
+):
+    """"Never synced" and "synced, found nothing" are different answers
+    and the user acts on them differently.
+
+    `upsert_children` returns before creating the collection when there
+    are no children, so a run where every file was skipped would leave no
+    collection at all and `search` would report a workspace that has just
+    been synced as never synced."""
+    _write(folder, "empty.md", "   ")
+    _write(folder, "deck.pptx", "x")
+
+    run_sync()
+
+    assert _search(store, workspace.id, "duree du travail") == []
+
+
+def test_a_sync_of_an_empty_folder_still_counts_as_synced(
+    folder, run_sync, store, workspace
+):
+    report = run_sync()
+
+    assert report.items == []
+    assert _search(store, workspace.id, "duree du travail") == []
+
+
+def test_a_missing_folder_creates_no_collection(
+    db_path, tmp_path, store, parents_path
+):
+    """The other side: nothing partially ingested (PRD section 11), so a
+    folder-level failure must not leave a collection behind claiming the
+    workspace has been synced."""
+    missing = tmp_path / "not_there"
+    workspace = ws.create_workspace(
+        name="Gone", folder_path=str(missing), db_path=db_path
+    )
+
+    with pytest.raises(change_detection.FolderNotFoundError):
+        sync.sync_workspace(
+            workspace_id=workspace.id,
+            db_path=db_path,
+            client=store,
+            parent_base_path=parents_path,
+        )
+
+    assert not store.collection_exists(vector_store.collection_name(workspace.id))
 
 
 # --- all six, and the report contract --------------------------------------

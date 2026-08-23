@@ -373,6 +373,23 @@ def _run(
         workspace_id=workspace_id, db_path=db_path
     )
 
+    # Claim the collection for this workspace now, before any file is
+    # processed and only once the folder has been scanned successfully.
+    #
+    # Not redundant with the `ensure_collection` inside `upsert_children`,
+    # which is never reached when a run indexes nothing: that function
+    # returns early for an empty child list. Without this line, a
+    # workspace whose files were ALL skipped or failed ends the sync with
+    # no collection, and `vector_store.search` then raises
+    # CollectionNotFoundError -- whose whole job is to mean "this
+    # workspace has never been synced" as distinct from "the sync ran and
+    # found nothing". Those are different things to tell a user, and one
+    # of them sends them to fix the wrong problem.
+    #
+    # It runs after `detect_changes`, so a missing folder still creates
+    # nothing (PRD section 11: nothing partially ingested).
+    vector_store.ensure_collection(client, workspace_id=workspace_id)
+
     # An unsupported file never gets a document row (it has no fingerprint
     # and nothing was ingested), so its report row carries no document_id.
     # PRD section 11: "Skipped, listed in the sync report with the reason".
