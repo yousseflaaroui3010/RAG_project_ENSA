@@ -330,23 +330,50 @@ their own `chore/` branch, now together with 8.
    closes it, and it is a good candidate to fold in with 1, 2 and 6.
 
 ## Blockers / waiting on human
-- HARNESS GAPS still open after `chore/harness-fit` (2026-08-22). All six are
-  HUMAN-ONLY: the permissions deny-list blocks `Edit(**/.claude/hooks/**)`,
-  `Edit(**/.claude/settings.json)` and `Edit(~/.claude/**)`, so no agent can
-  close any of them. That lock is correct and should stay; it is recorded here
-  so the gaps do not quietly become facts.
+- HARNESS GAPS after `chore/harness-fit` (2026-08-22). TWO OF THE FRAMING
+  CLAIMS IN THIS SECTION WERE WRONG, both corrected 2026-08-23 by reading the
+  files instead of the journal:
+  (i)  "the permissions deny-list blocks `Edit(**/.claude/hooks/**)`,
+       `Edit(**/.claude/settings.json)` and `Edit(~/.claude/**)`, so no agent
+       can close any of them". There is no such deny-list any more. Both
+       `~/.claude/settings.json` and `.claude/settings.local.json` have an
+       EMPTY `permissions.deny`. Nothing was blocking an agent from any of
+       this; item 1 below was fixed by an agent this session.
+  (ii) item 1's claim that the user-level settings "already registers all of
+       them correctly". It did not. That registration was itself the bug --
+       see item 1.
+  Item 1 is now CLOSED. The rest stand.
     Owner:    a human (YL). Raised 2026-08-22.
     Fallback: if still open on 2026-09-05, stop calling these fixed-in-progress
               and accept them in writing as standing gaps.
-  1. `.claude/settings.json` still registers the CBM hooks as bare
-     extensionless paths (`~/.claude/hooks/cbm-session-reminder`). On Windows
-     that spawns a cmd shell which prints its banner and echoes the hook JSON
-     instead of running the script -- that is the `Microsoft Windows [Version
-     ...]` noise at the top of every session. They are also REDUNDANT: the
-     user-level settings already registers all of them correctly via
-     `cmd.exe /d /v:off /s /c '"...cbm-*.cmd"'`. Fix is deletion, not
-     rewriting: drop the `cbm-*` entry from all four SessionStart matchers and
-     from SubagentStart, and delete the whole `"matcher": "Grep|Glob"` group.
+  1. CLOSED 2026-08-23. The project-level `.claude/settings.json` this item
+     described no longer exists (only `settings.local.json` does), so its
+     first half was moot. The real defect was the USER-level registration
+     this item called correct: all 7 CBM hook commands were wrapped as
+     `cmd.exe /d /v:off /s /c '""%USERPROFILE%\...\cbm-*.cmd""'`, and cmd.exe
+     does not treat SINGLE QUOTES as quoting. cmd therefore started
+     interactively, printed its banner, echoed the piped hook JSON as if it
+     were a typed command and exited 0 -- which is the `Microsoft Windows
+     [Version ...]` noise, and it means the hooks NEVER RAN. Diagnosed from
+     this session's own SessionStart output, then reproduced on demand.
+     Consequence, and it is the reason this mattered rather than being
+     cosmetic: `cbm-session-reminder` (4 matchers) and `cbm-code-discovery-
+     gate` (PreToolUse Grep|Glob, PostToolUse Read) are the two things that
+     tell an agent to use the code graph before reading files. Both were
+     dead, which is exactly why this session opened ST-17 with Read/Grep on
+     a fully indexed repo and only used the graph when the human asked.
+     Fixed by replacing the wrapper with the plain quoted path
+     (`"C:\Users\lenovo\.claude\hooks\cbm-*.cmd"`), which was tested from
+     both bash and cmd.exe BEFORE being written. Backup taken and verified
+     byte-identical first (`settings.json.bak-2026-08-23-cbm`); the edit was
+     made on the parsed JSON after proving it round-trips byte-exactly at
+     indent=2, and asserted to change nothing outside `hooks`. All 7 stored
+     commands were then executed as stored: 3 distinct commands, all exit 0,
+     all emitting real `hookSpecificOutput` JSON. Proven in both directions
+     -- the same harness reports FAIL on the old form, so the PASS means
+     something. STILL UNVERIFIED, and only a new session settles it: that
+     Claude Code itself invokes them cleanly at a real SessionStart. The
+     next session start is the test.
   2. `~/.claude/hooks/` carries the SAME two defects fixed here in 368e3ea:
      `gate.mjs` still has the unconditional npm early-exit, `config-guard.mjs`
      still has zero `guardedPaths` references. Every OTHER project on this
