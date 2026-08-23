@@ -59,6 +59,31 @@ _FENCE = re.compile(r"^\s*(```|~~~)")
 # tidy "Article 1".
 _LABEL_RANGE_SEPARATOR = " ... "
 
+# Inline markup stripped out of a heading before it becomes a section label.
+#
+# A label is not markdown, it is the citation text shown to a user on a
+# source card (UX spec 6.2 / PRD F-03). Real converted PDFs put emphasis in
+# their headings constantly -- pymupdf4llm turned a heading of the Moroccan
+# labour-law summary into
+#   `**G-** **<u>Securite sociale et charges sociales</u>**`
+# which is what the user would have been shown as the source of the answer.
+# Found by running real documents through the ladder, not by a test: every
+# fixture heading in this suite is a tidy "Article 1".
+#
+# Order matters: bold before italic, or `**x**` loses one pair of asterisks
+# and leaves `*x*`.
+#
+# The underscore form is matched only at a word BOUNDARY, which is what
+# separates emphasis from an identifier. `_Formalites exigees_` is italic
+# and its markers go; `max_length` is a name and survives untouched.
+# Stripping every underscore was the first version of this and it damaged
+# real headings, which is worse than leaving one marker in.
+_LABEL_HTML = re.compile(r"<[^>]+>")
+_LABEL_BOLD = re.compile(r"(\*\*|__)(.+?)\1", re.S)
+_LABEL_ITALIC = re.compile(r"\*(.+?)\*", re.S)
+_LABEL_ITALIC_US = re.compile(r"(?<!\w)_(.+?)_(?!\w)", re.S)
+_LABEL_CODE = re.compile(r"`+")
+
 # Paragraph boundary used when an oversized section has to be split. Splitting
 # there rather than mid-sentence keeps each parent readable as context.
 _PARAGRAPH_BREAK = "\n\n"
@@ -244,10 +269,26 @@ def _split_on_headings(markdown: str) -> list[_Section]:
             body.append(line)
             continue
         flush()
-        label = heading.group(2).strip()
+        label = _clean_label(heading.group(2))
         body = []
     flush()
     return sections
+
+
+def _clean_label(heading_text: str) -> str | None:
+    """Turn a raw heading into the text a user should see as a citation.
+
+    Returns None for a heading that was nothing but markup, so it is
+    treated as unlabelled rather than cited as an empty string -- PRD F-03
+    allows "no section label" (a plain TXT file has none) but an empty
+    label rendered on a source card is a broken citation, not an absent
+    one."""
+    text = _LABEL_BOLD.sub(r"\2", heading_text)
+    text = _LABEL_ITALIC.sub(r"\1", text)
+    text = _LABEL_ITALIC_US.sub(r"\1", text)
+    text = _LABEL_CODE.sub("", text)
+    text = _LABEL_HTML.sub("", text)
+    return " ".join(text.split()) or None
 
 
 def _merged_label(sections: list[_Section]) -> str | None:
