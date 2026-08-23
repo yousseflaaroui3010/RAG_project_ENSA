@@ -24,8 +24,11 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-ST-16 DONE on `feat/S1-ST-16-vector-parent-store` (cut from ba56be5,
-PR #32), pushed and PR opened; see Done this week for the evidence.
+ST-16 MERGED as 52ee47b (PR #33, squash), and re-verified ON main after
+the merge rather than only on the branch: `uv run ruff check .` clean,
+`uv run pytest -q` 272 passed / 2 skipped. CI `verify` green on the PR
+with all four gate.yml steps succeeding, including the gitleaks secret
+scan that cannot run on this machine. See Done this week for the rest.
 Next up is ST-17.
 
 Blast radius for ST-16, written before any code was touched and left
@@ -370,8 +373,9 @@ their own `chore/` branch, now together with 8.
   still stands.
 
 ## Done this week
-- ST-16 Vector store + parent JSON store, branch
-  `feat/S1-ST-16-vector-parent-store`. Architecture §7.5's two derived
+- ST-16 Vector store + parent JSON store. MERGED as 52ee47b (PR #33).
+  Merged by its own author under the deviation YL authorised on
+  2026-08-22, recorded as a DECISIONS row. Architecture §7.5's two derived
   stores. Exit gate met: an HR-workspace query returns nothing from the
   manuals workspace in either direction, and every search hit resolves to
   a parent whose text CONTAINS the chunk that matched -- asserted as a
