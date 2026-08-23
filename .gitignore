@@ -47,7 +47,21 @@ venv/
 # to .claude/hooks/ now lives on ONE machine and is invisible to the other
 # teammate. Durable hook fixes belong in ~/.claude/hooks/, which is what every
 # project on a machine reads from.
-.claude/
+#
+# NARROW EXCEPTION, added 2026-08-23, and it is narrow on purpose. Two paths
+# under .claude/ are TRACKED: `.claude/skills/report-brief/` and
+# `.claude/settings.json`. Neither objection above reaches them -- they are two
+# small files Sanad authored, not vendored payload, so they add nothing to the
+# code graph and a reviewer reads them in seconds. They are tracked precisely
+# BECAUSE of the consequence stated just above: untracked, the reporting rule
+# would live on one machine and the other teammate would never receive it.
+# Everything else under .claude/ stays ignored. Keep it that way -- the moment
+# an installer unpacks a payload here again, this list is what holds the line.
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/report-brief/
 
 # MCP server wiring is machine-local for the same reason .claude/ is. On this
 # machine it has to name an absolute path to the 0.10.8 binary, because the
