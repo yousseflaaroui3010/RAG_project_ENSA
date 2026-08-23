@@ -371,6 +371,33 @@ def test_an_active_row_with_identical_bytes_is_still_unchanged(
     assert _status_of(report, "policy.pdf") is cd.ChangeStatus.UNCHANGED
 
 
+def test_a_file_whose_type_stopped_being_supported_is_not_reported_removed(
+    db_path, folder, workspace, monkeypatch
+):
+    """The other half of the rule the REMOVED sweep already states.
+
+    "Removed means gone from disk, not 'we had trouble with it'" was
+    applied to unreadable files only, and an UNSUPPORTED file is present
+    on disk for exactly the same reason: it produced no fingerprint, but
+    it is right there. Reported Removed, it got a second report row in
+    the same run (Skipped AND Removed) and ST-17 deleted the passages of
+    a file the user never touched.
+
+    Reachable by narrowing `supported_document_extensions`, which is a
+    supported operator setting -- config.py notes PPTX moving the other
+    way for ST-48, so the list is not frozen."""
+    _write(folder, "deck.pptx", "slides")
+    _register(db_path, workspace.id, "deck.pptx", "sha256:deadbeef:6")
+    settings = cd.get_settings()
+    narrowed = settings.model_copy(update={"supported_document_extensions": ("pdf",)})
+    monkeypatch.setattr(cd, "get_settings", lambda: narrowed)
+
+    report = cd.detect_changes(workspace_id=workspace.id, db_path=db_path)
+
+    assert [problem.file_name for problem in report.unsupported] == ["deck.pptx"]
+    assert [change.file_name for change in report.changes] == []
+
+
 def test_already_removed_row_still_absent_is_not_reported_again(db_path, folder, workspace):
     _register(db_path, workspace.id, "gone.pdf", "sha256:deadbeef:5", status="removed")
 
