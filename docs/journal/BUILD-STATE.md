@@ -306,6 +306,44 @@ SEPARATE and already fixed on `fix/S1-citation-label-markup`: heading
 markup was leaking into the label itself (`**G-** **<u>Securite sociale
 et charges sociales</u>**`). That one needed no spec change.
 
+## ST-17 self-review findings NOT fixed (found 2026-08-23, no owner)
+Found by reading sync.py adversarially after it was merged. Neither is a
+correctness bug, both are recorded so they do not become facts by
+silence. Neither was fixed, because sync.py was not otherwise being
+edited and the scoped boy-scout rule says an unrelated drive-by belongs
+in its own change.
+
+1. `delete_document` is now on the HOT PATH, and this is a finding
+   against ST-17's own design rather than against ST-16.
+   `_ingest` calls `vector_store.delete_document` unconditionally before
+   converting every NEW or CHANGED file. That was a deliberate choice and
+   it is still right for correctness -- it is what cleans crash residue
+   and shrink residue. But `parent_store.list_parent_ids` reads EVERY
+   parent JSON in the WORKSPACE to filter by source_file, and its
+   docstring accepts that cost explicitly "which is why this is a
+   deletion-path function and not something an answer ever calls". ST-17
+   turned it into a per-file, per-sync function, which ST-16 never
+   anticipated.
+   Cost is files x parents_in_workspace JSON reads per sync. MEASURED on
+   the smoke corpus: 3 files x 99 parents = ~297 reads for HR, 10 x 100
+   = ~1,000 for the manuals -- invisible at that size. EXTRAPOLATED, and
+   labelled as such because it has NOT been measured: a G5-sized
+   workspace of ~50 files and ~1,500 parents is ~75,000 JSON reads per
+   sync. Against a 10-minute budget that may still be fine; nobody knows.
+   ST-18 owns finding out, and this is now a named thing for it to
+   measure rather than a surprise. Cheap fix if it bites: one pass over
+   the workspace directory per sync, grouped by source_file, instead of
+   one pass per file.
+2. Two sources of truth for one workspace's folder. `sync_workspace`
+   reads the workspace row and passes `folder` down to `_run`, while
+   `detect_changes` independently re-reads the same row and returns
+   `report.folder_path`. `change_detection`'s own docstring says the
+   folder "comes from the workspace row, never from a caller argument"
+   precisely so one workspace's registry cannot be diffed against
+   another's files -- and passing `folder` separately re-opens that door
+   by hand. Harmless today (same row, same process, one read apart). Fix
+   is two lines: drop the parameter and use `report.folder_path`.
+
 ## Next (ordered queue, top 3 only)
 1. ST-07 corpus v1 (MB). THE ONLY THING BLOCKING ST-18, and it needs no
    code: the labour-code PDF, two HR/CNSS guides, and the manuals
@@ -314,13 +352,25 @@ et charges sociales</u>**`). That one needed no spec change.
    cannot produce a G4/G5 number that means anything. `data/` currently
    holds one stray `parents/` test artifact and nothing else.
 2. ST-18 SPIKE, the moment ST-07 lands: index the real corpus, measure
-   G4/G5 and 20-question latency, give the OR-1 verdict. ST-17 left it
-   three things to measure that are already known to be unmeasured --
-   the per-file registry commit cost, the cost of re-attempting a
-   `failed` or `skipped` file on every sync (a scanned 200-page PDF is
-   re-converted each run by design), and whether the sparse retrieval
-   branch actually improves anything on real text, which ST-16 explicitly
-   could not prove with fakes.
+   G4/G5 and 20-question latency, give the OR-1 verdict. FOUR things are
+   already known to be unmeasured, so the spike does not have to
+   rediscover them: the per-file registry commit cost; the cost of
+   re-attempting a `failed` or `skipped` file on every sync (a scanned
+   200-page PDF is re-converted each run, by design); whether the sparse
+   retrieval branch improves anything on real text, which ST-16
+   explicitly could not prove with fakes; and finding 1 above, the
+   per-file workspace-wide parent scan.
+   A REAL-DOCUMENT HARNESS ALREADY EXISTS and should be reused rather
+   than rewritten: this session ran the whole engine on 13 real files
+   (three French PDFs including the 119-page labour code, ten French
+   .txt manuals; 672k chars, ~1,825 children) with real e5 and real
+   BM25. It checks per-file sync results, both stores, the registry,
+   real questions, cross-workspace isolation, parent resolution, a
+   second sync, and the double-sync guard. It lives in the session
+   scratchpad, not in the repo -- promoting it to `scripts/` is most of
+   ST-18's plumbing done. Query latency on that corpus was 0.17-0.22s
+   and indexing was dominated by CPU embedding; NEITHER is a G4/G5
+   number, because the corpus is a stand-in (data/corpus/SOURCES.md).
 3. Post-hoc reviewer passes now owed on TWO stories: ST-12 (1862a58) and
    ST-17 (0210408), both merged without one. ST-12's is owner MB by
    agreement 2026-07-28, a deliberate deviation from BUILD-PLAN line 60.
