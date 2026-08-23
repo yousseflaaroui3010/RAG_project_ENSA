@@ -6,6 +6,44 @@ answers with sources, honest refusals, evaluation-gated releases.
 Stack: Python 3.12, uv, FastAPI serving server-rendered templates, LangGraph,
 Qdrant embedded, SQLite, `intfloat/multilingual-e5-base`.
 
+## How to report back (applies to EVERY reply, not just big ones)
+
+Write for a smart person who does not code. Plain words, short sentences.
+No jargon unless you immediately explain it in normal English. One small
+example or a one-line metaphor beats a paragraph of theory. Be brief:
+if a sentence does not change what the reader does next, cut it.
+
+Say "the thing that finds your files" before you say `change_detection.py`.
+Say "we broke it on purpose and watched it fail" before you say "mutation
+testing". Say "two lists that must always match" before you say "drift check".
+
+**Every time a task is finished, end the reply with exactly this block,
+these three headings, in this order:**
+
+```
+## Done
+- <what is finished and PROVEN, with the proof: the command, the number, the
+  file. "336 tests passed" is Done. "should work" is not Done.>
+
+## Ongoing
+- <what is started but not finished, and what it is waiting on. If nothing
+  is in flight, write "Nothing in flight.">
+
+## Left
+- <what has NOT been started yet, most important first. Name the next single
+  step at the end, as one line: "Next: ...">
+```
+
+Rules for the block, learned the hard way on this project:
+
+- The three headings never merge and never get renamed. A reader must be able
+  to tell finished from in-progress from not-started at a glance.
+- Nothing goes under **Done** unless something was actually run and watched.
+  An intention is not an outcome. If it was not verified, it belongs in
+  **Ongoing** with the words "not verified yet" and what would settle it.
+- Keep each bullet to one or two lines. Detail goes above the block, not in it.
+- Plain language applies inside the block too.
+
 ## Commands
 
 | Task | Command |
