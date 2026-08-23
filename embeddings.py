@@ -1,4 +1,4 @@
-"""ST-15. Dense embeddings for the Sanad registry (ADR-05).
+"""ST-15/ST-16. Embeddings for the Sanad registry (ADR-05).
 
 The whole point of this module is one rule that is easy to break and
 impossible to notice breaking:
@@ -23,12 +23,29 @@ public surface is three functions, and all three prefix.
 The tests pin that by replacing `_encode` with a spy and asserting on the
 strings that reach it, which is why the prefix test needs no model and runs
 on every PR (architecture section 13.1, the fast tier of the test pyramid).
+
+ST-16 added the SPARSE half (architecture section 7.5: every point carries a
+dense E5 vector and a sparse BM25 vector). It lives here rather than in
+`vector_store.py` because it has the same defect shape as the rule above,
+and the same shape belongs behind the same seam: FastEmbed's BM25 is
+ASYMMETRIC. `model.embed(...)` is the document side and returns IDF-weighted
+values; `model.query_embed(...)` is the query side and returns flat 1.0
+term indicators. Calling the wrong one raises nothing, returns a plausible
+vector, and silently degrades retrieval -- proven by running both on the
+same string, see `_load_sparse_model`. One module, one rule, one place to
+get it wrong; `vector_store.py` never touches an encoder directly.
+
+Sparse deliberately does NOT take the `passage: `/`query: ` prefixes. Those
+are an E5 model-card requirement about how a neural encoder was trained;
+BM25 is lexical, so prefixing would only push the literal tokens "passage"
+and "query" into every document's term index and into every query.
 """
 
 from __future__ import annotations
 
 import functools
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from config import get_settings
@@ -95,6 +112,20 @@ class EmbeddingCountError(EmbeddingError):
 
     def __init__(self, expected: int, got: int):
         super().__init__(f"encoder returned {got} vectors for {expected} inputs")
+
+
+@dataclass(frozen=True)
+class SparseVector:
+    """A BM25 term vector: which vocabulary slots fired, and how hard.
+
+    Sanad's own shape rather than `qdrant_client.models.SparseVector` on
+    purpose. This module is about turning text into numbers; it has no
+    business importing the store those numbers are later written to, and
+    the day the store changes, nothing here should have to. `vector_store`
+    owns the two-line conversion, which is the correct place for it."""
+
+    indices: list[int]
+    values: list[float]
 
 
 def _prefix_passage(text: str, index: int | None = None) -> str:
@@ -199,3 +230,82 @@ def embed_children(children: Sequence[Child]) -> list[list[float]]:
     embedded. The index alignment is enforced, not assumed: see
     `EmbeddingCountError`."""
     return embed_passages([child.text for child in children])
+
+
+# --- sparse BM25, the lexical half of the hybrid (ST-16, section 7.5) ---
+
+
+@functools.lru_cache(maxsize=2)
+def _load_sparse_model(model_name: str) -> Any:
+    """Load the FastEmbed sparse model once per process, keyed by name.
+
+    Keyed on the name for the same reason `_load_model` is: a `maxsize=1`
+    cache on a no-argument function survives `get_settings.cache_clear()`
+    and would keep serving the previous model after the config changed.
+
+    The import is lazy so the fast tests never construct it. The first real
+    call DOWNLOADS the model, which is why nothing in the default test tier
+    reaches this function -- `tests/unit/test_embeddings.py` fakes it, and
+    the one test that uses the real thing is opt-in behind
+    `SANAD_RUN_MODEL_TESTS=1`, matching ST-15's dense-model test."""
+    from fastembed import SparseTextEmbedding
+
+    return SparseTextEmbedding(model_name)
+
+
+def _to_sparse(raw: Any) -> SparseVector:
+    """Convert one FastEmbed embedding into Sanad's shape.
+
+    `indices` and `values` come back as numpy arrays; they are converted to
+    plain ints and floats here so nothing downstream has to care that
+    FastEmbed uses numpy, and so a stored vector is JSON-shaped all the way
+    down."""
+    return SparseVector(
+        indices=[int(i) for i in raw.indices],
+        values=[float(v) for v in raw.values],
+    )
+
+
+def embed_sparse_passages(texts: Sequence[str]) -> list[SparseVector]:
+    """BM25-encode indexed text, one vector per input, in the same order.
+
+    Uses `embed`, the DOCUMENT side of FastEmbed's asymmetric BM25. Raw
+    text, no `passage: ` prefix -- see the module docstring."""
+    if isinstance(texts, str):
+        raise EmbeddingInputError(
+            "embed_sparse_passages takes a sequence of texts, not a single "
+            "string. FastEmbed accepts a bare str and returns ONE vector, so "
+            "the caller would silently get 1 vector where it expected len(). "
+            "Use embed_sparse_passages([text])."
+        )
+    for index, text in enumerate(texts):
+        if not text or not text.strip():
+            raise EmptyTextError("sparse passage", index, text)
+    if not texts:
+        return []
+    model = _load_sparse_model(get_settings().embedding_sparse_model)
+    vectors = [_to_sparse(raw) for raw in model.embed(list(texts))]
+    if len(vectors) != len(texts):
+        raise EmbeddingCountError(len(texts), len(vectors))
+    return vectors
+
+
+def embed_sparse_query(text: str) -> SparseVector:
+    """BM25-encode one search query.
+
+    Uses `query_embed`, the QUERY side. This is the whole reason the sparse
+    encoder lives behind this module: `embed` would also return a vector
+    here, with IDF weights applied a second time, and nothing anywhere
+    would complain -- the only symptom is worse answers."""
+    if not text or not text.strip():
+        raise EmptyTextError("sparse query", None, text)
+    model = _load_sparse_model(get_settings().embedding_sparse_model)
+    return _to_sparse(next(iter(model.query_embed(text))))
+
+
+def embed_sparse_children(children: Sequence[Child]) -> list[SparseVector]:
+    """BM25-encode chunked children, aligned by index with `children`.
+
+    The sparse mirror of `embed_children`, so ST-16 builds both halves of a
+    point from the same list in the same order."""
+    return embed_sparse_passages([child.text for child in children])

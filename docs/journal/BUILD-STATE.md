@@ -1,6 +1,16 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: 275886f on main (harness migration completed, PR #25).
+Last verified commit: ba56be5 on main (Stop gate and spec lock actually
+enforce, PR #32). Updated: 2026-08-23 by the ST-16 session, which
+independently ran the whole of gate.yml at that commit plus its own
+branch: `uv sync --frozen` clean, `uv run ruff check .` clean,
+`uv run pytest -q` 272 passed / 2 skipped on the branch (191 / 1 at the
+branch point). gate.yml step 4, gitleaks, was NOT run -- re-checked this
+session against PATH, three install locations and `winget list`, all
+negative. It is still not installed on this machine and CI remains the
+only place that step executes.
+
+Earlier header, kept because its caveat still governs ST-14 and ST-15:
 Updated: 2026-08-18 by Phase 3 orchestrator, catching up three merges of
 journal drift: ST-14, ST-15 and the harness migration all landed on main
 without a BUILD-STATE update. Verification claims below for those three
@@ -14,7 +24,29 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-Nothing in flight. Next up is ST-16 (see Next below).
+ST-16 DONE on `feat/S1-ST-16-vector-parent-store` (cut from ba56be5,
+PR #32), pushed and PR opened; see Done this week for the evidence.
+Next up is ST-17.
+
+Blast radius for ST-16, written before any code was touched and left
+here because the second bullet is what the story turned out to be about:
+- WHO IS TOUCHED: nothing in production. Grepped for importers of
+  `embeddings`, `chunking`, `parent_store`, `vector_store` across
+  `*.py`: the only non-test importer in the repo is
+  `parent_store.py -> chunking.Parent`. So extending `embeddings.py`
+  with the sparse pair cannot break a caller, because there are none.
+  ST-17 is the first caller of any of it.
+- WORST CASE: not a crash. Two silent failures. (1) sparse BM25 encoded
+  with the document function on the query side, which returns different
+  values with no error and quietly degrades retrieval -- the exact shape
+  ADR-05's `passage:`/`query:` rule exists to prevent. (2) a workspace
+  filter that leaks, so an HR question cites a manuals passage.
+- HOW YOU WOULD FIND OUT: neither is visible to a typechecker or to a
+  green suite, so both get a test that fails on the mutation --
+  the asymmetry pinned on literals, and the isolation pinned in both
+  directions.
+- HOW TO UNDO: revert the branch. `data/qdrant/` and `data/parents/` are
+  git-ignored derived stores with no migration: delete them and re-sync.
 - Previous: ST-13 Conversion ladder MERGED as b75b584 (PR #18). The
   earlier claim in this file that it was "on branch, NOT reviewed, NOT
   merged" was stale; it was reviewed and merged. Third time this file has
@@ -122,23 +154,35 @@ embeddings (ST-15) are the expensive stage and have not been written.
   the prefix tests that passed even with the config prefix emptied out.
 
 ## Next (ordered queue, top 3 only)
-1. ST-16 Vector store (per-workspace Qdrant collections) + parent JSON
-   store (owner YL per BUILD-PLAN). Depends on ST-14 and ST-15, both now
-   merged, so this is unblocked. BUILD-PLAN exit gate: an isolation test
-   (an HR-workspace query never returns manuals-workspace chunks) and
-   parents resolving by id. Carries forward from ST-14's Done entry: a
-   document that shrinks from ten parents to six leaves derived ids 6..9
-   behind, and ST-16/ST-17 must delete the parent JSON and its vectors as
-   ONE unit or a search hit can resolve to a parent file that no longer
-   exists.
+1. ST-17 sync engine end to end (depends on ST-12, ST-13, ST-16). The
+   first story that wires the five ingestion/indexing modules together.
+   Three things ST-16 deliberately left for it, all recorded rather than
+   half-wired:
+   (a) `workspaces.delete_workspace` still deletes registry rows only and
+       touches neither derived store. `vector_store.delete_workspace`
+       exists and takes both as one unit, but wiring it in needs a Qdrant
+       client, and opening one inside `workspaces.py` would trip the
+       single-client rule (ADR-04). ST-17 owns the client, so ST-17 owns
+       the wiring.
+   (b) nothing calls `vector_store.delete_document` yet, so a re-synced
+       document is currently overwrite-only: the shrink residue is
+       cleaned only if the caller runs the delete first. ST-16 proved
+       delete-then-index is sufficient (and proved, with the delete
+       skipped, that the tail really is stranded), but the caller is
+       ST-17's.
+   (c) an unreadable parent JSON is REPORTED
+       (`StoreDeletion.unreadable_parent_files`) and deliberately not
+       deleted blind. ST-17 decides whether that lands in the per-file
+       report row or is escalated.
 2. Post-hoc reviewer pass on ST-12 (1862a58), which merged without one.
    Deferred by the human, not forgotten. Owner MB by agreement 2026-07-28,
    a deliberate deviation: BUILD-PLAN line 60 assigns ST-12 to YL.
 3. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR, a
    failing test blocks, INTENT check, dup gate, gitleaks). Almost certainly a
    confirm-and-close, not work. Verify against the story's exit criteria.
-After ST-16: ST-17 sync engine end-to-end (depends on ST-12, ST-13, ST-16),
-the first story that wires the four existing ingestion modules together.
+NOT ST-18. It depends on ST-07's corpus and `data/` on this machine is
+empty -- no labor-code PDF, no HR/CNSS guides -- so its numbers would be
+measured on fixtures and mean nothing.
 
 ## Data-layer follow-ups (do not lose these)
 Carried from ST-10, plus two the ST-11 reviewer surfaced. 3 and 4 were CLOSED
@@ -326,6 +370,96 @@ their own `chore/` branch, now together with 8.
   still stands.
 
 ## Done this week
+- ST-16 Vector store + parent JSON store, branch
+  `feat/S1-ST-16-vector-parent-store`. Architecture §7.5's two derived
+  stores. Exit gate met: an HR-workspace query returns nothing from the
+  manuals workspace in either direction, and every search hit resolves to
+  a parent whose text CONTAINS the chunk that matched -- asserted as a
+  real round trip through both stores, not as "the payload has a
+  parent_id key". 272 passed / 2 skipped, up from 191 / 1.
+  What the branch is built on, and none of it came from a doc page:
+  (a) qdrant-client 1.18.0 REJECTS a non-UUID point id outright
+      (`ValueError: Point id X is not a valid UUID`). Children arrive
+      from chunking with no id, so one is derived by uuid5 -- from the
+      parent id plus the child's position WITHIN THAT PARENT, not within
+      the document, so a resumed or partial sync lands on the same points
+      instead of duplicating everything it already wrote;
+  (b) fastembed 0.8.0's BM25 is ASYMMETRIC and silent about it: `embed`
+      returns IDF-weighted values, `query_embed` returns flat 1.0 term
+      indicators, and using the wrong side raises nothing. It went behind
+      `embeddings.py`'s existing seam rather than into vector_store.py,
+      because it is the same defect shape as ADR-05's `passage:`/`query:`
+      rule. `vector_store` therefore never loads an encoder: `search`
+      takes the raw QUESTION, not a vector, so no caller can hand it one
+      encoded the wrong way;
+  (c) a second QdrantClient on one storage path raises RuntimeError about
+      a lock folder, which reads like a stale lock and invites deleting
+      it. `open_store` turns ADR-04's single-process rule into a named
+      error instead. Honest limit: the claim is per-PROCESS, so it says
+      nothing about a second Sanad process on the same data directory.
+  Deletion is ONE call over both stores, ordered vectors-then-parents.
+  Both orders can fail halfway; only this one fails safely, leaving
+  orphan FILES (invisible to search, cleaned by re-running the same call)
+  rather than live vectors citing files that are gone.
+  14 mutations, injected one at a time. Two SURVIVED and both were real:
+  (d) the batching test was VACUOUS. `HR_DOCUMENT` merges into one parent
+      holding one child, and for a single child a per-parent numbering
+      and a document-wide one are indistinguishable, so replacing the
+      counter with `enumerate` passed the whole suite. Same shape as
+      ST-14's round-trip test that relied on a blank line landing where
+      it did by luck: the fixture was too small for the property. Fixed
+      with a fixture sized to produce several parents of several children
+      and a test that states the property directly;
+  (e) deleting the sparse prefetch from `search` outright broke nothing.
+      No behavioural test in the file COULD catch it -- both fakes rank
+      by word overlap, so the dense side alone returns what the hybrid
+      returns. Replaced with an assertion on the shape of the query sent
+      to Qdrant, labelled in the test for what it is worth: it proves
+      both branches are issued and fused with RRF, and it does NOT prove
+      the sparse branch improves retrieval on real text. That needs a
+      real corpus and belongs to ST-18.
+  Self-review after green found two more that no mutation would have,
+  because neither is a wrong line -- both are a missing one:
+  (f) the collection was created BEFORE the batch was encoded, so a
+      document containing a whitespace-only window (chunking keeps any
+      truthy window) raised with an empty collection already on disk.
+      Not harmless: `search` uses "the collection exists" to tell "never
+      synced" from "synced and found nothing", so a half-failed sync
+      would answer that question wrongly for good;
+  (g) `open_store` claimed the storage path before building the client
+      but released it only around the yield, so an open that failed
+      DURING construction stranded the claim for the life of the
+      process -- one bad path making the store permanently unopenable,
+      and looking exactly like a genuine double-open.
+  RUN, not just tested, because a green suite has missed something on
+  every story so far. Real multilingual-e5-base, real Qdrant/bm25, real
+  embedded Qdrant, on French labour-code-shaped text whose two workspaces
+  SHARE vocabulary on purpose ("dix heures par jour", "trente jours",
+  "six mois", "2288", "44"), so a leak would score highly rather than
+  merely appear. 4 parents / 28 children indexed for HR, 2 / 14 for the
+  manuals; three questions, all three returned the correct article as the
+  top hit; zero cross-workspace hits; every hit's parent resolved and
+  CONTAINED the chunk that matched; `delete_document` took 28 points and
+  4 parent files and left the manuals' 14 points untouched.
+  The first attempt at that run is the part worth keeping. Its corpus was
+  four short articles, which `parent_merge_below_chars` (2,000) MERGED
+  INTO ONE PARENT -- so all three questions resolved to the same parent,
+  the section label was a range spanning the whole file, and the hit/miss
+  verdict measured nothing at all. It looked like a result. Padding the
+  articles to realistic length is what turned it into one. A fixture too
+  small for the property under test is now the third defect of that exact
+  shape on this project (ST-14's round-trip test, ST-16's batching test,
+  and this).
+  NOT a G5 measurement and must not be read as one: indexing 42 children
+  took 55.6s wall, dominated by the first SentenceTransformer load, and
+  the first run of all took 539s because it was downloading 1.1GB of
+  weights. Query time was 0.6s for three questions. Real numbers against
+  the real corpus are ST-18's, and `data/` on this machine is still empty.
+  Reused rather than rewritten: `parent_store.py` and its 29 tests were
+  recovered from `feat/S1-ST-16-vector-store`, an abandoned branch cut
+  before the journal moved to docs/journal. Only the two files were
+  taken, not the branch. It gained `list_parent_ids`, which is what makes
+  the deletion unit authoritative about what is on disk.
 - Harness repaired, branch `chore/harness-fit` (2026-08-22). The control
   plane came BACK into the repo at project level (PR #31, `.claude/` now
   git-tracked, 96 files) after PRs #25/#28/#29 spent four merges taking it
