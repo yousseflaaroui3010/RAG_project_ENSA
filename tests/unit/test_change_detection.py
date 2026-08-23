@@ -321,6 +321,56 @@ def test_file_returning_after_removal_is_new_even_with_identical_bytes(
     assert _status_of(report, "policy.pdf") is cd.ChangeStatus.NEW
 
 
+@pytest.mark.parametrize("status", ["failed", "skipped"])
+def test_a_file_with_no_derived_data_is_new_even_with_identical_bytes(
+    db_path, folder, workspace, status
+):
+    """Same rule as the `removed` case above, and it was missing until
+    ST-17 became the first story to write these statuses.
+
+    A `failed` or `skipped` row has no chunks and no vectors behind it,
+    exactly like a `removed` one. Classified UNCHANGED, a corrupted file
+    was reported Failed on its first sync and then quietly vanished from
+    every later report while still being unanswerable -- so PRD F-02
+    criterion 3 held for one run only, and a file the user repaired was
+    never picked up. db/schema.sql is signed and has no column to store
+    the failure reason on the document row, so re-attempting is the only
+    way the per-file report can keep telling the truth about it."""
+    path = _write(folder, "broken.pdf", "v1")
+    _register(
+        db_path,
+        workspace.id,
+        "broken.pdf",
+        cd.compute_fingerprint(path).serialize(),
+        status=status,
+    )
+
+    report = cd.detect_changes(workspace_id=workspace.id, db_path=db_path)
+
+    assert _status_of(report, "broken.pdf") is cd.ChangeStatus.NEW
+
+
+def test_an_active_row_with_identical_bytes_is_still_unchanged(
+    db_path, folder, workspace
+):
+    """The other side of the rule above, pinned so that widening
+    `_STATUS_WITHOUT_DERIVED_DATA` any further -- to `active`, say --
+    cannot pass. Without this, "re-ingest everything, every sync" would
+    satisfy the retry tests perfectly."""
+    path = _write(folder, "policy.pdf", "v1")
+    _register(
+        db_path,
+        workspace.id,
+        "policy.pdf",
+        cd.compute_fingerprint(path).serialize(),
+        status="active",
+    )
+
+    report = cd.detect_changes(workspace_id=workspace.id, db_path=db_path)
+
+    assert _status_of(report, "policy.pdf") is cd.ChangeStatus.UNCHANGED
+
+
 def test_already_removed_row_still_absent_is_not_reported_again(db_path, folder, workspace):
     _register(db_path, workspace.id, "gone.pdf", "sha256:deadbeef:5", status="removed")
 

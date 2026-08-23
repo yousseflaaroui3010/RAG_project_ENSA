@@ -1,7 +1,21 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: ba56be5 on main (Stop gate and spec lock actually
-enforce, PR #32). Updated: 2026-08-23 by the ST-16 session, which
+Last verified commit: 0f12094 on main. Updated: 2026-08-23 by the ST-17
+session, which ran gate.yml steps 1-3 by hand in gate.yml order on the
+branch: `uv sync --frozen` clean, `uv run ruff check .` exit 0, `uv run
+pytest` exit 0 with 318 passed / 2 skipped (272 / 2 at the branch point).
+gate.yml step 4, gitleaks, was NOT run -- re-checked this session against
+PATH, `Program Files` and `~/go/bin`, all negative. Still not installed on
+this machine; CI remains the only place that step executes.
+
+RESOLVED this session, and it had been open since 2026-08-22: the CBM MCP
+tools DO attach. `list_projects` answered on the first call and the repo is
+indexed at 892 nodes / 3,228 edges with zero skipped files and one
+parse_partial line (DECISIONS.md:59, a markdown table row, harmless). The
+blocker below marked "UNVERIFIED: the CBM MCP tools attaching" is closed.
+
+Earlier header, kept because its caveat still governs ST-14 and ST-15:
+Updated: 2026-08-23 by the ST-16 session, which
 independently ran the whole of gate.yml at that commit plus its own
 branch: `uv sync --frozen` clean, `uv run ruff check .` clean,
 `uv run pytest -q` 272 passed / 2 skipped on the branch (191 / 1 at the
@@ -24,12 +38,76 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-ST-16 MERGED as 52ee47b (PR #33, squash), and re-verified ON main after
-the merge rather than only on the branch: `uv run ruff check .` clean,
-`uv run pytest -q` 272 passed / 2 skipped. CI `verify` green on the PR
-with all four gate.yml steps succeeding, including the gitleaks secret
-scan that cannot run on this machine. See Done this week for the rest.
-Next up is ST-17.
+ST-17 sync engine BUILT, on branch `feat/S1-ST-17-sync-engine`, NOT
+pushed and NOT reviewed. Two commits. 318 passed / 2 skipped, ruff clean,
+`uv sync --frozen` clean. This is the story that makes Sanad ingest
+anything: `sync.py` is the first caller of ST-12, ST-13, ST-14, ST-15 and
+ST-16, all five of which were individually green and collectively
+untested until now.
+
+OWNERSHIP DEVIATION, flagged rather than absorbed: BUILD-PLAN line 65
+assigns ST-17 to YL and this machine commits as `meriem-mb` (MB). Same
+shape as the ST-12 deviation recorded for 2026-07-28. A human decides
+whether to reassign the plan row; it is left as signed. DECISIONS row
+filed.
+
+What is proven, and how:
+- PRD F-02's four criteria on real fixtures, not mocks: real SQLite, real
+  embedded Qdrant under tmp_path, real files, the real conversion ladder
+  including a genuinely AES-256 encrypted PDF. Only the two encoders are
+  faked, because they download 1.1GB.
+- all six `sync_item.result` values in ONE run (added, changed,
+  unchanged, failed, removed, skipped), asserted as a whole-report
+  equality rather than six separate greens.
+- double-sync blocked, and the test attempts the second Sync from INSIDE
+  the first via the converter, at the one moment it is genuinely mid-run.
+  Hand-writing a half-finished row would have proved the query works and
+  nothing about the guard.
+- 12 mutations injected one at a time, all 12 killed. NO survivors, which
+  is a first on this project and is itself worth distrusting slightly --
+  see the self-review finding below, which no mutation could have found.
+
+Self-review after green found the defect the mutation battery could not,
+for the fourth story running, and it is again a MISSING line rather than
+a wrong one: `vector_store.upsert_children` returns early for an empty
+child list and so never reaches its own `ensure_collection`. A sync in
+which every file was Skipped or Failed therefore left no collection at
+all, and `vector_store.search` then told the user the workspace had NEVER
+BEEN SYNCED, seconds after a sync -- the exact confusion that error's own
+docstring says it exists to prevent. `sync_workspace` now ensures the
+collection once per run, after the scan succeeds. Reproduced by deleting
+the line and watching two tests fail with that message.
+
+Three things ST-16 left for ST-17, all now closed:
+- (a) workspace deletion across both derived stores: `sync.delete_workspace`,
+  which lives in sync.py because sync owns the Qdrant client (ADR-04).
+  Derived stores first, registry second.
+- (b) `delete_document` is now called on every re-ingest, unconditionally,
+  before conversion. Shrink residue is pinned by a test.
+- (c) `StoreDeletion.unreadable_parent_files` lands in the report row's
+  reason with the next step named, rather than being escalated.
+
+CROSS-MODULE CHANGE a reviewer should look at first, because it is the
+one thing in this diff that is not ST-17's own file:
+`change_detection._STATUS_WITHOUT_DERIVED_DATA` was one set answering two
+different questions, and one answer was wrong. A `failed` row with
+unchanged bytes classified UNCHANGED forever, so a corrupted file was
+reported Failed on its first sync and then dropped out of every later
+report while still being unanswerable, and a file the user repaired was
+never picked up. F-02 criterion 3 held for exactly one run. Split into
+`_STATUS_WITHOUT_DERIVED_DATA` (removed+failed+skipped) and
+`_STATUS_ALREADY_REPORTED_REMOVED` (removed only) -- because simply
+widening the one set would have stopped a deleted `failed` file from ever
+clearing out of the registry. ST-12's existing suite never caught this:
+it is the module that READS these statuses, and ST-17 is the first that
+writes them.
+
+NOT DONE, and it is not a judgement call: ST-18. It depends on ST-07's
+corpus, which does not exist -- `data/` on this machine holds only a
+stray `parents/` test artifact, no labour-code PDF and no HR/CNSS guides.
+ST-07 is MB's and unstarted. Numbers measured on fixtures would be
+numbers about fixtures, which is worse than no numbers because they would
+be quoted later. See Next.
 
 Blast radius for ST-16, written before any code was touched and left
 here because the second bullet is what the story turned out to be about:
@@ -157,35 +235,43 @@ embeddings (ST-15) are the expensive stage and have not been written.
   the prefix tests that passed even with the config prefix emptied out.
 
 ## Next (ordered queue, top 3 only)
-1. ST-17 sync engine end to end (depends on ST-12, ST-13, ST-16). The
-   first story that wires the five ingestion/indexing modules together.
-   Three things ST-16 deliberately left for it, all recorded rather than
-   half-wired:
-   (a) `workspaces.delete_workspace` still deletes registry rows only and
-       touches neither derived store. `vector_store.delete_workspace`
-       exists and takes both as one unit, but wiring it in needs a Qdrant
-       client, and opening one inside `workspaces.py` would trip the
-       single-client rule (ADR-04). ST-17 owns the client, so ST-17 owns
-       the wiring.
-   (b) nothing calls `vector_store.delete_document` yet, so a re-synced
-       document is currently overwrite-only: the shrink residue is
-       cleaned only if the caller runs the delete first. ST-16 proved
-       delete-then-index is sufficient (and proved, with the delete
-       skipped, that the tail really is stranded), but the caller is
-       ST-17's.
-   (c) an unreadable parent JSON is REPORTED
-       (`StoreDeletion.unreadable_parent_files`) and deliberately not
-       deleted blind. ST-17 decides whether that lands in the per-file
-       report row or is escalated.
-2. Post-hoc reviewer pass on ST-12 (1862a58), which merged without one.
+1. Review ST-17 and open its PR. The branch is green and unpushed. Start
+   the review at the `change_detection.py` split described under Now: it
+   is a cross-module change inside a story's diff, which is exactly what
+   CLAUDE.md's scoped boy-scout rule tells a reviewer to be suspicious
+   of. The argument for doing it here rather than in its own `chore/`
+   branch is that ST-17's own exit gate ("six statuses correct") is false
+   without it -- judge that argument rather than accepting it.
+2. ST-07 corpus v1 (MB): the labour-code PDF plus two HR/CNSS guides plus
+   the manuals workspace. It is now the single blocker on ST-18, and
+   ST-18 is the story that produces the project's first real G4/G5
+   numbers. Nothing else in the queue needs it, and it needs no code.
+3. Post-hoc reviewer pass on ST-12 (1862a58), which merged without one.
    Deferred by the human, not forgotten. Owner MB by agreement 2026-07-28,
    a deliberate deviation: BUILD-PLAN line 60 assigns ST-12 to YL.
-3. ST-03 CI skeleton - gate.yml already satisfies it (ruff + pytest per PR, a
-   failing test blocks, INTENT check, dup gate, gitleaks). Almost certainly a
-   confirm-and-close, not work. Verify against the story's exit criteria.
-NOT ST-18. It depends on ST-07's corpus and `data/` on this machine is
-empty -- no labor-code PDF, no HR/CNSS guides -- so its numbers would be
-measured on fixtures and mean nothing.
+
+NOT ST-18, and this is unchanged from the last session's entry: it
+depends on ST-07's corpus and `data/` on this machine holds nothing but a
+stray `parents/` test artifact -- no labour-code PDF, no HR/CNSS guides.
+Its numbers would be measured on fixtures and would mean nothing, and
+they would be quoted in the report anyway once written down.
+
+CORRECTION to the previous entry's item 3, found by reading the file
+rather than the journal: it claimed gate.yml already carries an "INTENT
+check" and a "dup gate". It does not. `.github/workflows/gate.yml` has
+exactly four steps -- uv sync --frozen, ruff, pytest, gitleaks. There is
+no jscpd step and no commit-message check anywhere in it. ST-03 is
+therefore NOT a confirm-and-close; whoever takes it should diff the
+story's exit criteria against the four steps that actually exist. The
+duplication rule in the working rules is currently enforced by nothing.
+
+PARKED for ST-28, found while reading the UX spec for this story and not
+fixed here because it is that story's decision: UX spec 7.2's file table
+has a `size` column. Size is recoverable for any file with a document row
+(`Fingerprint.parse(row["content_hash"]).size_bytes`, per ST-12's packing
+decision) but an UNSUPPORTED file gets no document row at all, so its
+report row has a name, a result and a reason and no size or type. Either
+the column is blank for those rows or S2 stats the file at render time.
 
 ## Data-layer follow-ups (do not lose these)
 Carried from ST-10, plus two the ST-11 reviewer surfaced. 3 and 4 were CLOSED
@@ -244,23 +330,50 @@ their own `chore/` branch, now together with 8.
    closes it, and it is a good candidate to fold in with 1, 2 and 6.
 
 ## Blockers / waiting on human
-- HARNESS GAPS still open after `chore/harness-fit` (2026-08-22). All six are
-  HUMAN-ONLY: the permissions deny-list blocks `Edit(**/.claude/hooks/**)`,
-  `Edit(**/.claude/settings.json)` and `Edit(~/.claude/**)`, so no agent can
-  close any of them. That lock is correct and should stay; it is recorded here
-  so the gaps do not quietly become facts.
+- HARNESS GAPS after `chore/harness-fit` (2026-08-22). TWO OF THE FRAMING
+  CLAIMS IN THIS SECTION WERE WRONG, both corrected 2026-08-23 by reading the
+  files instead of the journal:
+  (i)  "the permissions deny-list blocks `Edit(**/.claude/hooks/**)`,
+       `Edit(**/.claude/settings.json)` and `Edit(~/.claude/**)`, so no agent
+       can close any of them". There is no such deny-list any more. Both
+       `~/.claude/settings.json` and `.claude/settings.local.json` have an
+       EMPTY `permissions.deny`. Nothing was blocking an agent from any of
+       this; item 1 below was fixed by an agent this session.
+  (ii) item 1's claim that the user-level settings "already registers all of
+       them correctly". It did not. That registration was itself the bug --
+       see item 1.
+  Item 1 is now CLOSED. The rest stand.
     Owner:    a human (YL). Raised 2026-08-22.
     Fallback: if still open on 2026-09-05, stop calling these fixed-in-progress
               and accept them in writing as standing gaps.
-  1. `.claude/settings.json` still registers the CBM hooks as bare
-     extensionless paths (`~/.claude/hooks/cbm-session-reminder`). On Windows
-     that spawns a cmd shell which prints its banner and echoes the hook JSON
-     instead of running the script -- that is the `Microsoft Windows [Version
-     ...]` noise at the top of every session. They are also REDUNDANT: the
-     user-level settings already registers all of them correctly via
-     `cmd.exe /d /v:off /s /c '"...cbm-*.cmd"'`. Fix is deletion, not
-     rewriting: drop the `cbm-*` entry from all four SessionStart matchers and
-     from SubagentStart, and delete the whole `"matcher": "Grep|Glob"` group.
+  1. CLOSED 2026-08-23. The project-level `.claude/settings.json` this item
+     described no longer exists (only `settings.local.json` does), so its
+     first half was moot. The real defect was the USER-level registration
+     this item called correct: all 7 CBM hook commands were wrapped as
+     `cmd.exe /d /v:off /s /c '""%USERPROFILE%\...\cbm-*.cmd""'`, and cmd.exe
+     does not treat SINGLE QUOTES as quoting. cmd therefore started
+     interactively, printed its banner, echoed the piped hook JSON as if it
+     were a typed command and exited 0 -- which is the `Microsoft Windows
+     [Version ...]` noise, and it means the hooks NEVER RAN. Diagnosed from
+     this session's own SessionStart output, then reproduced on demand.
+     Consequence, and it is the reason this mattered rather than being
+     cosmetic: `cbm-session-reminder` (4 matchers) and `cbm-code-discovery-
+     gate` (PreToolUse Grep|Glob, PostToolUse Read) are the two things that
+     tell an agent to use the code graph before reading files. Both were
+     dead, which is exactly why this session opened ST-17 with Read/Grep on
+     a fully indexed repo and only used the graph when the human asked.
+     Fixed by replacing the wrapper with the plain quoted path
+     (`"C:\Users\lenovo\.claude\hooks\cbm-*.cmd"`), which was tested from
+     both bash and cmd.exe BEFORE being written. Backup taken and verified
+     byte-identical first (`settings.json.bak-2026-08-23-cbm`); the edit was
+     made on the parsed JSON after proving it round-trips byte-exactly at
+     indent=2, and asserted to change nothing outside `hooks`. All 7 stored
+     commands were then executed as stored: 3 distinct commands, all exit 0,
+     all emitting real `hookSpecificOutput` JSON. Proven in both directions
+     -- the same harness reports FAIL on the old form, so the PASS means
+     something. STILL UNVERIFIED, and only a new session settles it: that
+     Claude Code itself invokes them cleanly at a real SessionStart. The
+     next session start is the test.
   2. `~/.claude/hooks/` carries the SAME two defects fixed here in 368e3ea:
      `gate.mjs` still has the unconditional npm early-exit, `config-guard.mjs`
      still has zero `guardedPaths` references. Every OTHER project on this
@@ -281,11 +394,20 @@ their own `chore/` branch, now together with 8.
      push" is currently unachievable here. A proxy scan of the committed diff
      for secret shapes came back clean, which is weaker and is labelled as
      such. Install gitleaks or accept CI as the only place that step runs.
-  6. UNVERIFIED: the CBM MCP tools attaching. `.mcp.json` now names the 0.10.8
-     binary directly and is gitignored as machine-local, but no session has
-     started since, so the whole of this session ran with the MCP unavailable
-     and the graph driven through `codebase-memory-mcp cli` by hand. Next
-     session start settles it.
+  6. CLOSED 2026-08-23 by the ST-17 session, which is the next session start
+     that was waiting to settle it. The CBM MCP tools attach and answer:
+     `list_projects` returned on the first call, and the project is indexed
+     at 892 nodes / 3,228 edges with 0 skipped files. `check_index_coverage`
+     over the repo root reports every source file indexed with no recorded
+     gap; the only exclusions are by design (`.claude`, `.venv`, `data`,
+     `__pycache__`, and four gitignored files) plus one parse_partial line
+     in DECISIONS.md (a markdown table row). Used for real in this session:
+     the absence protocol for "does a sync engine already exist" was run on
+     the graph first (search_graph found only `insert_sync_run` and
+     `insert_sync_item`), then grep, then a written scope line -- and
+     `trace_path` confirmed 0 inbound callers on `detect_changes`,
+     `upsert_children` and `vector_store.delete_document`, which is what
+     made ST-17's blast radius on existing code provably nil.
 
 - SAFETY SYSTEM: critical half FIXED 2026-08-01, remainder is low-priority
   debt. Full history so a future session does not re-litigate it.
