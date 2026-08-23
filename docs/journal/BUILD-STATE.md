@@ -247,7 +247,32 @@ embeddings (ST-15) are the expensive stage and have not been written.
   for the review finding this almost slipped through anyway: a version of
   the prefix tests that passed even with the config prefix emptied out.
 
-## OPEN ESCALATION: citations name the wrong part of a long document
+## CLOSED ESCALATION: citations named the wrong part of a long document
+Raised AND WITHDRAWN 2026-08-23. Kept in full, including the mistaken
+framing, because the mistake is the useful part.
+
+WHAT WAS WRONG WITH THE ESCALATION: it claimed the good fix required a
+change request against signed architecture 7.5. Re-reading 7.5 shows it
+constrains where parents are SPLIT ("markdown headings H1-H3, merged
+below 2,000, split above 4,000") and names `section_label` as a field --
+and says NOTHING about how that label is computed. The precise fix was
+therefore available all along with zero deviation, and asking a human to
+arbitrate a spec change was wasted. Lesson: quote the clause before
+declaring something spec-bound. "It is in the signed pack" is not the
+same as "the signed pack decides it".
+
+FIXED on `fix/S1-citation-marker-labels`: a parent and a child are
+labelled by the citable markers inside their OWN text (config
+`parent_citation_marker_pattern`, default `Article\s+\d+`), falling back
+to the enclosing heading when there is none. Measured on the real corpus:
+distinct parent labels 10 -> 82, child labels 584 distinct across 800
+children, 0 mislabelled, 0 children still cited by a heading, and the
+CNSS guide plus the technical manuals unchanged because they have no
+numbered unit. 7 mutations, 7 killed. DECISIONS row supersedes the
+escalation row rather than editing it.
+
+The original text follows, unedited.
+
 Raised 2026-08-23 by the ST-17 real-document run. Needs a HUMAN decision
 because the good fix deviates from a signed spec (CLAUDE.md rule 1).
 

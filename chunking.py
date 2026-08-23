@@ -27,6 +27,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
+from functools import lru_cache
 
 from config import get_settings
 
@@ -291,6 +292,46 @@ def _clean_label(heading_text: str) -> str | None:
     return " ".join(text.split()) or None
 
 
+@lru_cache(maxsize=8)
+def _citation_marker(pattern: str) -> re.Pattern[str] | None:
+    """The compiled citation-marker regex, or None when disabled.
+
+    Cached because `chunk_document` asks for it once per parent and once
+    per child -- thousands of times on a real document -- and compiling
+    the same pattern each time is pure waste. Keyed on the pattern string
+    rather than read from config here, so a test that changes the setting
+    is not fighting a stale cache."""
+    return re.compile(pattern) if pattern else None
+
+
+def _citation_label(text: str, pattern: str) -> str | None:
+    """Label a piece of text by the citable units inside it, or None.
+
+    This is the precise half of PRD F-03. A parent cut out of the middle
+    of a 40,000-character "Titre II" is not about Titre II, it is about
+    the articles it contains, and that is what a source card has to say
+    for the reader to find the passage again.
+
+    Returns a RANGE when the text spans several markers, reusing the same
+    convention and separator `_merged_label` uses for merged headings --
+    for the identical reason recorded there: citing a parent that spans
+    Articles 233 to 240 as "Article 233" attributes a sentence from
+    Article 240 to the wrong article.
+
+    None means "no citable unit in here", and the caller falls back to
+    the heading. That is the honest answer for prose, and it is why the
+    technical-manual workspace is unaffected by any of this."""
+    marker = _citation_marker(pattern)
+    if marker is None:
+        return None
+    found = [" ".join(m.group(0).split()) for m in marker.finditer(text)]
+    if not found:
+        return None
+    if found[0] == found[-1]:
+        return found[0]
+    return f"{found[0]}{_LABEL_RANGE_SEPARATOR}{found[-1]}"
+
+
 def _merged_label(sections: list[_Section]) -> str | None:
     """The label for a parent built from several sections.
 
@@ -440,6 +481,14 @@ def chunk_document(markdown: str, *, source_file: str) -> ChunkedDocument:
     children: list[Child] = []
     for section in _merge_small_sections(sections, settings.parent_merge_below_chars):
         for piece in _split_oversized(section.text, settings.parent_split_above_chars):
+            # The most precise label this piece can honestly carry: the
+            # citable units inside it, falling back to the enclosing
+            # heading. Without this, every piece of one long section
+            # carries that section's heading and a passage from Article
+            # 235 is cited as "Titre II : Definitions" -- see
+            # `_citation_label`.
+            marker_pattern = settings.parent_citation_marker_pattern
+            parent_label = _citation_label(piece, marker_pattern) or section.label
             parent = Parent(
                 # `len(parents)` is this parent's position in the document,
                 # counted across sections, which is what makes the id stable
@@ -447,7 +496,7 @@ def chunk_document(markdown: str, *, source_file: str) -> ChunkedDocument:
                 id=_parent_id(source_file, len(parents)),
                 text=piece,
                 source_file=source_file,
-                section_label=section.label,
+                section_label=parent_label,
             )
             parents.append(parent)
             children.extend(
@@ -455,7 +504,14 @@ def chunk_document(markdown: str, *, source_file: str) -> ChunkedDocument:
                     text=window,
                     parent_id=parent.id,
                     source_file=source_file,
-                    section_label=section.label,
+                    # The CHILD is what a query matches and therefore what
+                    # the source card cites, so it gets its own marker when
+                    # it has one. A window landing mid-article has none and
+                    # falls back to the parent's range: a known, bounded
+                    # imprecision, and a range that CONTAINS the right
+                    # article rather than a heading that does not.
+                    section_label=_citation_label(window, marker_pattern)
+                    or parent_label,
                 )
                 for window in _windows(
                     piece,
