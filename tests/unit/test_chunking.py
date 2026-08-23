@@ -642,3 +642,59 @@ def test_the_dataclasses_are_frozen():
         parent.text = "changed"
     with pytest.raises(AttributeError):
         child.text = "changed"
+
+
+# --- citation labels are shown to a user, not rendered as markdown --------
+
+
+@pytest.mark.parametrize(
+    ("heading", "expected"),
+    [
+        ("**<u>Securite sociale</u>**", "Securite sociale"),
+        ("**G-** **<u>Jours feries</u>**", "G- Jours feries"),
+        ("*Article 12*", "Article 12"),
+        ("__Titre II__ : Definitions", "Titre II : Definitions"),
+        ("`code` block heading", "code block heading"),
+        ("_Formalites exigees_", "Formalites exigees"),
+        ("Article 12    :    Duree", "Article 12 : Duree"),
+        ("Article 12 - Duree", "Article 12 - Duree"),
+        ("max_length et snake_case", "max_length et snake_case"),
+        ("_Formalites_ pour max_length", "Formalites pour max_length"),
+    ],
+)
+def test_heading_markup_is_stripped_from_the_section_label(heading, expected):
+    """A label is citation text on a source card (PRD F-03), not markdown.
+
+    The first two cases are verbatim from what pymupdf4llm produced for a
+    real Moroccan labour-law PDF; they are what the user would have been
+    shown as the source of an answer. The last two are the guard against
+    over-stripping: a real heading's own dash and any snake_case
+    identifier must survive untouched."""
+    body = "corps " * 200
+    doc = chunking.chunk_document(f"# {heading}\n\n{body}", source_file="d.md")
+
+    assert doc.parents[0].section_label == expected
+
+
+def test_a_heading_that_is_only_markup_is_treated_as_unlabelled():
+    """None means "this document provides no section label", which F-03
+    allows. An empty string would render as a blank citation instead."""
+    body = "corps " * 200
+    doc = chunking.chunk_document(f"# **``**\n\n{body}", source_file="d.md")
+
+    assert doc.parents[0].section_label is None
+
+
+def test_clean_label_returns_none_rather_than_an_empty_string():
+    """Pins `_clean_label`'s own contract, not the pipeline's.
+
+    Asserted directly because the public path masks it: `_merged_label`
+    filters falsy labels anyway, so an empty string reaches the parent as
+    None regardless and the test above passes either way. Mutation testing
+    found exactly that -- removing the `or None` survived the whole suite.
+    A guard nothing can distinguish from its absence is untested, so it is
+    tested here at the level where it is the only thing acting."""
+    assert chunking._clean_label("**``**") is None
+    assert chunking._clean_label("   ") is None
+    assert chunking._clean_label("Article 12") == "Article 12"
+
