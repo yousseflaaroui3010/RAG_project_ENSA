@@ -40,12 +40,38 @@ _FINGERPRINT_ALGORITHM = "sha256"
 _FINGERPRINT_SEPARATOR = ":"
 _FINGERPRINT_FIELD_COUNT = 3
 
-# document.status values, per db/schema.sql's CHECK constraint. A row in
-# `_STATUS_WITHOUT_DERIVED_DATA` has no chunks or vectors left behind it,
-# so a file matching such a row must be re-ingested even when its bytes
-# are identical -- see `_classify_present_file`.
+# document.status values, per db/schema.sql's CHECK constraint.
+#
+# These two sets answer two DIFFERENT questions and were one constant until
+# ST-17, which is the story that first writes any of these statuses. Sharing
+# one set made the two answers agree by accident, and one of them was wrong.
+#
+# 1. "Is there derived data behind this row?" -- asked of a file that is on
+#    disk right now, to decide whether identical bytes still need
+#    re-ingesting (`_classify_present_file`). `failed` and `skipped` belong
+#    here for exactly the reason `removed` does, and the sentence above is
+#    the test: a corrupted PDF and a scanned one both have no chunks and no
+#    vectors. Left out, they classified as UNCHANGED forever -- so a broken
+#    file silently dropped out of the per-file report after its first sync,
+#    was never retried once the user fixed it, and PRD F-02's promise that
+#    a corrupted file "is reported as Failed with a plain-language reason"
+#    held for one run only. db/schema.sql has no column to store that
+#    reason on the document row, so re-attempting is the only way the
+#    report can keep telling the truth about it.
 _STATUS_REMOVED = "removed"
-_STATUS_WITHOUT_DERIVED_DATA = frozenset({_STATUS_REMOVED})
+_STATUS_FAILED = "failed"
+_STATUS_SKIPPED = "skipped"
+_STATUS_WITHOUT_DERIVED_DATA = frozenset(
+    {_STATUS_REMOVED, _STATUS_FAILED, _STATUS_SKIPPED}
+)
+
+# 2. "Has this row already been reported Removed?" -- asked of a row whose
+#    file is GONE from disk, to decide whether to report it again. Only
+#    `removed` qualifies, and widening it would be a real defect in the
+#    other direction: a `failed` row whose file the user then deleted would
+#    never be reported Removed and would sit in the registry forever,
+#    describing a document that is not on disk and cannot be cleared.
+_STATUS_ALREADY_REPORTED_REMOVED = frozenset({_STATUS_REMOVED})
 
 # Public: the conversion ladder (ST-13) reports the same reason for the same
 # condition, and one shared constant is the only way that stays true. Two
@@ -332,9 +358,10 @@ def _classify_present_file(row: sqlite3.Row | None, fingerprint: Fingerprint) ->
     Three ways to be NEW rather than UNCHANGED, and the last two are the
     ones a naive hash comparison gets wrong:
       - no registry row at all;
-      - a row whose status leaves no derived data behind it (`removed`:
-        ST-17 deleted its chunks), so identical bytes still need
-        re-ingesting or the file would stay unanswerable forever;
+      - a row whose status leaves no derived data behind it (`removed`,
+        `failed` or `skipped` -- see `_STATUS_WITHOUT_DERIVED_DATA`), so
+        identical bytes still need re-ingesting or the file would stay
+        unanswerable forever AND drop out of the per-file report;
       - a row whose stored fingerprint cannot be parsed, which is
         resolved toward reprocessing (see `Fingerprint.parse`).
 
@@ -402,7 +429,7 @@ def detect_changes(
     for file_name, row in rows.items():
         if file_name in scan.fingerprints or file_name in present_but_unhashed:
             continue
-        if row["status"] in _STATUS_WITHOUT_DERIVED_DATA:
+        if row["status"] in _STATUS_ALREADY_REPORTED_REMOVED:
             continue
         changes.append(
             FileChange(

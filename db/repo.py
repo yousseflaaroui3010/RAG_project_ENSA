@@ -272,6 +272,35 @@ def delete_document(conn: sqlite3.Connection, document_id: str) -> None:
     conn.execute("DELETE FROM document WHERE id = ?", (document_id,))
 
 
+def update_document(
+    conn: sqlite3.Connection,
+    *,
+    document_id: str,
+    file_type: str,
+    content_hash: str,
+    status: str,
+    page_count: int | None = None,
+    last_synced_at: str | None = None,
+) -> None:
+    """Overwrite one document row's mutable columns after a sync.
+
+    Every column a re-ingest can change is written, none is optional-by-
+    omission. That is deliberate: `page_count` is legitimately None for a
+    format that has no pages (DOCX, TXT, MD), so a "None means leave it
+    alone" convention would make it impossible to move a row FROM a page
+    count TO none -- a PDF replaced by a DOCX under the same file name
+    would keep the PDF's page count forever.
+
+    Exists because a file returning after removal is classified NEW yet
+    already owns a registry row (change_detection.FileChange): inserting
+    would violate UNIQUE (workspace_id, file_name)."""
+    conn.execute(
+        "UPDATE document SET file_type = ?, content_hash = ?, page_count = ?, "
+        "status = ?, last_synced_at = ? WHERE id = ?",
+        (file_type, content_hash, page_count, status, last_synced_at, document_id),
+    )
+
+
 # --- sync_run --------------------------------------------------------------
 
 
@@ -310,6 +339,66 @@ def insert_sync_run(
     return run_id
 
 
+def get_sync_run(conn: sqlite3.Connection, sync_run_id: str) -> sqlite3.Row | None:
+    """One sync run by id, or None. Backs openapi.yaml `getSyncRun`; the
+    `state` field there is derived from `finished_at` being NULL, not
+    stored, so there is exactly one fact about whether a run is over."""
+    return conn.execute(
+        "SELECT * FROM sync_run WHERE id = ?", (sync_run_id,)
+    ).fetchone()
+
+
+def get_running_sync_run(
+    conn: sqlite3.Connection, workspace_id: str
+) -> sqlite3.Row | None:
+    """The unfinished run for this workspace, or None.
+
+    A run is "running" exactly when `finished_at IS NULL`, which is the
+    same rule openapi.yaml's `state: running` renders. This is what makes
+    PRD section 11's "Second Sync triggered during a Sync -> blocked with
+    a message" answerable, and it is scoped to one workspace on purpose:
+    syncing HR must not block syncing the manuals."""
+    return conn.execute(
+        "SELECT * FROM sync_run WHERE workspace_id = ? AND finished_at IS NULL "
+        "ORDER BY started_at LIMIT 1",
+        (workspace_id,),
+    ).fetchone()
+
+
+def finish_sync_run(
+    conn: sqlite3.Connection,
+    *,
+    sync_run_id: str,
+    finished_at: str | None = None,
+    added: int = 0,
+    changed: int = 0,
+    unchanged: int = 0,
+    failed: int = 0,
+    removed: int = 0,
+    skipped: int = 0,
+) -> None:
+    """Stamp a run finished and write its six counts.
+
+    Separate from `insert_sync_run` because the row is created BEFORE the
+    folder is scanned -- that is what makes the in-progress window cover
+    the whole run rather than only its tail -- and the counts are not
+    known until it ends."""
+    conn.execute(
+        "UPDATE sync_run SET finished_at = ?, added = ?, changed = ?, unchanged = ?, "
+        "failed = ?, removed = ?, skipped = ? WHERE id = ?",
+        (
+            finished_at or utc_now(),
+            added,
+            changed,
+            unchanged,
+            failed,
+            removed,
+            skipped,
+            sync_run_id,
+        ),
+    )
+
+
 # --- sync_item ---------------------------------------------------------------
 
 
@@ -330,6 +419,17 @@ def insert_sync_item(
         (item_id, sync_run_id, document_id, file_name, result, reason),
     )
     return item_id
+
+
+def list_sync_items(conn: sqlite3.Connection, sync_run_id: str) -> list[sqlite3.Row]:
+    """Every per-file row of one sync run, ordered by file name.
+
+    That order is the file table in UX spec section 7.2, not an arbitrary
+    one: the report is read by a human looking for a specific file."""
+    return conn.execute(
+        "SELECT * FROM sync_item WHERE sync_run_id = ? ORDER BY file_name",
+        (sync_run_id,),
+    ).fetchall()
 
 
 # --- eval_run ----------------------------------------------------------------
