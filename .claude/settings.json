@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"UserPromptSubmit\\\",\\\"additionalContext\\\":\\\"SANAD REPLY RULE (full text: .claude/skills/report-brief/SKILL.md): write in plain, brief, non-technical English - short sentences, no jargon without a normal-English gloss beside it, one small example or metaphor over a paragraph of theory. When a task is finished, END the reply with three headings, in this order, never merged or renamed: ## Done (finished AND proven, proof attached - a command, a number, a file; an intention is not an outcome), ## Ongoing (started but not finished, and what it waits on; a blocked or denied tool call goes here as could-not-check, never in Done), ## Left (not started, most important first), then a final one-line **Next:**.\\\"}}\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r \".tool_input.file_path // empty\" | grep -qiE \"(^|[\\\\/])tests?[\\\\/]|test_[^\\\\/]*\\.py$|conftest\\.py$\" && echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"PROVE-IT TRIGGER - you just changed a test file. A test never seen failing proves only that it does not crash. Before trusting it: break on purpose the thing it is meant to catch, WATCH it go red, read the failure message (a teammate will get that message), restore, watch it go green. Mutate the DECISION site, not a helper whose output still compares unequal. A surviving mutation can mean DEAD CODE, not a vacuous test - read the survivor before blaming the test. Then check it against the six vacuous shapes in .claude/skills/prove-it/SKILL.md: self-referential, fixture too small for the property, same error on both sides of the comparison, keyed so duplicates collapse, one-sided bound with a default behind it, degenerate count.\\\"}}\" || true",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

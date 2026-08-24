@@ -75,6 +75,7 @@ venv/
 !.claude/skills/prove-it/
 !.claude/skills/test-strategy/
 !.claude/skills/research-discipline/
+!.claude/skills/give-steps/
 !.claude/agents/
 .claude/agents/*
 !.claude/agents/reviewer.md
