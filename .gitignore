@@ -73,6 +73,8 @@ venv/
 .devtools/skills/*
 !.devtools/skills/report-brief/
 !.devtools/skills/prove-it/
+!.devtools/skills/test-strategy/
+!.devtools/skills/research-discipline/
 
 # MCP server wiring is machine-local for the same reason .devtools/ is. On this
 # machine it has to name an absolute path to the 0.10.8 binary, because the
