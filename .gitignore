@@ -75,6 +75,10 @@ venv/
 !.claude/skills/prove-it/
 !.claude/skills/test-strategy/
 !.claude/skills/research-discipline/
+!.claude/agents/
+.claude/agents/*
+!.claude/agents/reviewer.md
+!.claude/agents/verifier.md
 
 # MCP server wiring is machine-local for the same reason .claude/ is. On this
 # machine it has to name an absolute path to the 0.10.8 binary, because the
