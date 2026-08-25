@@ -47,7 +47,38 @@ venv/
 # to .claude/hooks/ now lives on ONE machine and is invisible to the other
 # teammate. Durable hook fixes belong in ~/.claude/hooks/, which is what every
 # project on a machine reads from.
-.claude/
+#
+# NARROW EXCEPTION, added 2026-08-23, and it is narrow on purpose. A short
+# allow-list under .claude/ is TRACKED: `.claude/settings.json` plus the
+# Sanad-authored skills named below. Neither objection above reaches them --
+# they are small files Sanad wrote itself, not vendored payload, so they add
+# nothing to the code graph and a reviewer reads them in seconds. They are
+# tracked precisely BECAUSE of the consequence stated just above: untracked,
+# a shared rule would live on one machine and the other teammate would never
+# receive it. Everything else under .claude/ stays ignored. Keep it that way
+# -- the moment an installer unpacks a payload here again, this list is what
+# holds the line.
+#
+# READ THIS BEFORE ADDING A SKILL. The allow-list is per-directory, so a new
+# skill folder is IGNORED until its own `!` line exists here, and nothing
+# announces that: it works on the machine that wrote it and is invisible to
+# the other. That trap was tripped on the first attempt at prove-it, caught
+# only by running `git check-ignore -v` on the new path. Add the line, then
+# prove it with:
+#     git check-ignore -v .claude/skills/<new-skill>/SKILL.md
+# No output means it is tracked. Output means it is still ignored.
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/report-brief/
+!.claude/skills/prove-it/
+!.claude/skills/test-strategy/
+!.claude/skills/research-discipline/
+!.claude/agents/
+.claude/agents/*
+!.claude/agents/reviewer.md
+!.claude/agents/verifier.md
 
 # MCP server wiring is machine-local for the same reason .claude/ is. On this
 # machine it has to name an absolute path to the 0.10.8 binary, because the

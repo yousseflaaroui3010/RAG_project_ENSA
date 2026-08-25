@@ -738,9 +738,39 @@ def test_every_report_row_is_persisted_as_a_sync_item(folder, run_sync, db_path)
         rows = repo.list_sync_items(conn, report.sync_run_id)
     finally:
         conn.close()
-    assert {r["file_name"]: r["result"] for r in rows} == {
-        item.file_name: item.result for item in report.items
-    }
+    # Compared as ORDERED LISTS, not as dicts keyed on file name. A dict
+    # on either side silently collapses two rows for one file into one,
+    # and that is exactly the defect this file could not see: every other
+    # helper here keys by name, so a run that reported `code.md` twice
+    # passed the whole suite.
+    assert [(r["file_name"], r["result"]) for r in rows] == [
+        (item.file_name, str(item.result)) for item in report.items
+    ]
+
+
+def test_each_file_gets_exactly_one_report_row(folder, run_sync, monkeypatch):
+    """Rule 1 of this module's docstring, stated as a count.
+
+    An ingested file whose type is later narrowed out of
+    `supported_document_extensions` used to land in BOTH the unsupported
+    list and the REMOVED sweep, so one file produced a Skipped row and a
+    Removed row in the same run -- and the Removed branch deleted its
+    vectors and parent files while the Skipped row told the user nothing
+    had happened to it."""
+    _write(folder, "code.md", HR_TEXT)
+    run_sync()
+
+    narrowed = get_settings().model_copy(
+        update={"supported_document_extensions": ("pdf",)}
+    )
+    monkeypatch.setattr(change_detection, "get_settings", lambda: narrowed)
+
+    report = run_sync()
+
+    names = [item.file_name for item in report.items]
+    assert names == ["code.md"], f"one file produced {len(names)} rows: {names}"
+    assert report.counts[SyncResult.SKIPPED] == 1
+    assert report.counts[SyncResult.REMOVED] == 0
 
 
 def test_report_rows_are_ordered_by_file_name(folder, run_sync):

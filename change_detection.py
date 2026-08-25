@@ -424,7 +424,20 @@ def detect_changes(
     # is still present, and calling it Removed would make ST-17 delete the
     # chunks of a document that never went anywhere. Removed means gone from
     # disk, not "we had trouble with it".
-    present_but_unhashed = {problem.file_name for problem in scan.unreadable}
+    #
+    # BOTH problem lists belong here, and only `unreadable` was covered
+    # until the ST-17 review pass. An UNSUPPORTED file is present on disk
+    # for exactly the same reason -- it produced no fingerprint, but it is
+    # right there -- so a file already carrying a document row that later
+    # falls outside `supported_document_extensions` was reported Skipped
+    # AND Removed in the SAME run: two report rows for one file, breaking
+    # sync.py's "one row per file" rule, with the Removed branch deleting
+    # the passages of a file the user never touched while the Skipped row
+    # said nothing had happened to it.
+    present_but_unhashed = {
+        problem.file_name
+        for problem in (*scan.unreadable, *scan.unsupported)
+    }
 
     for file_name, row in rows.items():
         if file_name in scan.fingerprints or file_name in present_but_unhashed:
