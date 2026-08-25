@@ -1,7 +1,22 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: 0210408 on main (ST-17, PR #35, squash). Updated:
-2026-08-23 by the ST-17 session. The gate was run by hand in gate.yml
+Last verified commit: e1e4098 on main. Updated: 2026-08-23 by the ST-17
+RULE-5 REVIEW PASS session, which independently ran gate.yml steps 1-3 on
+main before touching anything: `uv sync --frozen` clean (170 packages),
+`uv run ruff check .` exit 0, `uv run pytest` 336 passed / 2 skipped --
+which corroborates the count rather than copying it. gitleaks (step 4)
+NOT run: re-checked PATH, `Program Files` and `~/go/bin` this session,
+all three negative. Still not installed here; CI remains the only place
+that step executes.
+
+The previous header said 0210408 / 318 tests, which was four commits
+stale (PRs #36-#39 landed after it). That is the FOURTH time this file
+has described a state that no longer existed, and the first three were
+all the same shape. Noted rather than quietly corrected.
+
+Earlier header, kept because its gate evidence still stands for ST-17
+itself: Last verified commit 0210408 on main (ST-17, PR #35, squash).
+The gate was run by hand in gate.yml
 order on the branch AND re-run ON MAIN after the merge, not only on the
 branch: `uv sync --frozen` clean, `uv run ruff check .` exit 0, `uv run
 pytest` exit 0 with 318 passed / 2 skipped (272 / 2 at the branch point).
@@ -53,16 +68,17 @@ TWO DEVIATIONS, both recorded as DECISIONS rows rather than absorbed:
 - ownership: BUILD-PLAN line 65 assigns ST-17 to YL and this machine
   commits as `meriem-mb` (MB). Same shape as the ST-12 deviation of
   2026-07-28. The plan row is left as signed; a human decides.
-- MERGED WITHOUT THE RULE-5 REVIEW PASS, at the human's explicit
-  instruction on 2026-08-23. CLAUDE.md rule 5 exists because a green
-  suite has never once been sufficient on this project: ST-10 shipped a
-  defect an independent re-review caught, ST-11 took three rounds each
-  finding a real defect while the suite was green, and ST-12 merged
-  without a review and is STILL owed one. ST-17 is the largest single
-  diff in the project so far (+2,189 lines) and now carries the same
-  debt. The PR body names the two places to start: the cross-module
-  `change_detection` split, and the write-ordering claim. This is a debt,
-  not a closed item.
+- MERGED WITHOUT THE RULE-5 REVIEW PASS on 2026-08-23, at the human's
+  explicit instruction. THAT DEBT IS NOW PAID -- see the review-pass
+  section below. Kept in full because the reason it mattered is the
+  point: CLAUDE.md rule 5 exists because a green suite has never once
+  been sufficient on this project (ST-10 shipped a defect an independent
+  re-review caught, ST-11 took three rounds each finding a real defect
+  while the suite was green, and ST-12 merged without a review and is
+  STILL owed one). ST-17 is the largest single diff in the project so
+  far (+2,189 lines) and carried the same debt for five commits. The
+  review found one defect that DELETES USER DATA, which is the fifth
+  story running where a post-green pass found something.
 
 What is proven, and how:
 - PRD F-02's four criteria on real fixtures, not mocks: real SQLite, real
@@ -306,6 +322,108 @@ SEPARATE and already fixed on `fix/S1-citation-label-markup`: heading
 markup was leaking into the label itself (`**G-** **<u>Securite sociale
 et charges sociales</u>**`). That one needed no spec change.
 
+## ST-17 RULE-5 REVIEW PASS -- DONE 2026-08-23 (the debt above, paid)
+Post-hoc, against 0210408 as merged, read on main at e1e4098. The two
+things the review was told to start with BOTH HELD, and saying so is
+half the value of having run it.
+
+VERIFIED, not accepted: the cross-module `change_detection` split.
+`_STATUS_WITHOUT_DERIVED_DATA` (removed+failed+skipped) and
+`_STATUS_ALREADY_REPORTED_REMOVED` (removed only) genuinely answer two
+different questions, and the SECOND one is the half nobody would think
+to check -- widening it would strand a `failed` row whose file the user
+then deleted, forever. Both directions are pinned by tests, including
+one asserting an `active` row with identical bytes is still UNCHANGED so
+the fix cannot degenerate into "re-ingest everything every sync".
+A property the ST-17 entry did not claim and which the review adds: this
+split is ALSO what makes crash residue self-heal. A crash between
+`save_parents` and `upsert_children` writes status `failed`; the widened
+set turns that into NEW on the next run, so `_ingest`'s unconditional
+delete sweeps the orphan parents. Before the split it would have been
+UNCHANGED forever with zero passages and stranded parent files.
+
+VERIFIED BY RUNNING IT, which is the only way this claim was ever going
+to be worth anything: the parents-before-vectors write order in
+`_ingest`. The two calls were SWAPPED and the suite re-run --
+`test_an_interrupted_write_never_leaves_a_vector_without_its_parent`
+goes red with `ParentNotFoundError` from parent_store.py:171. So the
+module docstring's ordering claim is test-enforced, not merely asserted.
+Worth knowing about that test: under the CORRECT order its assertion
+loop runs over an EMPTY list, so its green means nothing on its own and
+its entire value is in the mutant. That is the shape ST-16 flagged; it
+is fine here BECAUSE the mutation was actually run.
+
+DEFECT FOUND AND FIXED on `fix/S1-ST-17-unsupported-double-row` (PR #40):
+ONE FILE COULD PRODUCE TWO REPORT ROWS, and the second one deleted data.
+The REMOVED sweep in `detect_changes` excluded only `scan.unreadable`
+from its "gone from disk" test, never `scan.unsupported` -- although both
+are present on disk and both produce no fingerprint. A file already
+carrying a document row that later falls outside
+`supported_document_extensions` therefore landed in the unsupported list
+AND the REMOVED sweep. Reproduced before the fix:
+```
+REPORT ITEMS: [('code.md', 'skipped'), ('code.md', 'removed')]
+PERSISTED   : [('code.md', 'skipped'), ('code.md', 'removed')]
+COUNTS      : {'removed': 1, 'skipped': 1}
+```
+That breaks rule 1 of sync.py's own docstring, and the Removed branch
+deleted the file's vectors and parent files while the Skipped row told
+the user nothing had happened to it. The module's own comment already
+stated the rule that forbids it ("Removed means gone from disk, not 'we
+had trouble with it'"); it was applied to half the cases. Reachable via
+a config narrowing, which is an operator setting -- config.py notes PPTX
+moving the other way for ST-48, so the list is not frozen. Product call
+made by the human: ONE Skipped row and the passages KEEP answering.
+
+AND THE REASON IT WAS INVISIBLE, fixed in the same change: every helper
+in test_sync.py keys by file name -- `_results()` at line 205, and
+`test_every_report_row_is_persisted_as_a_sync_item` on BOTH sides of its
+comparison. A dict collapses two rows for one file into one, so NO test
+in that file could see a file reported twice, including the
+"all six result values in one run" test the ST-17 entry singles out as a
+whole-report equality. That test now compares ordered lists.
+
+## ST-17 review-pass findings NOT fixed (found 2026-08-23, no owner)
+Three more, left alone because sync.py was not otherwise being edited
+and the scoped boy-scout rule says an unrelated drive-by belongs in its
+own change. All three were REPRODUCED, not reasoned about.
+
+1. `_ingest` THROWS AWAY `unreadable_parent_files`. `_remove` surfaces it
+   in the report row via `UNREADABLE_PARENTS_NOTE`; `_ingest` discards
+   the whole `StoreDeletion` return value. Proven: a corrupt parent JSON
+   planted in the workspace survived a re-ingest with the report row's
+   reason `None`. Worse, that litter can NEVER be deleted --
+   `list_parent_ids` cannot read its `source_file`, so no
+   `delete_document` will ever name it, and only
+   `delete_workspace_parents` clears it. ST-16's `StoreDeletion`
+   docstring says the counts exist precisely so the two stores drifting
+   apart becomes visible; ST-17 discards them on the hot path.
+2. `last_synced_at` is NEVER updated for an UNCHANGED file. The UNCHANGED
+   branch in `_run` writes no document row at all. Proven: two syncs,
+   byte-identical timestamp. The column says "last synced" and the value
+   means "last ingested". Needs a product call, not a code fix, and it
+   belongs with whoever renders the S2 file table (ST-28).
+3. A FOLDER-LEVEL FAILURE persists as a FINISHED run with six zeros,
+   indistinguishable from a clean sync of an empty folder. `sync_workspace`
+   finishes the run row in its `finally` (correct -- it is what stops a
+   dead sync blocking the workspace forever) but `sync_run` has no error
+   column (db/schema.sql lines 41-49) and openapi derives `state` from
+   `finished_at` alone. The exception does reach the caller, so the live
+   screen is fine; it is the persisted HISTORY that lies. ESCALATION-
+   SHAPED, not a bug: the schema is signed, so closing it needs a change
+   request, not a code edit. Nobody owns it.
+
+UNVERIFIED, and it stays unverified until someone runs it: a file that
+becomes unreachable rather than deleted (a dangling symlink, an offline
+network target) fails `entry.is_file()` in `scan_folder`, so it misses
+BOTH `unsupported` and `unreadable` and falls through to the REMOVED
+sweep -- which would delete its chunks. That is the "unplugged drive"
+failure `FolderNotFoundError` exists to prevent, at per-file scale, and
+ST-17 is the story that made it destructive rather than merely a
+classification. THE PROBE COULD NOT RUN: Windows refused the symlink
+with `WinError 1314, a required privilege is not held by the client`.
+Not a finding. Settled by one elevated shell or one POSIX machine.
+
 ## ST-17 self-review findings NOT fixed (found 2026-08-23, no owner)
 Found by reading sync.py adversarially after it was merged. Neither is a
 correctness bug, both are recorded so they do not become facts by
@@ -371,9 +489,15 @@ in its own change.
    ST-18's plumbing done. Query latency on that corpus was 0.17-0.22s
    and indexing was dominated by CPU embedding; NEITHER is a G4/G5
    number, because the corpus is a stand-in (data/corpus/SOURCES.md).
-3. Post-hoc reviewer passes now owed on TWO stories: ST-12 (1862a58) and
-   ST-17 (0210408), both merged without one. ST-12's is owner MB by
-   agreement 2026-07-28, a deliberate deviation from BUILD-PLAN line 60.
+3. Post-hoc reviewer pass owed on ONE story now, not two. ST-17
+   (0210408) is DONE -- see the review-pass section above; it found one
+   data-deleting defect, fixed on PR #40, plus three findings recorded
+   with no owner and one probe that could not run on Windows. ST-12
+   (1862a58) is STILL OWED one; owner MB by agreement 2026-07-28, a
+   deliberate deviation from BUILD-PLAN line 60. ST-12's review is now
+   the only one outstanding, and it is the module ST-17's review just
+   changed for the second time, which makes it more worth doing, not
+   less.
 
 NOT ST-18, and this is unchanged from the last session's entry: it
 depends on ST-07's corpus and `data/` on this machine holds nothing but a
