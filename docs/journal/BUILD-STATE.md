@@ -1,13 +1,61 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: e1e4098 on main. Updated: 2026-08-23 by the ST-17
-RULE-5 REVIEW PASS session, which independently ran gate.yml steps 1-3 on
-main before touching anything: `uv sync --frozen` clean (170 packages),
-`uv run ruff check .` exit 0, `uv run pytest` 336 passed / 2 skipped --
-which corroborates the count rather than copying it. gitleaks (step 4)
-NOT run: re-checked PATH, `Program Files` and `~/go/bin` this session,
-all three negative. Still not installed here; CI remains the only place
-that step executes.
+Last verified commit: 249724a on main. Updated: 2026-08-24, re-stamped at
+merge time rather than at writing time -- see the rule below, which is the
+whole reason this header moved. `uv run ruff check .` exit 0 and
+`uv run pytest` 338 passed / 2 skipped, measured on the merged tree BEFORE
+PR #41 was merged, and CI `verify` green on that same tree. gitleaks
+(step 4) NOT run locally: still not installed on this machine; CI remains
+the only place that step executes.
+
+THE RULE THIS HEADER NOW OBEYS, and it is new: **re-read and re-stamp this
+header immediately before merging, not when the PR is written.** PR #41
+was accurate the day it was authored and stale the moment it landed,
+because main moved five commits (PRs #42-#45) and the suite went 336 ->
+338 while the PR sat open. That would have been the FIFTH instance of this
+file describing a state that no longer existed, and the first time the
+cause was not carelessness but latency. "Do not copy the number" was never
+enough; the number has to be taken at the last possible moment.
+
+Previous header, kept because its own correction is still the useful part:
+it recorded e1e4098 / 336 passed, verified by the ST-17 RULE-5 REVIEW PASS
+session which independently ran gate.yml steps 1-3 on main before touching
+anything -- `uv sync --frozen` clean (170 packages), ruff exit 0, 336
+passed / 2 skipped, corroborating the count rather than copying it.
+
+WHAT LANDED ON MAIN 2026-08-23/24, none of which the sections below know
+about. All six are docs and control-plane only; no source file changed
+except in #40:
+- #40 `900f58d` fix(change-detection): a present-but-unsupported file is
+  NOT Removed. The REMOVED sweep excluded only `scan.unreadable`, never
+  `scan.unsupported`, so a file that fell outside
+  `supported_document_extensions` after already having a document row was
+  reported Skipped AND Removed in the same run -- two rows for one file,
+  with the Removed branch deleting the passages of a file the user never
+  touched. Reviewed before merge; both new tests proven to fail with the
+  fix reverted. This is the defect the #41 review pass found.
+- #42 `ee143a3` the `report-brief` skill and a CLAUDE.md reporting rule.
+- #43 `3bf742c` the `prove-it` skill: enumerate every candidate root cause
+  before touching code, break every check on purpose, and read a mutation
+  result honestly. Carries the six vacuous-test shapes this project has
+  actually shipped.
+- #44 `b248c7b` `test-strategy` and `research-discipline`, imported from
+  user level so BOTH machines have them.
+- #45 `12f4e0c` the core law folded into CLAUDE.md, plus the `reviewer`
+  and `verifier` agents. Four of nine user-level rule files were REJECTED
+  on content, not convenience -- `git-discipline.md` mandates `task/T-xxx`
+  branches and an `[AI]` marker, which CLAUDE.md rules 2 and 4 forbid.
+- #41 `249724a` this file's own ST-17 review pass.
+
+STILL NOT TRACKED, and it is the one thing keeping the above at documents
+rather than enforcement: `.claude/settings.json`. The two hooks
+(UserPromptSubmit for the reply rule, PostToolUse for the prove-it
+trigger) are written, tested and INSTALLED on YL's machine -- verified
+live, the injected text appears in the session -- but the file is
+deny-listed for Edit, so no agent can place or update it. MB has no hooks
+at all. PR #46 is held open for exactly this reason: its tracked copy is
+an older version missing the `give-steps` rule, and merging it would hand
+MB a wrong hook rather than no hook.
 
 The previous header said 0210408 / 318 tests, which was four commits
 stale (PRs #36-#39 landed after it). That is the FOURTH time this file
