@@ -75,6 +75,7 @@ venv/
 !.devtools/skills/prove-it/
 !.devtools/skills/test-strategy/
 !.devtools/skills/research-discipline/
+!.devtools/skills/give-steps/
 !.devtools/agents/
 .devtools/agents/*
 !.devtools/agents/reviewer.md
