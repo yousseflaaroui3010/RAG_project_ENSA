@@ -123,6 +123,32 @@ evals/fixture/node_modules/
 # --- Local code-graph artifact (regenerated, not shared) ---
 .codebase-memory/
 
+# --- UI design reference, machine-local (added 2026-08-26) ---
+# `designrag-main/` is a generated React + Vite + Tailwind prototype of the
+# three Sanad screens. It is a PICTURE OF THE UI, not the UI: CR-02 replaced
+# the framework interface with server-rendered Jinja templates and ADR-10
+# rules out a JavaScript toolchain, so nothing under its `src/` is ever
+# copied into this repo. ST-27 and ST-28 reimplement the screens by reading
+# it, the way you would read a Figma file.
+#
+# Ignored rather than tracked for three reasons, in order of weight:
+#   1. It carries its own `.env.example` and a `server.ts` that reads a
+#      GEMINI_API_KEY. Committing a second env template into a repo whose
+#      one hard rule is "no key in a tracked file" is a trap for whoever
+#      edits the wrong one.
+#   2. It brings a second package.json and a bun lockfile into a uv-only
+#      Python repo. CI, gitleaks and the code graph would all start reading
+#      a toolchain this project deliberately does not have.
+#   3. It is a snapshot that will be superseded the moment the templates
+#      exist, and a superseded reference in history invites someone to
+#      "fix" it later.
+#
+# CONSEQUENCE, stated rather than discovered: MB does not receive this
+# through git. If she needs it, send the folder or the published mockups
+# directly. The DESIGN DECISIONS it embodies are not lost either way --
+# they belong in docs/journal/DECISIONS.md, which is reviewed and versioned.
+designrag-main/
+
 # --- Stray duplicates from botched extracts ---
 # Windows drops these when an archive is unpacked over existing files.
 # 'README copy.md' is the harness's own README, not Sanad's.
