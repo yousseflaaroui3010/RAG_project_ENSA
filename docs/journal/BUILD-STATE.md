@@ -1,21 +1,30 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: bbaca48 ON THE BRANCH `feat/S2-ST-21-agent-graph`,
-NOT on main and NOT merged. Updated: 2026-08-25 by the ST-21 session.
-main is at da81143 (PR #48, the give-steps reply hook), which is one
-commit further on than the header below claims -- the sixth time this
-file has described a state that had moved, and again latency rather than
-carelessness. Per the rule that header states, this block gets re-stamped
-immediately before ST-21 merges, not now.
+Last verified commit: **24479ba on main** -- ST-21 MERGED (PR #49, squash)
+on 2026-08-26. Updated at merge time, and the numbers below were taken
+AFTER the merge, on main, not copied from the branch.
+
+This is the first time this header has obeyed its own rule end to end.
+The rule, restated because it was written five staleness incidents ago:
+re-read and re-stamp immediately before merging, and take the number at
+the last possible moment. What that produced here: the branch's own gate
+run said 404 passed, CI `verify` on the PR said the same, and then the
+whole gate was run a THIRD time on main after the squash landed -- because
+a green branch and a green main are not the same claim.
+
+Previous header, kept because it was accurate for the branch it described:
+Last verified commit bbaca48 on `feat/S2-ST-21-agent-graph`, not merged;
+main was at da81143 (PR #48).
 
 THE WHOLE GATE WAS RUN BY HAND ON THE BRANCH, in gate.yml order, all four
-steps: `uv sync --frozen` clean (170 packages audited), `uv run ruff
-check .` exit 0, `uv run pytest` 404 passed / 2 skipped in 90s (338 / 2
-at the branch point), and -- FOR THE FIRST TIME ON THIS MACHINE --
-`gitleaks detect` exit 0, "no leaks found", 2.62 MB scanned. Measured on
-the tree as it stands after the verifier fixes; earlier runs in this
-session showed 379 and then 396, and both were true when taken. 66 of the
-404 are ST-21's own (46 graph + 7 state + 7 trace + 6 stores).
+steps, and then RE-RUN ON MAIN AFTER THE MERGE at 24479ba: `uv sync
+--frozen` clean (170 packages audited), `uv run ruff check .` exit 0,
+`uv run pytest` **404 passed / 2 skipped** (338 / 2 at the branch point),
+and -- FOR THE FIRST TIME ON THIS MACHINE -- `gitleaks detect` exit 0,
+"no leaks found", 2.77 MB scanned. CI `verify` was also green on PR #49,
+all four steps, 1m23s. Earlier runs in this session showed 379 and then
+396; both were true when taken, and neither is the number that counts.
+66 of the 404 are ST-21's own (46 graph + 7 state + 7 trace + 6 stores).
 
 GITLEAKS IS NOW INSTALLED HERE, so blocker item 5 below is CLOSED and the
 standing caveat "CI is the only place step 4 executes" is no longer true.
@@ -130,10 +139,20 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-ST-21 AGENT GRAPH SKELETON, PR #49 OPEN against main from
-`feat/S2-ST-21-agent-graph` (d2be09e). CI `verify` GREEN, all four
-gate.yml steps, 1m23s. NOT merged, and rule 5's partner review is still
-owed -- a human's, not an agent's. This is the first module of the answering half: everything before
+ST-21 AGENT GRAPH SKELETON **MERGED as 24479ba** (PR #49, squash),
+2026-08-26, and re-verified on main after the merge rather than only on
+the branch.
+
+ONE DEVIATION, recorded rather than absorbed: MERGED WITHOUT THE RULE-5
+PARTNER REVIEW, at the human's explicit instruction ("just merge #49 for
+now"). Same shape as the ST-17 deviation of 2026-08-23, and the same debt
+it created. What ST-21 did have before merging, which is more than ST-17
+had: the whole gate by hand plus CI, 38 mutations all killed, one COLD
+verifier pass whose blocking finding was fixed, and one human read that
+found the two structural gaps. What it did NOT have is the partner's
+eyes. On this project a post-green pass has found a real defect on five
+stories running, so the debt is real even when the evidence looks strong.
+ST-12's review is still owed too; that makes two. This is the first module of the answering half: everything before
 it put documents INTO the stores, and nothing has ever taken a question.
 
 WHAT IT IS, and just as importantly what it is not. Architecture 5.2 is
@@ -300,14 +319,25 @@ spec 6.2, BUILD-PLAN line 76, and langgraph's own `_config.py:32`, and
 found no fabricated reference. The previous pass of this branch had
 eight wrong ones.
 
-PARKED, all five visible rather than fixed:
-- A FILE BRIEFLY LOCKED READS AS A CORRUPT ONE and takes the whole
-  question down. `parent_store.py:176` turns ANY `OSError` into
-  `CorruptParentError`, so antivirus or OneDrive sync holding a parent
-  file for a moment is indistinguishable from genuine corruption -- and
-  this repo lives under OneDrive. A transient lock is retryable and
-  corruption is not; they should not share an outcome. The fix is inside
-  MB's ST-16 module, so it needs her agreement and its own `fix/` branch.
+PARKED, all five visible rather than fixed. THE TWO THAT HAD NO OWNER NOW
+HAVE ONE, a date and a fallback, because this file has carried ownerless
+debt before and it rots into abandoned work rather than blocked work:
+- **ISSUE #50, owner MB, fallback 2026-09-12.** A FILE BRIEFLY LOCKED
+  READS AS A CORRUPT ONE and takes the whole question down.
+  `parent_store.py:176` turns ANY `OSError` into `CorruptParentError`, so
+  antivirus or OneDrive sync holding a parent file for a moment is
+  indistinguishable from genuine corruption -- and this repo lives under
+  OneDrive. A transient lock is retryable and corruption is not; they
+  should not share an outcome. The fix is inside ST-16's module, so it is
+  not ST-21's to make.
+- **ISSUE #51, owner YL, fallback 2026-09-12.** ADR-09 SAYS V1 PERSISTS
+  THE TRACE and there is nowhere to put it: `db/schema.sql` has no answer
+  table and no trace table, while openapi calls `trace_id` a "stored
+  trace reference". Nothing is broken today, because nothing reads a
+  trace back until F-10 (V1.1) -- but the `trace_id` served now
+  identifies nothing on disk, so no story may claim a trace survives a
+  restart until this is settled. It is a spec decision (amend ADR-09, or
+  a change request adding the tables), not a code edit.
 - SEVEN COPIES of the "de-duplicate, keep first-seen order" one-liner
   across the new package. The core law says the third copy needs an
   abstraction or a DECISIONS row; there is now a row.
@@ -731,7 +761,23 @@ in its own change.
    is two lines: drop the parameter and use `report.folder_path`.
 
 ## Next (ordered queue, top 3 only)
-0. ST-21 HAS HAD NO AGENT REVIEW PASS AT ALL. CORRECTION, and it is a
+0. ST-23 HYBRID RETRIEVAL + GRADER + REWORD CEILING (YL). The critical
+   path runs ST-21 -> ST-23 -> ST-24, and ST-21 was built to be filled
+   in: `agent/ports.py` names the three seams ST-23 owns (`retrieve`,
+   `grade`, `reword`) with their contracts, and the note on the retrieve
+   seam says where the Qdrant client must come from. Exit gate: retry
+   count never exceeds config, off-topic fixture triggers exactly one
+   reword. Read `agent/ports.py` first, not this file.
+1. ST-22 clarification + rewrite-and-split (YL), which fills the other
+   two seams and needs no new wiring.
+2. THE TWO OWED REVIEW PASSES, now both recorded rather than one: ST-12
+   (1862a58, owner MB by agreement 2026-07-28) and ST-21 (24479ba,
+   merged without the rule-5 partner review at the human's instruction).
+   ST-12's is the older debt and is the module ST-17's review changed
+   twice.
+
+HISTORY, kept because the correction is the point: ST-21 HAS HAD NO AGENT
+REVIEW PASS AT ALL. CORRECTION, and it is a
    correction of this file: an earlier version of this line said the
    branch "has had one COLD read (the verifier agent)". IT DID NOT. The
    verifier was launched and DIED before reading the diff -- "Agent
