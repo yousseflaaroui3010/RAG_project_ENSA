@@ -454,27 +454,41 @@ def test_a_split_question_runs_one_search_per_sub_query():
     assert answer.kind is AnswerKind.ANSWER
 
 
-def test_a_chunk_found_by_two_sub_queries_is_one_passage_and_one_source():
+def test_a_chunk_found_by_two_sub_queries_reaches_the_model_once():
     """The same article matching both halves of a split question comes
-    back twice, with two different fusion scores -- so de-duplicating on
-    the whole hit would keep both and cite one article twice.
+    back twice with two different fusion scores, so de-duplicating on the
+    whole hit object would keep both.
+
+    ASSERTED ON WHAT THE ANSWER WRITER RECEIVED, and that correction is
+    the point of this test. The first version asserted on
+    `answer.sources`, which `_sources_for` de-duplicates a second time on
+    (file, label) -- so the duplicate collapsed before the assertion could
+    see it and the test passed with the merge broken. That is the "keyed
+    so duplicates collapse" shape from the prove-it skill, caught by
+    injecting the mutation rather than by reading the test.
+
+    The real cost of a duplicate is here anyway: the model reads the same
+    passage twice, and passage text is the scarcest thing in the prompt.
 
     The fixture makes the scores differ ON PURPOSE. With equal scores the
-    two hits would be equal objects and a plain `set` would pass this
-    test while the real bug went unseen."""
+    two hits would be equal objects and a plain `set` would pass."""
     same_chunk_again = dataclasses.replace(HIT, score=0.42)
     other = dataclasses.replace(
         HIT, parent_id="p-2", section_label="Article 14", chunk_text="Le preavis..."
     )
     batches = {"q1": (HIT, other), "q2": (same_chunk_again,)}
+    write = _Recorder(ANSWER_TEXT)
 
     answer = _ask(
         ports=_ports(
             rewrite=lambda question, summary: ("q1", "q2"),
             retrieve=lambda workspace_id, query: batches[query],
+            write_answer=write,
         )
     )
 
+    passages = write.calls[0][1]
+    assert [hit.chunk_text for hit in passages] == [HIT.chunk_text, "Le preavis..."]
     assert [(s.file_name, s.section_label) for s in answer.sources] == [
         ("code-du-travail.pdf", "Article 13"),
         ("code-du-travail.pdf", "Article 14"),
@@ -626,6 +640,28 @@ def test_a_port_that_returns_a_blank_string_fails_loudly_and_by_name(
     _with_settings(monkeypatch, retry_ceiling=1)
 
     with pytest.raises(ValueError, match=f"the {port} port returned a blank"):
+        _ask(ports=_ports(**overrides))
+
+
+@pytest.mark.parametrize(
+    ("overrides", "port"),
+    [
+        ({"rewrite": lambda question, summary: ()}, "rewrite"),
+        ({"grade": lambda q, p: False, "reword": lambda q, prev, n: []}, "reword"),
+    ],
+    ids=["rewrite", "reword"],
+)
+def test_a_port_that_returns_no_queries_at_all_fails_loudly(monkeypatch, overrides, port):
+    """The plural version of the blank string, and it was an UNTESTED
+    guard until a mutation survived: deleting the check changed nothing,
+    because no test made a port return an empty sequence.
+
+    What it prevents: the graph searches nothing, grades nothing, and
+    refuses while disclosing to the user that it looked for nothing at
+    all (F-05)."""
+    _with_settings(monkeypatch, retry_ceiling=1)
+
+    with pytest.raises(ValueError, match=f"the {port} port returned no queries"):
         _ask(ports=_ports(**overrides))
 
 

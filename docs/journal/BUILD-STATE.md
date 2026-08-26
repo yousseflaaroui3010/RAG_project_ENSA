@@ -10,10 +10,11 @@ immediately before ST-21 merges, not now.
 
 THE WHOLE GATE WAS RUN BY HAND ON THE BRANCH, in gate.yml order, all four
 steps: `uv sync --frozen` clean (170 packages audited), `uv run ruff
-check .` exit 0, `uv run pytest` 379 passed / 2 skipped in 139s (338 / 2
+check .` exit 0, `uv run pytest` 396 passed / 2 skipped in 148s (338 / 2
 at the branch point), and -- FOR THE FIRST TIME ON THIS MACHINE --
-`gitleaks detect` exit 0, "no leaks found", 63 commits and 2.55 MB
-scanned.
+`gitleaks detect` exit 0, "no leaks found", 65 commits and 2.60 MB
+scanned. Measured on the tree as it stands after the review fixes, not on
+the earlier one that showed 379.
 
 GITLEAKS IS NOW INSTALLED HERE, so blocker item 5 below is CLOSED and the
 standing caveat "CI is the only place step 4 executes" is no longer true.
@@ -135,12 +136,45 @@ it put documents INTO the stores, and nothing has ever taken a question.
 
 WHAT IT IS, and just as importantly what it is not. Architecture 5.2 is
 wired as a LangGraph graph (ADR-03): summarize -> rewrite -> (clarify) or
-(retrieve -> grade -> answer / reword-and-retry / refuse). Eight nodes,
-two branches, and NO THINKING AT ALL. Every place the flow needs a model
-or the vector store is one callable on `agent/ports.py`, and each of the
-seven belongs to a story that has not started: summarize (ST-25), clarify
-and rewrite (ST-22), retrieve, grade and reword (ST-23), write_answer
-(ST-24).
+(retrieve -> grade -> fetch_parents -> answer / reword-and-retry /
+refuse). Nine nodes, two branches, and NO THINKING AT ALL. Every place
+the flow needs a model or a store is one callable on `agent/ports.py`,
+and seven of the eight belong to a story that has not started: summarize
+(ST-25), clarify and rewrite (ST-22), retrieve, grade and reword (ST-23),
+write_answer (ST-24).
+
+TWO STRUCTURAL GAPS FOUND BY THE HUMAN'S REVIEW of the first version,
+both now closed, and both worth recording because the first version's
+journal entry defended one of them as a deliberate choice:
+1. THE PARENT FETCH WAS MISSING. 5.2 draws `P[Fetch parent sections for
+   context]` between grading and answering, and 7.5 is why: the searched
+   unit is a 500-character child, the READ unit is the section it came
+   out of. The first version left it out, arguing ADR-03's node list does
+   not name it and it changes no route -- and that argument was wrong on
+   a fact, not on taste. It cannot be folded into a neighbouring port:
+   `parent_store.get_parent` needs a workspace id and `write_answer`'s
+   signature has none. It is now its own node, its own port, and its own
+   state field. The model was answering from chunks while the docstrings
+   claimed it read sections.
+2. "REWRITE AND SPLIT" COULD NOT SPLIT. The rewrite port returned ONE
+   string, with a comment saying "V1 returns one query" that had no
+   signed basis anywhere -- 5.2 says "Rewrite and split query", ADR-03
+   keeps the reference implementation's sub-queries, and BUILD-PLAN
+   line 76 names ST-22 "Rewrite-and-split node". `rewrite` and `reword`
+   now return a SEQUENCE, `retrieve` runs once per query with one trace
+   step each, and hits are merged on (parent_id, chunk_text). One query
+   is a one-element tuple, so nothing about the ordinary case changed.
+
+`agent/stores.py` is the one port with a REAL implementation, and that is
+deliberate rather than an exception being made: the other seven need a
+model, this one is a read against `parent_store`, which ST-16 already
+built. Deferring it would have deferred the only part of box P that could
+exist. A section the store cannot find is OMITTED and counted in the
+trace ("loaded 1 of 2"); a CORRUPT one raises, because a file that exists
+and does not say what it should may be a section pretending to be another
+section. Tested against a real store on disk written by ST-16's own
+`save_parents`, including the F-01 case: asking workspace A for a parent
+id that exists only in workspace B comes back empty, not with B's text.
 
 The ports have NO DEFAULTS, deliberately. A stub that answers plausibly
 is the most dangerous object in a sourced-answer product: as a default it
@@ -166,12 +200,26 @@ Two more properties worth not losing:
   signed documents (openapi's G3 note, docs/phase2/CLAUDE.md, PRD F-03)
   and was checked in none; `Answer.__post_init__` now raises.
 
-20 mutations injected one at a time, all 20 killed, including the two
-sharp ones: a ceiling read as `<=` instead of `<`, and a ceiling
-hardcoded to its own default of 2 (the tests run at 0, 1, 2, 5 and 20).
-Honest caveat on the battery: it was run across three passes of the
-harness rather than one clean sweep, because an interrupted run left one
-mutation on disk -- see the lesson below.
+32 mutations injected one at a time: 20 against the first version (all
+killed) and 12 against the redesign, of which TWO SURVIVED and both were
+real test defects rather than dead code:
+- the split-query de-duplication test asserted on `answer.sources`, which
+  `_sources_for` de-duplicates a SECOND time on (file, label) -- so the
+  duplicate passage collapsed before the assertion could see it and the
+  test passed with the merge broken. That is the "keyed so duplicates
+  collapse" shape the prove-it skill lists, written into a test whose own
+  docstring warns about vacuity. It now asserts on the passages the
+  ANSWER WRITER received, which is where a duplicate actually costs
+  something: the model reads the same passage twice.
+- the empty-query-list guard was never tested. No port in any test
+  returned `()`, so deleting the check changed nothing. Two tests added.
+Both re-run after the fix and both now die. Sharpest kills across the
+whole battery: a ceiling read as `<=` instead of `<`, a ceiling hardcoded
+to its own default of 2 (tests run at 0, 1, 2, 5 and 20), and dropping
+the workspace id when reading a parent section.
+Honest caveat: the battery ran across four passes rather than one clean
+sweep, because an interrupted run left one mutation on disk -- see the
+lesson below.
 
 TWO DEFECTS FOUND BY RUNNING IT, neither visible to any test in the story
 and neither of a kind a mutation could find, because both were a MISSING
@@ -617,11 +665,22 @@ in its own change.
    is two lines: drop the parameter and use `report.folder_path`.
 
 ## Next (ordered queue, top 3 only)
-0. RULE-5 REVIEW PASS ON ST-21, then merge it. The branch is green by
-   hand on all four gate steps but has had one COLD read only (the
-   verifier agent). CLAUDE.md rule 5 exists because a green suite has
-   never once been sufficient here, and ST-21 is the file every answering
-   story imports. Re-stamp this file's header at merge time, not now.
+0. ST-21 HAS HAD NO AGENT REVIEW PASS AT ALL. CORRECTION, and it is a
+   correction of this file: an earlier version of this line said the
+   branch "has had one COLD read (the verifier agent)". IT DID NOT. The
+   verifier was launched and DIED before reading the diff -- "Agent
+   terminated early due to an API error: You've hit your session limit".
+   Its only output was "I'll start by getting the diff", which is an
+   intention, not a review. Recording it as a completed read is exactly
+   the failure this file exists to prevent, and it was caught by the
+   human, not by me.
+   WHAT DID REVIEW IT: the human, against the signed documents, and that
+   read found the two structural gaps ST-21 shipped its first version
+   with -- the missing parent fetch and the unrepresentable query split.
+   Both are now closed (see Now).
+   STILL OWED before merge: a cold verifier pass AND the rule-5 reviewer
+   pass, on the branch as it now stands. Re-stamp this file's header at
+   merge time, not before.
 1. ST-22 and ST-23, both YL, both unblocked the moment ST-21 lands. Each
    one fills in named ports and needs no new wiring: ST-22 takes
    `clarify` + `rewrite` (F-06), ST-23 takes `retrieve` + `grade` +
