@@ -130,9 +130,10 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-ST-21 AGENT GRAPH SKELETON, on branch `feat/S2-ST-21-agent-graph`
-(bbaca48), gate green by hand, NOT merged and NOT yet reviewed under
-rule 5. This is the first module of the answering half: everything before
+ST-21 AGENT GRAPH SKELETON, PR #49 OPEN against main from
+`feat/S2-ST-21-agent-graph` (d2be09e). CI `verify` GREEN, all four
+gate.yml steps, 1m23s. NOT merged, and rule 5's partner review is still
+owed -- a human's, not an agent's. This is the first module of the answering half: everything before
 it put documents INTO the stores, and nothing has ever taken a question.
 
 WHAT IT IS, and just as importantly what it is not. Architecture 5.2 is
