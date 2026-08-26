@@ -930,6 +930,34 @@ their own `chore/` branch, now together with 8.
    closes it, and it is a good candidate to fold in with 1, 2 and 6.
 
 ## Blockers / waiting on human
+
+- NO MODEL OF ANY KIND IS REACHABLE ON THIS MACHINE, and it blocks more
+  than one story. Found 2026-08-26 while starting ST-23, by checking
+  rather than by assuming:
+    * `cloud_api_key` is EMPTY and there is no `.env` file at all (only
+      `.env.example`), so ADR-06's cloud mode cannot make a call. Note
+      that `model_mode` DEFAULTS to `"cloud"`, so the out-of-the-box
+      configuration is the one that cannot work.
+    * `ollama` is not on PATH and nothing is listening on 127.0.0.1:11434
+      (a real socket connect, not a guess), so ADR-06's strict_local mode
+      cannot reach a model either.
+  WHAT THIS DOES AND DOES NOT BLOCK. It does NOT block building ST-23 to
+  ST-25: docs/phase2/CLAUDE.md already mandates that tests use a scripted
+  fake chat model with no API keys anywhere, so the unit suite is honest
+  without a model. It DOES block two things:
+    * proving any agent story against a real model, which on this project
+      has caught what a green suite could not on five stories running;
+    * BUILD-PLAN's CHECKPOINT C2, "end-to-end sourced answer to a real
+      labor-law question on YL's machine", which is unreachable today no
+      matter how good the code is.
+  Owner:    a human (YL). Raised 2026-08-26.
+  Settled by EITHER a Gemini API key in a local `.env` (free tier, cloud
+  mode) OR `ollama` installed with one instruct model >= 7B pulled
+  (ADR-06's floor), whichever the operator prefers. Ollama also removes
+  the data-egress question under LD-06.
+  Fallback: if neither exists by 2026-09-05, say so in the report and in
+  the defense: every agent claim is fake-model-only, and C2 was never
+  demonstrated. Do not let "the tests are green" stand in for it.
 - HARNESS GAPS after `chore/harness-fit` (2026-08-22). TWO OF THE FRAMING
   CLAIMS IN THIS SECTION WERE WRONG, both corrected 2026-08-23 by reading the
   files instead of the journal:
