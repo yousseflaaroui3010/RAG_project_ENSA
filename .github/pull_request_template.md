@@ -5,7 +5,13 @@ them here; if a check is wrong, that is an escalation against the pack, not
 an edit to this file.
 
 Merges are squash-only and the PR title becomes the commit, so write the
-title as a Conventional Commit: `feat: ST-nn <summary> [AI]`.
+title as a Conventional Commit: `feat: ST-nn <summary>`.
+
+NO `[AI]` MARKER, and no AI attribution of any kind in the title, the body
+or the commit. CLAUDE.md rule 4 forbids it: this is graded academic work
+and the history carries the team's names only. An earlier version of this
+comment asked for `[AI]`, which contradicted that rule for every PR opened
+against this template.
 -->
 
 ## Story

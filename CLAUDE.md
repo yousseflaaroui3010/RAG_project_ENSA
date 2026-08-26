@@ -65,13 +65,22 @@ Rules for the block, learned the hard way on this project:
 
 ## Start here: query the graph before you read files
 
-This repo is indexed in codebase-memory (892 nodes / 3,228 edges, every
-source file covered, 0 skipped). **Structure questions go to the graph
-first, not to Read/Grep/Glob.** Flat-layout repo, ~3,900 lines across 9
-root modules: reading three files to answer "who calls X" costs more
-tokens than the whole graph query does.
+This repo is indexed in codebase-memory (1,209 nodes / 4,781 edges as of
+2026-08-26, every source file covered, 0 skipped). **Structure questions
+go to the graph first, not to Read/Grep/Glob.** Mostly-flat repo, ~5,000
+lines across 9 root modules plus `agent/` and `db/`: reading three files
+to answer "who calls X" costs more tokens than the whole graph query does.
 
-Project name for every call: `C-Users-lenovo-Documents-Projects-RAG_project_ENSA`
+Project name for every call, and copy it exactly:
+
+```
+C-Users-lenovo-OneDrive-Documents-Projects-RAG_project_ENSA
+```
+
+It contains `OneDrive`. An earlier version of this line dropped that
+segment, and the name it gave matches no indexed project -- a call with it
+fails, which reads exactly like the graph being unavailable and sends the
+next session back to grepping.
 
 | Question | Call |
 |---|---|
