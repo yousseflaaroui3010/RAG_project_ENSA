@@ -1,6 +1,32 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: 249724a on main. Updated: 2026-08-24, re-stamped at
+Last verified commit: bbaca48 ON THE BRANCH `feat/S2-ST-21-agent-graph`,
+NOT on main and NOT merged. Updated: 2026-08-25 by the ST-21 session.
+main is at da81143 (PR #48, the give-steps reply hook), which is one
+commit further on than the header below claims -- the sixth time this
+file has described a state that had moved, and again latency rather than
+carelessness. Per the rule that header states, this block gets re-stamped
+immediately before ST-21 merges, not now.
+
+THE WHOLE GATE WAS RUN BY HAND ON THE BRANCH, in gate.yml order, all four
+steps: `uv sync --frozen` clean (170 packages audited), `uv run ruff
+check .` exit 0, `uv run pytest` 404 passed / 2 skipped in 90s (338 / 2
+at the branch point), and -- FOR THE FIRST TIME ON THIS MACHINE --
+`gitleaks detect` exit 0, "no leaks found", 2.62 MB scanned. Measured on
+the tree as it stands after the verifier fixes; earlier runs in this
+session showed 379 and then 396, and both were true when taken. 66 of the
+404 are ST-21's own (46 graph + 7 state + 7 trace + 6 stores).
+
+GITLEAKS IS NOW INSTALLED HERE, so blocker item 5 below is CLOSED and the
+standing caveat "CI is the only place step 4 executes" is no longer true.
+`gitleaks version` reports 8.30.1 at
+`~/AppData/Local/Microsoft/WinGet/Links/gitleaks`. Every earlier header
+in this file that says gitleaks was NOT run locally was accurate the day
+it was written; from this session on, the local gate is complete.
+
+Previous header, kept because its own new rule is the reason this one
+exists: Last verified commit: 249724a on main. Updated: 2026-08-24,
+re-stamped at
 merge time rather than at writing time -- see the rule below, which is the
 whole reason this header moved. `uv run ruff check .` exit 0 and
 `uv run pytest` 338 passed / 2 skipped, measured on the merged tree BEFORE
@@ -104,7 +130,201 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-ST-17 MERGED as 0210408 (PR #35, squash), and re-verified ON main after
+ST-21 AGENT GRAPH SKELETON, PR #49 OPEN against main from
+`feat/S2-ST-21-agent-graph` (d2be09e). CI `verify` GREEN, all four
+gate.yml steps, 1m23s. NOT merged, and rule 5's partner review is still
+owed -- a human's, not an agent's. This is the first module of the answering half: everything before
+it put documents INTO the stores, and nothing has ever taken a question.
+
+WHAT IT IS, and just as importantly what it is not. Architecture 5.2 is
+wired as a LangGraph graph (ADR-03): summarize -> rewrite -> (clarify) or
+(retrieve -> grade -> fetch_parents -> answer / reword-and-retry /
+refuse). Nine nodes, two branches, and NO THINKING AT ALL. Every place
+the flow needs a model or a store is one callable on `agent/ports.py`,
+and seven of the eight belong to a story that has not started: summarize
+(ST-25), clarify and rewrite (ST-22), retrieve, grade and reword (ST-23),
+write_answer (ST-24).
+
+TWO STRUCTURAL GAPS FOUND BY THE HUMAN'S REVIEW of the first version,
+both now closed, and both worth recording because the first version's
+journal entry defended one of them as a deliberate choice:
+1. THE PARENT FETCH WAS MISSING. 5.2 draws `P[Fetch parent sections for
+   context]` between grading and answering, and 7.5 is why: the searched
+   unit is a 500-character child, the READ unit is the section it came
+   out of. The first version left it out, arguing ADR-03's node list does
+   not name it and it changes no route -- and that argument was wrong on
+   a fact, not on taste. It cannot be folded into a neighbouring port:
+   `parent_store.get_parent` needs a workspace id and `write_answer`'s
+   signature has none. It is now its own node, its own port, and its own
+   state field. The model was answering from chunks while the docstrings
+   claimed it read sections.
+2. "REWRITE AND SPLIT" COULD NOT SPLIT. The rewrite port returned ONE
+   string, with a comment saying "V1 returns one query" that had no
+   signed basis anywhere -- 5.2 says "Rewrite and split query", ADR-03
+   keeps the reference implementation's sub-queries, and BUILD-PLAN
+   line 76 names ST-22 "Rewrite-and-split node". `rewrite` and `reword`
+   now return a SEQUENCE, `retrieve` runs once per query with one trace
+   step each, and hits are merged on (parent_id, chunk_text). One query
+   is a one-element tuple, so nothing about the ordinary case changed.
+
+`agent/stores.py` is the one port with a REAL implementation, and that is
+deliberate rather than an exception being made: the other seven need a
+model, this one is a read against `parent_store`, which ST-16 already
+built. Deferring it would have deferred the only part of box P that could
+exist. A section the store cannot find is OMITTED and counted in the
+trace ("loaded 1 of 2"); a CORRUPT one raises, because a file that exists
+and does not say what it should may be a section pretending to be another
+section. Tested against a real store on disk written by ST-16's own
+`save_parents`, including the F-01 case: asking workspace A for a parent
+id that exists only in workspace B comes back empty, not with B's text.
+
+The ports have NO DEFAULTS, deliberately. A stub that answers plausibly
+is the most dangerous object in a sourced-answer product: as a default it
+ships the day someone forgets to pass real ports, and Sanad invents an
+answer instead of failing. The stub the exit gate names lives in the test
+file, written out loud.
+
+Exit gate, both halves:
+- "the graph runs end to end on a stub" -- all three outcomes do, and the
+  route is asserted as an ORDERED LIST of trace steps rather than a count,
+  because "it answered" is true of a great many broken graphs.
+- "every answer object carries its trace" -- true BY CONSTRUCTION, not by
+  eight nodes remembering. Nodes write a draft into the state; `ask` is
+  the only place an `Answer` is built and the only place a trace is
+  attached.
+
+Two more properties worth not losing:
+- THE TRACE IS THE RETRY COUNTER. `retries` and `searched` are counted
+  from recorded steps, never stored. F-04's ceiling is enforced against
+  that count and UX spec 6.2 renders the same number on the bubble, so "the
+  loop ran three times and the marker says two" is unrepresentable.
+- AN ANSWER WITH NO SOURCES CANNOT EXIST. The rule is written in three
+  signed documents (openapi's G3 note, docs/phase2/CLAUDE.md, PRD F-03)
+  and was checked in none; `Answer.__post_init__` now raises.
+
+32 mutations injected one at a time: 20 against the first version (all
+killed) and 12 against the redesign, of which TWO SURVIVED and both were
+real test defects rather than dead code:
+- the split-query de-duplication test asserted on `answer.sources`, which
+  `_sources_for` de-duplicates a SECOND time on (file, label) -- so the
+  duplicate passage collapsed before the assertion could see it and the
+  test passed with the merge broken. That is the "keyed so duplicates
+  collapse" shape the prove-it skill lists, written into a test whose own
+  docstring warns about vacuity. It now asserts on the passages the
+  ANSWER WRITER received, which is where a duplicate actually costs
+  something: the model reads the same passage twice.
+- the empty-query-list guard was never tested. No port in any test
+  returned `()`, so deleting the check changed nothing. Two tests added.
+Both re-run after the fix and both now die. Sharpest kills across the
+whole battery: a ceiling read as `<=` instead of `<`, a ceiling hardcoded
+to its own default of 2 (tests run at 0, 1, 2, 5 and 20), and dropping
+the workspace id when reading a parent section.
+Honest caveat: the battery ran across four passes rather than one clean
+sweep, because an interrupted run left one mutation on disk -- see the
+lesson below.
+
+TWO DEFECTS FOUND BY RUNNING IT, neither visible to any test in the story
+and neither of a kind a mutation could find, because both were a MISSING
+check rather than a wrong line. That is now the fifth story running where
+the post-green pass found what the suite could not:
+1. A `clarify` port returning "" was read as "the question is clear", so
+   the agent SKIPPED THE CLARIFYING QUESTION AND ANSWERED -- precisely
+   the guessing F-06 exists to prevent, done in silence.
+2. A blank `rewrite` or `reword` sent the empty string to the store as a
+   search, and the honest refusal then disclosed `('',)` to the user as
+   what it had looked for (F-05).
+Both now fail at the seam that produced them, naming the port, via one
+shared `_spoken` guard. Four tests, one per port.
+
+AND ONE ASSUMPTION THAT WAS WRONG, caught the same way: the first draft
+computed its own LangGraph recursion limit, because the documented
+default is 25 super-steps and this graph is 5 + 3R nodes long. The pinned
+langgraph 1.2.9 actually defaults to 10007
+(`langgraph/_internal/_config.py:32`); a ceiling of 50 -- 155 nodes --
+ran untouched. The hand-computed limit was therefore a SECOND, LOWER
+bound whose only possible effect was to cut a legitimate run short the
+day someone adds a node. Deleted. `test_a_high_retry_ceiling_runs_to_
+completion` needs 65 nodes and pins the framework's default instead.
+
+A COLD VERIFIER PASS THEN RAN on the branch as redesigned, and it earned
+its place: 1 blocking, 7 worth fixing, 6 notes. All of the blocking and
+worth-fixing items are now closed except two, which are parked below.
+
+THE BLOCKING ONE WAS A VACUOUS TEST THE MUTATION BATTERY HAD MISSED, and
+that is the part to keep. `test_the_same_id_twice_is_read_once` asked for
+one section three times and asserted on the returned mapping -- but
+writing one text into one dictionary key three times produces exactly the
+dictionary that writing it once produces, so the assertion could not see
+whether the de-duplication happened at all. The verifier did not argue
+it: it deleted `dict.fromkeys` and watched the assertion pass. The test
+now counts the actual reads through `parent_store.get_parent`. Two
+lessons, and the second is the uncomfortable one: 32 mutations had not
+touched `agent/stores.py`, so a battery is only as wide as the list you
+wrote for it; and this is the SEVENTH shipped example of the shape the
+prove-it skill exists to catch, written by someone who had just quoted
+that skill in the same file's docstring.
+
+Also found and fixed, worst first:
+- NO FLOOR AT ZERO READABLE SECTIONS. "loaded 0 of 5" answered anyway,
+  handing the model an empty context while the answer still carried five
+  source citations built from chunk metadata -- a citation to documents
+  whose text nothing had read, against F-03. It now refuses, with its own
+  wording: the passages were found, the sections could not be read, and
+  the next step is a Sync, not a rephrase. Partial still answers.
+- `question` WAS NEVER CHECKED against openapi's 1..2000 bounds. ADR-13
+  puts the UI on the in-process path, so the route's validation is not in
+  it. A blank question did fail, three nodes later, with "the rewrite port
+  returned a blank string" -- pointing whoever read it at ST-22's code for
+  a fault the caller committed.
+- NO WIDTH LIMIT ON THE SPLIT. The ceiling bounds how many rounds run;
+  nothing bounded how wide a round was, so a rewrite returning forty
+  phrases cost (ceiling + 1) x 40 real searches, all forty read back to
+  the user in the refusal. Now `config.max_sub_queries`.
+- `_merge_hits` CLAIMED "best-ranked first" AND NOTHING SORTED. False the
+  moment there are two queries: found earlier is not ranked higher. Left
+  unsorted deliberately -- RRF scores are computed within one query and
+  are not comparable across two, so sorting by them would be a second
+  quiet wrongness -- and the docstring now says so and hands the fusion
+  question to ST-23.
+- `agent` IMPORTED `db.repo` for two uuid4 calls, making the answering
+  module unimportable without SQLite for a call that is one stdlib line.
+- Six miscounted docstring claims ("Five files" over a table of six,
+  "eight boxes" over nine nodes, "two of eight fields" over three), all in
+  files whose entire argument is that the docstrings are load-bearing.
+
+WHAT THE VERIFIER CHECKED AND FOUND CLEAN, which is half the value of
+having run it: every spec citation in the branch is true. It read
+architecture 5.2/7.5, ADR-03, ADR-09, openapi lines 223/480-483/512,
+docs/phase2/CLAUDE.md lines 33-34, PRD F-03 to F-10 and section 11, UX
+spec 6.2, BUILD-PLAN line 76, and langgraph's own `_config.py:32`, and
+found no fabricated reference. The previous pass of this branch had
+eight wrong ones.
+
+PARKED, all five visible rather than fixed:
+- A FILE BRIEFLY LOCKED READS AS A CORRUPT ONE and takes the whole
+  question down. `parent_store.py:176` turns ANY `OSError` into
+  `CorruptParentError`, so antivirus or OneDrive sync holding a parent
+  file for a moment is indistinguishable from genuine corruption -- and
+  this repo lives under OneDrive. A transient lock is retryable and
+  corruption is not; they should not share an outcome. The fix is inside
+  MB's ST-16 module, so it needs her agreement and its own `fix/` branch.
+- SEVEN COPIES of the "de-duplicate, keep first-seen order" one-liner
+  across the new package. The core law says the third copy needs an
+  abstraction or a DECISIONS row; there is now a row.
+- `disclaimer` is always False. F-09 is ST-26's and no test here claims
+  otherwise -- a default nobody has exercised is not a feature.
+- `REFUSAL_TEXT` in agent/nodes.py is the honest minimum, not product
+  copy. ST-24 owns the wording.
+- Nothing persists a trace: see the ADR-09 escalation row in DECISIONS.
+
+LESSON PAID FOR IN THIS SESSION, and it is the one worth carrying: a
+mutation harness must never run against uncommitted work. An interrupted
+run left `rewords_in` counting SEARCH instead of REWORD on disk, with no
+commit to restore from -- it was recoverable only because it was one line
+and the suite went loudly red. Commit the green checkpoint FIRST, then
+mutate; `git checkout --` is then the restore.
+
+Previous: ST-17 MERGED as 0210408 (PR #35, squash), and re-verified ON main after
 the merge rather than only on the branch: `uv sync --frozen` clean, ruff
 exit 0, 318 passed / 2 skipped. CI `verify` green on the PR with all four
 gate.yml steps. This is the story that makes Sanad ingest anything:
@@ -511,7 +731,29 @@ in its own change.
    is two lines: drop the parameter and use `report.folder_path`.
 
 ## Next (ordered queue, top 3 only)
-1. ST-07 corpus v1 (MB). THE ONLY THING BLOCKING ST-18, and it needs no
+0. ST-21 HAS HAD NO AGENT REVIEW PASS AT ALL. CORRECTION, and it is a
+   correction of this file: an earlier version of this line said the
+   branch "has had one COLD read (the verifier agent)". IT DID NOT. The
+   verifier was launched and DIED before reading the diff -- "Agent
+   terminated early due to an API error: You've hit your session limit".
+   Its only output was "I'll start by getting the diff", which is an
+   intention, not a review. Recording it as a completed read is exactly
+   the failure this file exists to prevent, and it was caught by the
+   human, not by me.
+   WHAT DID REVIEW IT: the human, against the signed documents, and that
+   read found the two structural gaps ST-21 shipped its first version
+   with -- the missing parent fetch and the unrepresentable query split.
+   Both are now closed (see Now).
+   STILL OWED before merge: a cold verifier pass AND the rule-5 reviewer
+   pass, on the branch as it now stands. Re-stamp this file's header at
+   merge time, not before.
+1. ST-22 and ST-23, both YL, both unblocked the moment ST-21 lands. Each
+   one fills in named ports and needs no new wiring: ST-22 takes
+   `clarify` + `rewrite` (F-06), ST-23 takes `retrieve` + `grade` +
+   `reword` (F-04, and `retrieve` is where `vector_store.search` and the
+   parent fetch land). The seams and their contracts are already written
+   down in agent/ports.py -- read that file first, not this one.
+2. ST-07 corpus v1 (MB). THE ONLY THING BLOCKING ST-18, and it needs no
    code: the labour-code PDF, two HR/CNSS guides, and the manuals
    workspace files, with source and date logged per file, French text
    selectable rather than scanned. Until these exist on disk, ST-18
@@ -561,6 +803,21 @@ no jscpd step and no commit-message check anywhere in it. ST-03 is
 therefore NOT a confirm-and-close; whoever takes it should diff the
 story's exit criteria against the four steps that actually exist. The
 duplication rule in the working rules is currently enforced by nothing.
+
+PARKED, found by the ST-21 session and NOT fixed here because CLAUDE.md
+was not otherwise being edited and the scoped boy-scout rule keeps
+drive-bys out of a story diff. It is two wrong lines in the file every
+session loads, so it is worth its own one-minute `docs/` branch:
+- CLAUDE.md gives the codebase-memory project name as
+  `C-Users-lenovo-Documents-Projects-RAG_project_ENSA`. The real name has
+  `OneDrive` in it: `C-Users-lenovo-OneDrive-Documents-Projects-RAG_
+  project_ENSA`, confirmed by `list_projects`. An agent copying the
+  documented name gets an error and may conclude the graph is unavailable.
+- The same section says 892 nodes / 3,228 edges; `index_status` now
+  reports 1,029 / 3,923 (index generated 2026-08-25, 0 skipped files,
+  one parse_partial line at DECISIONS.md:59 -- which is a real NUL byte
+  inside a table row describing a uuid5 separator, and is why grep calls
+  that file binary).
 
 PARKED for ST-28, found while reading the UX spec for this story and not
 fixed here because it is that story's decision: UX spec 7.2's file table
@@ -685,12 +942,21 @@ their own `chore/` branch, now together with 8.
      command containing `>` counts as a write, so `diff -q a b >/dev/null` plus
      a mention of `.claude` is blocked. Same shape as the old shell guard's
      `WRITE_VERBS` bug. Diagnose with the Read/Grep tools, not shell.
-  5. `gitleaks` is NOT installed on this machine -- checked five install paths,
-     `Get-Command` and `winget list`, all negative. gate.yml step 4 therefore
-     CANNOT be run locally, so "the whole gate green before handing over a
-     push" is currently unachievable here. A proxy scan of the committed diff
-     for secret shapes came back clean, which is weaker and is labelled as
-     such. Install gitleaks or accept CI as the only place that step runs.
+  5. CLOSED 2026-08-25 by the ST-21 session. `gitleaks` IS installed on this
+     machine now: `gitleaks version` -> 8.30.1, on PATH at
+     `~/AppData/Local/Microsoft/WinGet/Links/gitleaks` (a winget install, so
+     the earlier `winget list` negative is simply out of date). gate.yml step
+     4 was RUN here for the first time on the ST-21 branch: `gitleaks detect
+     --no-banner --redact` exit 0, "no leaks found", 63 commits / 2.55 MB in
+     5.6s. The header above quotes 65 commits / 2.60 MB for the same step;
+     both are true and neither is a typo -- this run happened two commits
+     earlier in the same session than that one, and a count of commits is a
+     number that moves. The whole gate is now achievable locally, so the standing excuse
+     "CI is the only place that step executes" is retired, and every future
+     header in this file should carry a real gitleaks result rather than the
+     proxy scan this item used to allow.
+     WAS: not installed -- checked five install paths, `Get-Command` and
+     `winget list`, all negative.
   6. CLOSED 2026-08-23 by the ST-17 session, which is the next session start
      that was waiting to settle it. The CBM MCP tools attach and answer:
      `list_projects` returned on the first call, and the project is indexed
