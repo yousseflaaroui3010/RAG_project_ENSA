@@ -5,10 +5,10 @@ hand-rolled loop, "because a graph also makes the F-04 retry ceiling and
 the F-05 refusal path explicit and testable". That is what this file is:
 eight boxes from section 5.2, two branches, and one entry point.
 
-    summarize -> rewrite -> ( clarify                                )
-                          -> retrieve -> grade -> ( answer           )
+    summarize -> rewrite -> ( clarify                                    )
+                          -> retrieve -> grade -> ( fetch_parents -> answer )
                                                 -> ( reword -> retrieve ... )
-                                                -> ( refuse           )
+                                                -> ( refuse               )
 
 `ask` is the only place an `Answer` is built. Every node writes a draft
 into the state and the trace accumulates beside it; `ask` puts the two
@@ -64,6 +64,7 @@ def build_graph(ports: AgentPorts) -> CompiledStateGraph:
     builder.add_node(nodes.CLARIFY, nodes.make_clarify(ports))
     builder.add_node(nodes.RETRIEVE, nodes.make_retrieve(ports))
     builder.add_node(nodes.GRADE, nodes.make_grade(ports))
+    builder.add_node(nodes.FETCH_PARENTS, nodes.make_fetch_parents(ports))
     builder.add_node(nodes.REWORD, nodes.make_reword(ports))
     builder.add_node(nodes.ANSWER, nodes.make_answer(ports))
     builder.add_node(nodes.REFUSE, nodes.make_refuse(ports))
@@ -80,11 +81,12 @@ def build_graph(ports: AgentPorts) -> CompiledStateGraph:
         nodes.GRADE,
         nodes.route_after_grade,
         {
-            nodes.ANSWER: nodes.ANSWER,
+            nodes.FETCH_PARENTS: nodes.FETCH_PARENTS,
             nodes.REWORD: nodes.REWORD,
             nodes.REFUSE: nodes.REFUSE,
         },
     )
+    builder.add_edge(nodes.FETCH_PARENTS, nodes.ANSWER)
     builder.add_edge(nodes.REWORD, nodes.RETRIEVE)
     builder.add_edge(nodes.CLARIFY, END)
     builder.add_edge(nodes.ANSWER, END)
@@ -111,9 +113,10 @@ def initial_state(
         question=question,
         history=history,
         summary="",
-        query="",
+        queries=(),
         passages=(),
         relevant=False,
+        parents={},
         clarification=None,
         steps=[],
         answer_kind=None,

@@ -36,6 +36,14 @@ from vector_store import SearchHit
 
 QUESTION = "Quelle est la duree de la periode d'essai ?"
 ANSWER_TEXT = "Trois mois, renouvelable une fois."
+# The full section behind a hit (architecture 5.2 box P). Longer than the
+# chunk on purpose: the whole point of the parent fetch is that the model
+# reads more than the 500 characters that matched.
+PARENT_TEXT = (
+    "Article 13. La periode d'essai est de trois mois pour les cadres, "
+    "renouvelable une seule fois. Elle est de un mois et demi pour les "
+    "employes et de quinze jours pour les ouvriers."
+)
 
 HIT = SearchHit(
     parent_id="p-1",
@@ -75,7 +83,7 @@ class _Script:
 
 
 def _ports(**overrides) -> AgentPorts:
-    """The stub the exit gate names: seven ports, none of them clever.
+    """The stub the exit gate names: eight ports, none of them clever.
 
     Defaults describe the happy path -- clear question, one relevant
     passage, an answer written from it. Each test overrides the one port
@@ -84,11 +92,12 @@ def _ports(**overrides) -> AgentPorts:
     base = AgentPorts(
         summarize=lambda history: "",
         clarify=lambda question, summary: None,
-        rewrite=lambda question, summary: question,
+        rewrite=lambda question, summary: (question,),
         retrieve=lambda workspace_id, query: (HIT,),
         grade=lambda question, passages: True,
-        reword=lambda question, previous, attempt: f"{question} (reformulation {attempt})",
-        write_answer=lambda question, passages: ANSWER_TEXT,
+        reword=lambda question, previous, attempt: (f"{question} (reformulation {attempt})",),
+        fetch_parents=lambda workspace_id, parent_ids: {pid: PARENT_TEXT for pid in parent_ids},
+        write_answer=lambda question, passages, parents: ANSWER_TEXT,
     )
     return dataclasses.replace(base, **overrides)
 
@@ -131,12 +140,13 @@ def test_the_graph_runs_end_to_end_and_returns_a_sourced_answer():
     assert answer.retries == 0
 
 
-def test_the_five_nodes_of_the_answer_path_run_in_the_order_section_5_2_draws():
+def test_the_answer_path_runs_every_box_section_5_2_draws_in_order():
     """The route itself, as an ordered list.
 
     This is the test that notices a node being skipped. A graph that never
-    graded, or that answered before searching, still returns a plausible
-    answer object; it does not produce this sequence."""
+    graded, that answered before searching, or that skipped the parent
+    fetch still returns a plausible answer object; it does not produce
+    this sequence."""
     answer = _ask(ports=_ports())
 
     assert _kinds(answer) == [
@@ -144,6 +154,7 @@ def test_the_five_nodes_of_the_answer_path_run_in_the_order_section_5_2_draws():
         StepKind.REWRITE,
         StepKind.SEARCH,
         StepKind.GRADE,
+        StepKind.PARENTS,
         StepKind.ANSWER,
     ]
 
@@ -253,6 +264,7 @@ def test_a_retry_that_finds_relevant_passages_answers_from_them(monkeypatch):
         StepKind.REWORD,
         StepKind.SEARCH,
         StepKind.GRADE,
+        StepKind.PARENTS,
         StepKind.ANSWER,
     ]
 
@@ -261,7 +273,7 @@ def test_the_reword_port_is_told_which_attempt_it_is_on(monkeypatch):
     """So ST-23 can widen the search as attempts go on without counting
     anything itself. 1-based, and it must not restart."""
     _with_settings(monkeypatch, retry_ceiling=3)
-    reword = _Script("essai un", "essai deux", "essai trois")
+    reword = _Script(("essai un",), ("essai deux",), ("essai trois",))
 
     _ask(ports=_ports(grade=lambda q, p: False, reword=reword))
 
@@ -391,7 +403,7 @@ def test_the_string_that_is_searched_is_the_rewritten_query():
 
     answer = _ask(
         ports=_ports(
-            rewrite=lambda question, summary: "duree periode essai cadres",
+            rewrite=lambda question, summary: ("duree periode essai cadres",),
             retrieve=retrieve,
         )
     )
@@ -409,12 +421,179 @@ def test_the_session_summary_reaches_the_step_that_rewrites_the_question():
     `summarize` returned reaches `rewrite`."""
     history = (Turn(question="Periode d'essai ?", answer="Trois mois."),)
     summarize = _Recorder("the user is asking about trial periods")
-    rewrite = _Recorder("renouvellement periode essai")
+    rewrite = _Recorder(("renouvellement periode essai",))
 
     _ask(ports=_ports(summarize=summarize, rewrite=rewrite), history=history)
 
     assert summarize.calls == [(history,)]
     assert rewrite.calls == [(QUESTION, "the user is asking about trial periods")]
+
+
+# --- 5.2 "rewrite and SPLIT query": one question, several searches -----
+
+
+def test_a_split_question_runs_one_search_per_sub_query():
+    """Architecture 5.2's box is "Rewrite and split query" and ADR-03
+    keeps the reference implementation's sub-queries. "How long is a trial
+    period and can it be renewed?" is two searches.
+
+    The trace records them SEPARATELY rather than as one joined-up line,
+    because F-05 discloses what was searched and "duree essai |
+    renouvellement essai" is not a search anybody ran."""
+    retrieve = _Recorder((HIT,))
+
+    answer = _ask(
+        ports=_ports(
+            rewrite=lambda question, summary: ("duree essai", "renouvellement essai"),
+            retrieve=retrieve,
+        )
+    )
+
+    assert [call[1] for call in retrieve.calls] == ["duree essai", "renouvellement essai"]
+    assert answer.searched == ("duree essai", "renouvellement essai")
+    assert answer.kind is AnswerKind.ANSWER
+
+
+def test_a_chunk_found_by_two_sub_queries_is_one_passage_and_one_source():
+    """The same article matching both halves of a split question comes
+    back twice, with two different fusion scores -- so de-duplicating on
+    the whole hit would keep both and cite one article twice.
+
+    The fixture makes the scores differ ON PURPOSE. With equal scores the
+    two hits would be equal objects and a plain `set` would pass this
+    test while the real bug went unseen."""
+    same_chunk_again = dataclasses.replace(HIT, score=0.42)
+    other = dataclasses.replace(
+        HIT, parent_id="p-2", section_label="Article 14", chunk_text="Le preavis..."
+    )
+    batches = {"q1": (HIT, other), "q2": (same_chunk_again,)}
+
+    answer = _ask(
+        ports=_ports(
+            rewrite=lambda question, summary: ("q1", "q2"),
+            retrieve=lambda workspace_id, query: batches[query],
+        )
+    )
+
+    assert [(s.file_name, s.section_label) for s in answer.sources] == [
+        ("code-du-travail.pdf", "Article 13"),
+        ("code-du-travail.pdf", "Article 14"),
+    ]
+
+
+def test_a_reword_may_split_differently_and_every_query_is_searched(monkeypatch):
+    """The retry path carries the same plural shape as the first pass: a
+    reword that decides the question needs two searches gets two."""
+    _with_settings(monkeypatch, retry_ceiling=1)
+    retrieve = _Recorder((HIT,))
+
+    answer = _ask(
+        ports=_ports(
+            grade=lambda question, passages: False,
+            reword=lambda question, previous, attempt: ("essai cadres", "essai ouvriers"),
+            retrieve=retrieve,
+        )
+    )
+
+    assert answer.searched == (QUESTION, "essai cadres", "essai ouvriers")
+    assert answer.retries == 1, "two sub-queries are still ONE retry"
+
+
+def test_the_reword_port_sees_the_queries_it_is_replacing(monkeypatch):
+    """It is handed the previous queries, plural, so a widening strategy
+    can see what was already tried."""
+    _with_settings(monkeypatch, retry_ceiling=1)
+    reword = _Recorder(("plus large",))
+
+    _ask(
+        ports=_ports(
+            grade=lambda question, passages: False,
+            rewrite=lambda question, summary: ("essai", "renouvellement"),
+            reword=reword,
+        )
+    )
+
+    assert reword.calls[0][1] == ("essai", "renouvellement")
+
+
+# --- 5.2 box P: fetch the parent sections ------------------------------
+
+
+def test_the_answer_is_written_from_parent_sections_not_from_the_chunks():
+    """Architecture 5.2 puts `P[Fetch parent sections for context]`
+    between grading and answering, and 7.5 explains why: the searched unit
+    is a 500-character child, the READ unit is the section it came from.
+
+    Asserted on what the port actually received, not on the answer text:
+    a graph that fetched the sections and then handed the model only the
+    chunks would look identical from the outside."""
+    fetch = _Recorder({"p-1": PARENT_TEXT})
+    write = _Recorder(ANSWER_TEXT)
+
+    answer = _ask(ports=_ports(fetch_parents=fetch, write_answer=write))
+
+    assert fetch.calls == [("ws-hr", ("p-1",))]
+    assert write.calls[0][2] == {"p-1": PARENT_TEXT}
+    assert answer.kind is AnswerKind.ANSWER
+
+
+def test_four_chunks_of_one_section_fetch_that_section_once():
+    """The parent is asked for once even when four of its children
+    matched. Re-reading one JSON file four times per answer is the kind of
+    cost ST-17's review already flagged on the write path."""
+    hits = tuple(
+        dataclasses.replace(HIT, chunk_text=f"extrait {n}") for n in range(4)
+    ) + (dataclasses.replace(HIT, parent_id="p-2", chunk_text="autre"),)
+    fetch = _Recorder({"p-1": PARENT_TEXT, "p-2": "Article 14..."})
+
+    _ask(ports=_ports(retrieve=lambda ws, query: hits, fetch_parents=fetch))
+
+    assert fetch.calls == [("ws-hr", ("p-1", "p-2"))]
+
+
+def test_a_section_the_store_cannot_produce_is_visible_in_the_trace():
+    """A parent that is missing means the store has drifted from the index
+    -- `parent_store.get_parent` says so itself ("the workspace may need a
+    re-sync"). One absent section must not fail the whole answer, and must
+    not vanish either: the trace says how many of how many loaded."""
+    hits = (HIT, dataclasses.replace(HIT, parent_id="p-2", chunk_text="autre"))
+
+    answer = _ask(
+        ports=_ports(
+            retrieve=lambda ws, query: hits,
+            fetch_parents=lambda ws, ids: {"p-1": PARENT_TEXT},
+        )
+    )
+
+    assert answer.kind is AnswerKind.ANSWER
+    parents_step = next(s for s in answer.trace.steps if s.kind is StepKind.PARENTS)
+    assert parents_step.detail == "loaded 1 of 2 section(s)"
+
+
+def test_a_parent_nobody_asked_for_stops_the_answer():
+    """The one failure a sourced-answer product cannot absorb: a section
+    from a workspace the question was not asked in (PRD F-01 makes
+    isolation structural). A port returning an id the graph never
+    requested is exactly that shape, so it raises rather than being
+    quietly ignored."""
+    with pytest.raises(ValueError, match="nobody asked for"):
+        _ask(
+            ports=_ports(
+                fetch_parents=lambda ws, ids: {"p-1": PARENT_TEXT, "p-999": "leaked"}
+            )
+        )
+
+
+def test_a_refusal_never_fetches_a_parent(monkeypatch):
+    """Box P sits on the ANSWER branch only. Refusing after three failed
+    searches should not go and read sections nobody is going to cite."""
+    _with_settings(monkeypatch, retry_ceiling=1)
+    fetch = _Recorder({})
+
+    answer = _ask(ports=_ports(grade=lambda q, p: False, fetch_parents=fetch))
+
+    assert answer.kind is AnswerKind.REFUSAL
+    assert fetch.calls == []
 
 
 # --- the port contract itself ------------------------------------------
@@ -424,9 +603,9 @@ def test_the_session_summary_reaches_the_step_that_rewrites_the_question():
     ("overrides", "port"),
     [
         ({"clarify": lambda question, summary: "  "}, "clarify"),
-        ({"rewrite": lambda question, summary: ""}, "rewrite"),
-        ({"grade": lambda q, p: False, "reword": lambda q, prev, n: ""}, "reword"),
-        ({"write_answer": lambda question, passages: "\n"}, "write_answer"),
+        ({"rewrite": lambda question, summary: ("",)}, "rewrite"),
+        ({"grade": lambda q, p: False, "reword": lambda q, prev, n: ("",)}, "reword"),
+        ({"write_answer": lambda question, passages, parents: "\n"}, "write_answer"),
     ],
     ids=["clarify", "rewrite", "reword", "write_answer"],
 )
@@ -456,7 +635,7 @@ def test_a_port_that_raises_is_not_papered_over():
     let it through; turning it into an HTTP 503 is the API layer's
     (openapi documents that response on /ask)."""
 
-    def unreachable(question, passages):
+    def unreachable(question, passages, parents):
         raise ConnectionError("the answering model is unreachable")
 
     with pytest.raises(ConnectionError, match="unreachable"):

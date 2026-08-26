@@ -5,24 +5,29 @@ Each node is built by a small factory that binds it to the `AgentPorts`
 while the flow, the ceiling and the trace are settled now.
 
 Every node returns a PARTIAL state update, never a mutated state, and
-every node records exactly one trace step. That second rule is what makes
+every node records at least one trace step. That second rule is what makes
 the trace complete: a step that is not recorded is work F-10 cannot show
 and the retry ceiling cannot count.
 
-WHAT SECTION 5.2 HAS THAT THIS FILE DOES NOT, so a reader does not go
-looking for it: the diagram's `P[Fetch parent sections for context]` box.
-ADR-03's node list -- "summary, rewrite-and-split, clarification pause,
-retrieval, grading, reword retry, answer, refusal" -- does not include it,
-and a parent fetch changes no route: it is the answer step reading the
-full section behind a hit it already has. It therefore belongs inside
-ST-23's `retrieve` port or ST-24's `write_answer` port, whichever needs
-the text. An empty pass-through node added now would be a box in a
-picture, not a seam.
+TWO THINGS THAT LOOK LIKE OVER-BUILDING FOR A SKELETON AND ARE NOT, both
+added after a review read this file against the signed documents:
+
+1. **The retrieve node loops over SEVERAL queries.** 5.2's box is "rewrite
+   and SPLIT query" and ADR-03 keeps the reference implementation's
+   sub-queries. A single-string query made the split unrepresentable, so
+   ST-22 would have inherited a node it could not fill without reshaping
+   the graph. One query is a one-element tuple; nothing else changes.
+2. **The parent fetch is its own node and its own port.** 5.2 puts
+   `P[Fetch parent sections for context]` between grading and answering,
+   and it cannot be folded into a neighbour: `parent_store.get_parent`
+   needs a workspace id, and no other port's signature carries one. It is
+   the difference between the model reading a 500-character chunk and
+   reading the article that chunk came out of.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from agent.ports import AgentPorts
 from agent.state import AgentState, AnswerKind, Source
@@ -37,6 +42,7 @@ REWRITE = "rewrite"
 CLARIFY = "clarify"
 RETRIEVE = "retrieve"
 GRADE = "grade"
+FETCH_PARENTS = "fetch_parents"
 REWORD = "reword"
 ANSWER = "answer"
 REFUSE = "refuse"
@@ -46,10 +52,10 @@ REFUSE = "refuse"
 #
 # ST-24 OWNS THE FINAL WORDING and this is not it -- it is the minimum
 # that is true. The searches themselves are not pasted in here: they are
-# on the answer object as `searched`, and UX spec section 8 gives the
-# refusal variant its own design that "states what was searched". Putting
-# the list in the prose as well would be the same facts in two places,
-# free to disagree.
+# on the answer object as `searched`, and UX spec 6.2 gives the refusal
+# variant its own design that "states what was searched". Putting the list
+# in the prose as well would be the same facts in two places, free to
+# disagree.
 REFUSAL_TEXT = (
     "I could not find an answer to this question in this workspace. "
     "The searches I ran are listed with this message. You could rephrase "
@@ -74,9 +80,8 @@ def _spoken(value: str, port: str) -> str:
       ("unclear"). Under a truthiness check the flow read it as clear,
       skipped the clarifying question and ANSWERED -- which is precisely
       the guessing F-06 exists to prevent, done silently.
-    * `rewrite` or `reword` returning "" sent the empty string to the
-      store as a search, and an honest refusal then disclosed `('',)` to
-      the user as what it had looked for (F-05).
+    * a blank query went to the store as a search, and an honest refusal
+      then disclosed `('',)` to the user as what it had looked for (F-05).
 
     A blank is always a broken port, never a meaningful value, so it fails
     here -- named, at the seam that produced it -- instead of three nodes
@@ -90,6 +95,22 @@ def _spoken(value: str, port: str) -> str:
     return value
 
 
+def _queries(values: Sequence[str], port: str) -> tuple[str, ...]:
+    """A port's set of search queries, refused if it is empty or blank.
+
+    An empty sequence is the plural version of the blank string above: the
+    graph would search nothing, grade nothing, and refuse while disclosing
+    that it had looked for nothing at all."""
+    queries = tuple(values)
+    if not queries:
+        raise ValueError(
+            f"the {port} port returned no queries. Section 5.2 splits a "
+            f"question into one or MORE searches; one is a one-element "
+            f"sequence, none is a broken port."
+        )
+    return tuple(_spoken(query, port) for query in queries)
+
+
 def _attempt_number(state: AgentState) -> int:
     """Which retry this is, 1-based, counted from the trace.
 
@@ -97,6 +118,21 @@ def _attempt_number(state: AgentState) -> int:
     its own would be the second source of truth for the one number F-04
     puts a ceiling on."""
     return rewords_in(state["steps"]) + 1
+
+
+def _merge_hits(batches: Sequence[Sequence[SearchHit]]) -> tuple[SearchHit, ...]:
+    """Hits from several queries, de-duplicated, best-ranked first.
+
+    Identity is (parent_id, chunk_text), NOT the whole hit: the same chunk
+    found by two sub-queries comes back with two different fusion scores,
+    so equality on the object would keep both and the answer would cite one
+    article twice. First occurrence wins, which is the hit from the earlier
+    query and therefore the better-ranked one."""
+    seen: dict[tuple[str, str], SearchHit] = {}
+    for batch in batches:
+        for hit in batch:
+            seen.setdefault((hit.parent_id, hit.chunk_text), hit)
+    return tuple(seen.values())
 
 
 def _sources_for(passages: tuple[SearchHit, ...]) -> tuple[Source, ...]:
@@ -142,11 +178,11 @@ def make_rewrite(ports: AgentPorts) -> Callable[[AgentState], dict]:
                 "clarification": _spoken(clarification, "clarify"),
                 "steps": [TraceStep(StepKind.REWRITE, _AMBIGUOUS)],
             }
-        query = _spoken(ports.rewrite(question, summary), "rewrite")
+        queries = _queries(ports.rewrite(question, summary), "rewrite")
         return {
-            "query": query,
+            "queries": queries,
             "clarification": None,
-            "steps": [TraceStep(StepKind.REWRITE, query)],
+            "steps": [TraceStep(StepKind.REWRITE, " | ".join(queries))],
         }
 
     return rewrite
@@ -173,21 +209,24 @@ def make_clarify(_ports: AgentPorts) -> Callable[[AgentState], dict]:
 
 
 def make_retrieve(ports: AgentPorts) -> Callable[[AgentState], dict]:
-    """Section 5.2 box S: hybrid search on child chunks.
+    """Section 5.2 box S: hybrid search on child chunks, once per query.
 
-    The step's detail is the exact string searched, which is what F-05
-    discloses on a refusal and what F-10 lists. The files it touched ride
-    on the same step, so the trace can say which search found which
-    file."""
+    ONE TRACE STEP PER QUERY, each carrying the exact string searched and
+    the files it touched. That is what F-05 discloses on a refusal and
+    what F-10 lists, and it is why the split is recorded as two searches
+    rather than one joined-up line: the user asked one question, the agent
+    ran two searches, and the trace should say so."""
 
     def retrieve(state: AgentState) -> dict:
-        query = state["query"]
-        passages = tuple(ports.retrieve(state["workspace_id"], query))
-        files = tuple(dict.fromkeys(hit.source_file for hit in passages))
-        return {
-            "passages": passages,
-            "steps": [TraceStep(StepKind.SEARCH, query, files)],
-        }
+        workspace_id = state["workspace_id"]
+        batches: list[Sequence[SearchHit]] = []
+        steps: list[TraceStep] = []
+        for query in state["queries"]:
+            hits = tuple(ports.retrieve(workspace_id, query))
+            batches.append(hits)
+            files = tuple(dict.fromkeys(hit.source_file for hit in hits))
+            steps.append(TraceStep(StepKind.SEARCH, query, files))
+        return {"passages": _merge_hits(batches), "steps": steps}
 
     return retrieve
 
@@ -219,17 +258,63 @@ def make_grade(ports: AgentPorts) -> Callable[[AgentState], dict]:
     return grade
 
 
+def make_fetch_parents(ports: AgentPorts) -> Callable[[AgentState], dict]:
+    """Section 5.2 box P: fetch the parent sections for context.
+
+    Search the small thing, read the big thing: the graded hits are
+    500-character child chunks, and the answer is written from the full
+    sections they came out of (architecture 7.5). Each parent is asked for
+    ONCE even when four chunks of it matched.
+
+    A parent the store cannot produce is omitted, and the step records
+    "loaded 4 of 5" so the shortfall is visible rather than a context that
+    quietly shrank. A port returning an id NOBODY ASKED FOR is a different
+    thing entirely -- the wrong workspace, or a mixed-up store -- and that
+    raises, because the one failure a sourced-answer product cannot absorb
+    is answering out of a section that belongs to someone else's
+    workspace."""
+
+    def fetch_parents(state: AgentState) -> dict:
+        wanted = tuple(dict.fromkeys(hit.parent_id for hit in state["passages"]))
+        parents = dict(ports.fetch_parents(state["workspace_id"], wanted))
+        unexpected = set(parents) - set(wanted)
+        if unexpected:
+            raise ValueError(
+                f"the fetch_parents port returned {len(unexpected)} section(s) "
+                f"nobody asked for ({sorted(unexpected)[:3]}). A parent the "
+                f"graph did not request cannot be cited by any hit it holds, "
+                f"and may belong to another workspace (PRD F-01)."
+            )
+        files = tuple(
+            dict.fromkeys(
+                hit.source_file for hit in state["passages"] if hit.parent_id in parents
+            )
+        )
+        return {
+            "parents": parents,
+            "steps": [
+                TraceStep(
+                    StepKind.PARENTS,
+                    f"loaded {len(parents)} of {len(wanted)} section(s)",
+                    files,
+                )
+            ],
+        }
+
+    return fetch_parents
+
+
 def make_reword(ports: AgentPorts) -> Callable[[AgentState], dict]:
     """Section 5.2 box RW: reword the query and search again (F-04)."""
 
     def reword(state: AgentState) -> dict:
-        query = _spoken(
-            ports.reword(state["question"], state["query"], _attempt_number(state)),
+        queries = _queries(
+            ports.reword(state["question"], state["queries"], _attempt_number(state)),
             "reword",
         )
         return {
-            "query": query,
-            "steps": [TraceStep(StepKind.REWORD, query)],
+            "queries": queries,
+            "steps": [TraceStep(StepKind.REWORD, " | ".join(queries))],
         }
 
     return reword
@@ -245,7 +330,10 @@ def make_answer(ports: AgentPorts) -> Callable[[AgentState], dict]:
 
     def answer(state: AgentState) -> dict:
         passages = state["passages"]
-        text = _spoken(ports.write_answer(state["question"], passages), "write_answer")
+        text = _spoken(
+            ports.write_answer(state["question"], passages, state["parents"]),
+            "write_answer",
+        )
         sources = _sources_for(passages)
         return {
             "answer_kind": AnswerKind.ANSWER,
@@ -302,7 +390,7 @@ def route_after_grade(state: AgentState) -> str:
     so the number in the marker on the bubble and the number that stopped
     the loop are one number."""
     if state["relevant"]:
-        return ANSWER
+        return FETCH_PARENTS
     if rewords_in(state["steps"]) < get_settings().retry_ceiling:
         return REWORD
     return REFUSE

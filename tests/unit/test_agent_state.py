@@ -61,7 +61,7 @@ def test_a_refusal_and_a_clarification_may_carry_no_sources():
 
 @pytest.mark.parametrize("text", ["", "   ", "\n\t "], ids=["empty", "spaces", "blank"])
 def test_an_answer_with_no_text_cannot_be_built(text):
-    """UX spec section 8 gives all three variants a text body. Whitespace
+    """UX spec 6.2 gives all three variants a text body. Whitespace
     is checked as well as emptiness because a model returning "\\n" is the
     realistic version of this failure, and it is truthy."""
     with pytest.raises(ValueError, match="no text"):
@@ -78,7 +78,7 @@ def test_the_refusal_flag_is_read_off_the_kind():
 
 
 def test_the_answer_reads_its_searches_and_retries_off_its_trace():
-    """openapi `searched` and UX spec section 8's retry marker both come
+    """openapi `searched` and UX spec 6.2's retry marker both come
     from the trace, not from fields somebody could set independently."""
     answer = _answer()
 

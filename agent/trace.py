@@ -12,7 +12,7 @@ were actually recorded. Nothing increments a separate integer.
 
 That matters because two numbers describing the same thing drift, and both
 of these have a consumer that would show the drift to a user: the F-04
-retry ceiling is enforced against this count, and UX spec section 8 puts
+retry ceiling is enforced against this count, and UX spec 6.2 puts
 "a subtle inline marker ... showing the count" on the answer bubble. A
 private counter plus a display list is exactly the shape where the loop
 runs three times and the marker says two. Here that cannot happen: the
@@ -42,6 +42,7 @@ class StepKind(StrEnum):
     CLARIFY = "clarify"
     SEARCH = "search"
     GRADE = "grade"
+    PARENTS = "parents"
     REWORD = "reword"
     ANSWER = "answer"
     REFUSAL = "refusal"
@@ -122,5 +123,5 @@ class Trace:
 
         Derived, never stored. See the module docstring: this is the same
         number the retry ceiling is enforced against and the number UX
-        spec section 8 renders on the answer bubble."""
+        spec 6.2 renders on the answer bubble."""
         return rewords_in(self.steps)

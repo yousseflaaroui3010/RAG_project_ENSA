@@ -160,7 +160,7 @@ Exit gate, both halves:
 Two more properties worth not losing:
 - THE TRACE IS THE RETRY COUNTER. `retries` and `searched` are counted
   from recorded steps, never stored. F-04's ceiling is enforced against
-  that count and UX spec 8 renders the same number on the bubble, so "the
+  that count and UX spec 6.2 renders the same number on the bubble, so "the
   loop ran three times and the marker says two" is unrepresentable.
 - AN ANSWER WITH NO SOURCES CANNOT EXIST. The rule is written in three
   signed documents (openapi's G3 note, docs/phase2/CLAUDE.md, PRD F-03)

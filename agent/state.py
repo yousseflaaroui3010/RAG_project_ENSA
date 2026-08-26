@@ -33,6 +33,7 @@ flags the other for a human. See BUILD-STATE.
 from __future__ import annotations
 
 import operator
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, TypedDict
@@ -42,7 +43,7 @@ from vector_store import SearchHit
 
 
 class AnswerKind(StrEnum):
-    """openapi `Answer.kind`, verbatim. UX spec section 8 renders one
+    """openapi `Answer.kind`, verbatim. UX spec 6.2 renders one
     message variant per value, which is why a clarification is a kind of
     answer here rather than a separate return type: the chat transcript
     holds all three the same way."""
@@ -103,7 +104,7 @@ class Answer:
         if not self.text.strip():
             raise ValueError(
                 f"an answer of kind {self.kind} has no text. Every one of the "
-                f"three UX spec section 8 message variants renders text; an "
+                f"three UX spec 6.2 message variants renders text; an "
                 f"empty bubble is not one of them."
             )
         if self.kind is AnswerKind.ANSWER and not self.sources:
@@ -131,7 +132,7 @@ class Answer:
 
     @property
     def retries(self) -> int:
-        """What UX spec section 8's inline marker shows on the bubble."""
+        """What UX spec 6.2's inline marker shows on the bubble."""
         return self.trace.retries
 
 
@@ -154,9 +155,16 @@ class AgentState(TypedDict):
     question: str
     history: tuple[Turn, ...]
     summary: str
-    query: str
+    # PLURAL, because architecture 5.2's box is "rewrite and SPLIT query":
+    # one question can become several searches. One query is the ordinary
+    # case and is a one-element tuple, not a special one.
+    queries: tuple[str, ...]
     passages: tuple[SearchHit, ...]
     relevant: bool
+    # Full section text behind the hits, keyed by parent id (5.2 box P).
+    # Empty until the fetch node runs, and short of `passages` whenever the
+    # parent store has drifted from the index -- the trace says by how much.
+    parents: Mapping[str, str]
     clarification: str | None
     steps: Annotated[list[TraceStep], operator.add]
     answer_kind: AnswerKind | None
