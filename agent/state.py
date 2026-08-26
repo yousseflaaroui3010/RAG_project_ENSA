@@ -79,11 +79,11 @@ class Answer:
     """One outcome of one question: an answer, an honest refusal, or a
     single clarifying question.
 
-    Mirrors openapi `Answer`. Two of that schema's eight fields are
-    PROPERTIES here rather than stored values -- `searched` and `refusal`
-    -- because storing them would mean two places could disagree about
-    what happened. `searched` reads the trace, and the trace is what the
-    graph actually did.
+    Mirrors openapi `Answer`. Three of that schema's eight fields are
+    PROPERTIES here rather than stored values -- `searched`, `refusal` and
+    `trace_id` -- because storing them would mean two places could
+    disagree about what happened. `searched` reads the trace, and the
+    trace is what the graph actually did.
 
     `trace` is the whole collector, not just its id. The API layer (ST-51)
     serializes `trace_id` alone, per openapi's "stored trace reference";
@@ -103,9 +103,9 @@ class Answer:
     def __post_init__(self) -> None:
         if not self.text.strip():
             raise ValueError(
-                f"an answer of kind {self.kind} has no text. Every one of the "
-                f"three UX spec 6.2 message variants renders text; an "
-                f"empty bubble is not one of them."
+                f"an answer of kind {self.kind} has no text. Each of the "
+                f"three assistant message variants in UX spec 6.2 renders "
+                f"text; an empty bubble is not one of them."
             )
         if self.kind is AnswerKind.ANSWER and not self.sources:
             raise ValueError(
@@ -165,6 +165,11 @@ class AgentState(TypedDict):
     # Empty until the fetch node runs, and short of `passages` whenever the
     # parent store has drifted from the index -- the trace says by how much.
     parents: Mapping[str, str]
+    # True only when passages were found and NOT ONE of their sections
+    # could be read. Computed once in the fetch node; the router and the
+    # refusal wording both read it, so they cannot disagree about which
+    # refusal this is.
+    parents_unreadable: bool
     clarification: str | None
     steps: Annotated[list[TraceStep], operator.add]
     answer_kind: AnswerKind | None

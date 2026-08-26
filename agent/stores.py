@@ -31,6 +31,19 @@ means a file that exists and does not say what it should, which is the
 condition `parent_store` raises `CorruptParentError` for, and answering
 around it would risk citing a section that is not the section it claims to
 be.
+
+PARKED, found by a review of this file and NOT fixed here because the fix
+belongs on the other side of a seam this story must not touch:
+`parent_store.py:176` turns ANY `OSError` into `CorruptParentError`, so a
+file briefly locked -- by antivirus, or by OneDrive sync, and this repo
+lives under OneDrive -- is indistinguishable from a genuinely corrupt one
+and takes the whole question down with it. A transient lock is retryable
+and corruption is not, so they should not share an outcome. Telling them
+apart means either a new exception type or an inspection of the cause
+chain inside `parent_store`, which is MB's module (ST-16) and is not
+ST-21's to edit. Raised for a human: it needs its own `fix/` branch with
+that owner's agreement. Until then the behaviour is: locked file, no
+answer, loud error -- wrong, but not silent.
 """
 
 from __future__ import annotations

@@ -3,7 +3,8 @@
 ADR-03 makes the answering flow a LangGraph graph rather than a
 hand-rolled loop, "because a graph also makes the F-04 retry ceiling and
 the F-05 refusal path explicit and testable". That is what this file is:
-eight boxes from section 5.2, two branches, and one entry point.
+the boxes of section 5.2 as nine nodes, three branches, and one entry
+point.
 
     summarize -> rewrite -> ( clarify                                    )
                           -> retrieve -> grade -> ( fetch_parents -> answer )
@@ -14,7 +15,7 @@ eight boxes from section 5.2, two branches, and one entry point.
 into the state and the trace accumulates beside it; `ask` puts the two
 together at the end. So "every answer object carries its trace" -- ST-21's
 exit gate -- is true because there is no other way to make one, not
-because eight nodes each remembered to attach it.
+because nine nodes each remembered to attach it.
 
 ONE THING THIS FILE DELIBERATELY DOES NOT DO, because the first draft did
 it and running it proved the reason wrong. LangGraph stops a graph after a
@@ -27,7 +28,13 @@ was written to derive its own limit from the ceiling.
 MEASURED on the pinned version instead of trusted: langgraph 1.2.9's
 default is `DEFAULT_RECURSION_LIMIT = 10007`
 (`langgraph/_internal/_config.py:32`), and a ceiling of 50 -- 155 nodes --
-runs to completion untouched. The "25" is old documentation. A
+ran to completion untouched. Two honest limits on that sentence: the
+ceiling-50 run was a ONE-OFF measurement in a session scratchpad, not a
+check that runs (the highest ceiling any test uses is 20), and the
+constant is `int(getenv("LANGGRAPH_DEFAULT_RECURSION_LIMIT", "10007"))`,
+so an environment that sets that variable low would break a high-ceiling
+run -- and `test_a_high_retry_ceiling_runs_to_completion` would fail for
+a reason its own name does not mention. The "25" is old documentation. A
 hand-computed limit would therefore have been a SECOND, LOWER bound whose
 only possible effect is to cut a legitimate run short the day someone adds
 a node to section 5.2, which is precisely the failure it was invented to
@@ -39,6 +46,7 @@ nodes, so it turns red if a future langgraph brings the default back down.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
 
 from langgraph.graph import END, START, StateGraph
@@ -48,7 +56,21 @@ from agent import nodes
 from agent.ports import AgentPorts
 from agent.state import AgentState, Answer, Source, Turn
 from agent.trace import Trace, TraceStep
-from db import repo
+from config import get_settings
+
+
+def _new_id() -> str:
+    """A session id and a trace id.
+
+    `db.repo.new_id` is the same one line, and this deliberately does not
+    import it: its docstring scopes it to "the `uuid` columns" of the
+    SQLite schema, and neither of these is a column today -- the trace has
+    nowhere to be stored (see the ADR-09 escalation in DECISIONS) and the
+    session lives for one conversation. Reaching into `db` for it would
+    make the answering module unimportable without SQLite and the schema
+    file, and architecture section 4 keeps `agent` and `db` apart. Second
+    copy of one stdlib call; the core law allows two."""
+    return str(uuid.uuid4())
 
 
 def build_graph(ports: AgentPorts) -> CompiledStateGraph:
@@ -86,7 +108,11 @@ def build_graph(ports: AgentPorts) -> CompiledStateGraph:
             nodes.REFUSE: nodes.REFUSE,
         },
     )
-    builder.add_edge(nodes.FETCH_PARENTS, nodes.ANSWER)
+    builder.add_conditional_edges(
+        nodes.FETCH_PARENTS,
+        nodes.route_after_parents,
+        {nodes.ANSWER: nodes.ANSWER, nodes.REFUSE: nodes.REFUSE},
+    )
     builder.add_edge(nodes.REWORD, nodes.RETRIEVE)
     builder.add_edge(nodes.CLARIFY, END)
     builder.add_edge(nodes.ANSWER, END)
@@ -117,6 +143,7 @@ def initial_state(
         passages=(),
         relevant=False,
         parents={},
+        parents_unreadable=False,
         clarification=None,
         steps=[],
         answer_kind=None,
@@ -143,12 +170,33 @@ def ask(
     with no I/O in it, and it keeps this function stateless -- a long-lived
     compiled graph would be a shared object with the ports baked in, and
     ST-51 wiring a real one is a different decision from ST-21's."""
-    session = session_id or repo.new_id()
+    settings = get_settings()
+    asked = question.strip()
+    # openapi AskRequest bounds the question at 1..2000 characters, and
+    # ADR-13 has the UI calling this function IN-PROCESS -- so the route's
+    # validation is not in that path and without this the contract holds
+    # only for HTTP callers. A blank question did eventually fail before
+    # this check, but three nodes later and with the wrong message: "the
+    # rewrite port returned a blank string", which sends whoever reads it
+    # to ST-22's code for a fault the caller committed.
+    if len(asked) < settings.question_min_length:
+        raise ValueError(
+            f"a question must be at least {settings.question_min_length} "
+            f"character(s) (openapi AskRequest.question). Nothing was asked."
+        )
+    if len(asked) > settings.question_max_length:
+        raise ValueError(
+            f"a question may be at most {settings.question_max_length} "
+            f"characters (openapi AskRequest.question); this one is "
+            f"{len(asked)}."
+        )
+
+    session = session_id or _new_id()
     graph = build_graph(ports)
     final: dict = graph.invoke(
         initial_state(
             workspace_id=workspace_id,
-            question=question,
+            question=asked,
             session_id=session,
             history=tuple(history),
         )
@@ -174,5 +222,5 @@ def ask(
         text=final["answer_text"],
         sources=sources,
         session_id=final["session_id"],
-        trace=Trace(trace_id=repo.new_id(), steps=steps),
+        trace=Trace(trace_id=_new_id(), steps=steps),
     )

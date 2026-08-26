@@ -50,15 +50,33 @@ def test_the_full_section_comes_back_keyed_by_parent_id(tmp_path):
     assert texts == {"p-1": ARTICLE_13.text, "p-2": ARTICLE_14.text}
 
 
-def test_the_same_id_twice_is_read_once(tmp_path):
-    """Four chunks of one article ask for one section. The result is a
-    mapping, so this is really a statement about not doing the work
-    twice -- and about the caller being free to pass hits straight
-    through without de-duplicating first."""
+def test_the_same_id_twice_is_read_once(tmp_path, monkeypatch):
+    """Four chunks of one article open, read and parse ONE file.
+
+    COUNTS THE READS, and that is the whole test. The first version
+    asserted on the returned mapping, which cannot fail: writing the same
+    text into the same dictionary key three times produces exactly the
+    dictionary that writing it once produces, so the assertion was blind
+    to whether the de-duplication happened at all. A review proved it by
+    deleting `dict.fromkeys` and watching the assertion still pass. That
+    is the "degenerate count" shape from the prove-it skill.
+
+    What it costs when it breaks: a question whose top hits are four
+    chunks of one article re-reads and re-parses that JSON file four
+    times, per question, with the suite green throughout."""
     base = _store(tmp_path, ARTICLE_13)
+    reads: list[str] = []
+    real = parent_store.get_parent
+
+    def counting_get_parent(**kwargs):
+        reads.append(kwargs["parent_id"])
+        return real(**kwargs)
+
+    monkeypatch.setattr(parent_store, "get_parent", counting_get_parent)
 
     texts = parent_texts(WORKSPACE, ("p-1", "p-1", "p-1"), base_path=base)
 
+    assert reads == ["p-1"]
     assert texts == {"p-1": ARTICLE_13.text}
 
 

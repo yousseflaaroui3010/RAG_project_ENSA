@@ -598,6 +598,43 @@ def test_a_parent_nobody_asked_for_stops_the_answer():
         )
 
 
+def test_no_readable_section_at_all_refuses_instead_of_answering():
+    """The floor under box P, and it was missing until a review asked what
+    "loaded 0 of 5" does.
+
+    It answered: the model got an empty context, and the answer still
+    carried a source list built from the chunk metadata -- a citation to
+    documents whose text nothing had read. F-03 calls the source line the
+    product's contract with the user, so this refuses.
+
+    The refusal says something DIFFERENT from "not covered here", because
+    a different thing happened: the passages were found and the sections
+    could not be read, and the next step is a Sync, not a rephrase."""
+    answer = _ask(ports=_ports(fetch_parents=lambda ws, ids: {}))
+
+    assert answer.kind is AnswerKind.REFUSAL
+    assert answer.sources == ()
+    assert "Sync" in answer.text
+    assert answer.text != agent.nodes.REFUSAL_TEXT
+    assert _kinds(answer)[-2:] == [StepKind.PARENTS, StepKind.REFUSAL]
+
+
+def test_some_sections_readable_still_answers():
+    """The other side of that floor, so it cannot degenerate into "any
+    missing section blocks the answer". Four of five is an answer; the
+    trace carries the shortfall."""
+    hits = (HIT, dataclasses.replace(HIT, parent_id="p-2", chunk_text="autre"))
+
+    answer = _ask(
+        ports=_ports(
+            retrieve=lambda ws, query: hits,
+            fetch_parents=lambda ws, ids: {"p-1": PARENT_TEXT},
+        )
+    )
+
+    assert answer.kind is AnswerKind.ANSWER
+
+
 def test_a_refusal_never_fetches_a_parent(monkeypatch):
     """Box P sits on the ANSWER branch only. Refusing after three failed
     searches should not go and read sections nobody is going to cite."""
@@ -676,6 +713,63 @@ def test_a_port_that_raises_is_not_papered_over():
 
     with pytest.raises(ConnectionError, match="unreachable"):
         _ask(ports=_ports(write_answer=unreachable))
+
+
+def test_a_split_wider_than_the_configured_limit_is_refused(monkeypatch):
+    """The retry ceiling bounds how many ROUNDS run; this bounds how wide
+    a round is. Without it a rewrite returning forty phrases costs
+    (ceiling + 1) x 40 real searches for one question, and F-05 reads all
+    forty back to the user as "what I looked for".
+
+    Run at a non-default limit so a mutation that ignores the setting and
+    hardcodes the default cannot pass."""
+    _with_settings(monkeypatch, max_sub_queries=3)
+    four = ("a", "b", "c", "d")
+
+    with pytest.raises(ValueError, match="4 sub-queries and the configured limit is 3"):
+        _ask(ports=_ports(rewrite=lambda question, summary: four))
+
+
+def test_a_split_exactly_at_the_limit_is_allowed(monkeypatch):
+    """The boundary from the other side. Asserted because "3 is too many"
+    and "4 is too many" are different rules and only one of them is
+    written down."""
+    _with_settings(monkeypatch, max_sub_queries=3)
+
+    answer = _ask(ports=_ports(rewrite=lambda question, summary: ("a", "b", "c")))
+
+    assert len(answer.searched) == 3
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        ("", "at least 1 character"),
+        ("   \n ", "at least 1 character"),
+        ("x" * 2001, "at most 2000 characters"),
+    ],
+    ids=["empty", "whitespace", "too-long"],
+)
+def test_a_question_outside_the_contract_is_refused_at_the_front_door(
+    question, expected
+):
+    """openapi AskRequest bounds the question at 1..2000 characters, and
+    ADR-13 has the UI calling this function IN-PROCESS -- so the route's
+    validation is not in this path.
+
+    Before this check a blank question did fail, but three nodes later and
+    with the message "the rewrite port returned a blank string", which
+    sends whoever reads it to ST-22's code for a fault the caller
+    committed."""
+    with pytest.raises(ValueError, match=expected):
+        ask(workspace_id="ws-hr", question=question, ports=_ports())
+
+
+def test_a_question_exactly_at_the_length_limit_is_accepted():
+    """The boundary from the allowed side: 2000 is in, 2001 is out."""
+    answer = ask(workspace_id="ws-hr", question="x" * 2000, ports=_ports())
+
+    assert answer.kind is AnswerKind.ANSWER
 
 
 def test_a_session_id_is_echoed_back_when_given_and_minted_when_not():

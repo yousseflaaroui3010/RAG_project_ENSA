@@ -87,6 +87,14 @@ def test_the_free_functions_and_the_trace_properties_are_the_same_count():
     """The nodes call `rewords_in`/`searches_in` on a live list of steps
     while the run is still going; `Trace` exposes the same answers after.
     If those two ever disagreed, the ceiling would stop the loop at one
-    number and the answer bubble would show another."""
+    number and the answer bubble would show another.
+
+    HONEST ABOUT ITS OWN REACH, because a review pointed out that the
+    docstring above oversells it: today `Trace.retries` is literally
+    `return rewords_in(self.steps)`, so this comparison cannot fail and
+    proves nothing about the current code. It is a REGRESSION guard, not
+    a check: it exists to go red the day somebody gives `Trace` its own
+    implementation of the count -- which is exactly how the two would come
+    to disagree."""
     assert rewords_in(STEPS) == TRACE.retries
     assert searches_in(STEPS) == TRACE.searches

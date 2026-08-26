@@ -10,11 +10,12 @@ immediately before ST-21 merges, not now.
 
 THE WHOLE GATE WAS RUN BY HAND ON THE BRANCH, in gate.yml order, all four
 steps: `uv sync --frozen` clean (170 packages audited), `uv run ruff
-check .` exit 0, `uv run pytest` 396 passed / 2 skipped in 148s (338 / 2
+check .` exit 0, `uv run pytest` 404 passed / 2 skipped in 90s (338 / 2
 at the branch point), and -- FOR THE FIRST TIME ON THIS MACHINE --
-`gitleaks detect` exit 0, "no leaks found", 65 commits and 2.60 MB
-scanned. Measured on the tree as it stands after the review fixes, not on
-the earlier one that showed 379.
+`gitleaks detect` exit 0, "no leaks found", 2.62 MB scanned. Measured on
+the tree as it stands after the verifier fixes; earlier runs in this
+session showed 379 and then 396, and both were true when taken. 66 of the
+404 are ST-21's own (46 graph + 7 state + 7 trace + 6 stores).
 
 GITLEAKS IS NOW INSTALLED HERE, so blocker item 5 below is CLOSED and the
 standing caveat "CI is the only place step 4 executes" is no longer true.
@@ -244,7 +245,71 @@ bound whose only possible effect was to cut a legitimate run short the
 day someone adds a node. Deleted. `test_a_high_retry_ceiling_runs_to_
 completion` needs 65 nodes and pins the framework's default instead.
 
-PARKED, all three visible rather than fixed:
+A COLD VERIFIER PASS THEN RAN on the branch as redesigned, and it earned
+its place: 1 blocking, 7 worth fixing, 6 notes. All of the blocking and
+worth-fixing items are now closed except two, which are parked below.
+
+THE BLOCKING ONE WAS A VACUOUS TEST THE MUTATION BATTERY HAD MISSED, and
+that is the part to keep. `test_the_same_id_twice_is_read_once` asked for
+one section three times and asserted on the returned mapping -- but
+writing one text into one dictionary key three times produces exactly the
+dictionary that writing it once produces, so the assertion could not see
+whether the de-duplication happened at all. The verifier did not argue
+it: it deleted `dict.fromkeys` and watched the assertion pass. The test
+now counts the actual reads through `parent_store.get_parent`. Two
+lessons, and the second is the uncomfortable one: 32 mutations had not
+touched `agent/stores.py`, so a battery is only as wide as the list you
+wrote for it; and this is the SEVENTH shipped example of the shape the
+prove-it skill exists to catch, written by someone who had just quoted
+that skill in the same file's docstring.
+
+Also found and fixed, worst first:
+- NO FLOOR AT ZERO READABLE SECTIONS. "loaded 0 of 5" answered anyway,
+  handing the model an empty context while the answer still carried five
+  source citations built from chunk metadata -- a citation to documents
+  whose text nothing had read, against F-03. It now refuses, with its own
+  wording: the passages were found, the sections could not be read, and
+  the next step is a Sync, not a rephrase. Partial still answers.
+- `question` WAS NEVER CHECKED against openapi's 1..2000 bounds. ADR-13
+  puts the UI on the in-process path, so the route's validation is not in
+  it. A blank question did fail, three nodes later, with "the rewrite port
+  returned a blank string" -- pointing whoever read it at ST-22's code for
+  a fault the caller committed.
+- NO WIDTH LIMIT ON THE SPLIT. The ceiling bounds how many rounds run;
+  nothing bounded how wide a round was, so a rewrite returning forty
+  phrases cost (ceiling + 1) x 40 real searches, all forty read back to
+  the user in the refusal. Now `config.max_sub_queries`.
+- `_merge_hits` CLAIMED "best-ranked first" AND NOTHING SORTED. False the
+  moment there are two queries: found earlier is not ranked higher. Left
+  unsorted deliberately -- RRF scores are computed within one query and
+  are not comparable across two, so sorting by them would be a second
+  quiet wrongness -- and the docstring now says so and hands the fusion
+  question to ST-23.
+- `agent` IMPORTED `db.repo` for two uuid4 calls, making the answering
+  module unimportable without SQLite for a call that is one stdlib line.
+- Six miscounted docstring claims ("Five files" over a table of six,
+  "eight boxes" over nine nodes, "two of eight fields" over three), all in
+  files whose entire argument is that the docstrings are load-bearing.
+
+WHAT THE VERIFIER CHECKED AND FOUND CLEAN, which is half the value of
+having run it: every spec citation in the branch is true. It read
+architecture 5.2/7.5, ADR-03, ADR-09, openapi lines 223/480-483/512,
+docs/phase2/CLAUDE.md lines 33-34, PRD F-03 to F-10 and section 11, UX
+spec 6.2, BUILD-PLAN line 76, and langgraph's own `_config.py:32`, and
+found no fabricated reference. The previous pass of this branch had
+eight wrong ones.
+
+PARKED, all five visible rather than fixed:
+- A FILE BRIEFLY LOCKED READS AS A CORRUPT ONE and takes the whole
+  question down. `parent_store.py:176` turns ANY `OSError` into
+  `CorruptParentError`, so antivirus or OneDrive sync holding a parent
+  file for a moment is indistinguishable from genuine corruption -- and
+  this repo lives under OneDrive. A transient lock is retryable and
+  corruption is not; they should not share an outcome. The fix is inside
+  MB's ST-16 module, so it needs her agreement and its own `fix/` branch.
+- SEVEN COPIES of the "de-duplicate, keep first-seen order" one-liner
+  across the new package. The core law says the third copy needs an
+  abstraction or a DECISIONS row; there is now a row.
 - `disclaimer` is always False. F-09 is ST-26's and no test here claims
   otherwise -- a default nobody has exercised is not a feature.
 - `REFUSAL_TEXT` in agent/nodes.py is the honest minimum, not product
@@ -882,7 +947,10 @@ their own `chore/` branch, now together with 8.
      the earlier `winget list` negative is simply out of date). gate.yml step
      4 was RUN here for the first time on the ST-21 branch: `gitleaks detect
      --no-banner --redact` exit 0, "no leaks found", 63 commits / 2.55 MB in
-     5.6s. The whole gate is now achievable locally, so the standing excuse
+     5.6s. The header above quotes 65 commits / 2.60 MB for the same step;
+     both are true and neither is a typo -- this run happened two commits
+     earlier in the same session than that one, and a count of commits is a
+     number that moves. The whole gate is now achievable locally, so the standing excuse
      "CI is the only place that step executes" is retired, and every future
      header in this file should carry a real gitleaks result rather than the
      proxy scan this item used to allow.

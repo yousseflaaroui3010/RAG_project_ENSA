@@ -1,6 +1,6 @@
 """The Sanad agent (architecture section 4: the `agent` module).
 
-Five files, and the split is by who owns what next:
+Six files, and the split is by who owns what next:
 
 | File        | What it holds                                             |
 |-------------|-----------------------------------------------------------|

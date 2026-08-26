@@ -63,6 +63,18 @@ REFUSAL_TEXT = (
     "switch to the workspace that does."
 )
 
+# The other refusal, and it is a different fact about the world: the
+# search DID find matching passages and not one of their sections could be
+# read back. Saying "not covered here" then would be false, and PRD
+# section 11's rule for every failure row is "never fake success, always
+# name a next step" -- the next step here is a Sync, not a rephrase.
+REFUSAL_TEXT_UNREADABLE = (
+    "I found passages that match your question but could not read the "
+    "sections they come from, so I cannot answer from them and will not "
+    "guess. This usually means the stored sections are out of step with "
+    "the search index. Run a Sync on this workspace and ask again."
+)
+
 # Trace details for the steps whose detail is not a search string.
 _AMBIGUOUS = "ambiguous, asking one clarifying question"
 _RELEVANT = "passages address the question"
@@ -96,17 +108,32 @@ def _spoken(value: str, port: str) -> str:
 
 
 def _queries(values: Sequence[str], port: str) -> tuple[str, ...]:
-    """A port's set of search queries, refused if it is empty or blank.
+    """A port's set of search queries, refused if it is empty, blank, or
+    wider than the configured split.
 
     An empty sequence is the plural version of the blank string above: the
     graph would search nothing, grade nothing, and refuse while disclosing
-    that it had looked for nothing at all."""
+    that it had looked for nothing at all.
+
+    The WIDTH cap is the other half, and the retry ceiling does not cover
+    it: the ceiling bounds how many rounds run, nothing bounded how wide a
+    round is. A rewrite port returning forty phrases costs
+    (ceiling + 1) x 40 real searches for one question, and F-05 then reads
+    all forty back to the user as "what I looked for"."""
     queries = tuple(values)
     if not queries:
         raise ValueError(
             f"the {port} port returned no queries. Section 5.2 splits a "
             f"question into one or MORE searches; one is a one-element "
             f"sequence, none is a broken port."
+        )
+    cap = get_settings().max_sub_queries
+    if len(queries) > cap:
+        raise ValueError(
+            f"the {port} port returned {len(queries)} sub-queries and the "
+            f"configured limit is {cap} (config.max_sub_queries). Splitting "
+            f"a question is not the same as searching for everything it "
+            f"mentions; raise the setting if the split is genuinely wider."
         )
     return tuple(_spoken(query, port) for query in queries)
 
@@ -121,13 +148,25 @@ def _attempt_number(state: AgentState) -> int:
 
 
 def _merge_hits(batches: Sequence[Sequence[SearchHit]]) -> tuple[SearchHit, ...]:
-    """Hits from several queries, de-duplicated, best-ranked first.
+    """Hits from several queries, de-duplicated, IN QUERY ORDER.
 
     Identity is (parent_id, chunk_text), NOT the whole hit: the same chunk
     found by two sub-queries comes back with two different fusion scores,
-    so equality on the object would keep both and the answer would cite one
-    article twice. First occurrence wins, which is the hit from the earlier
-    query and therefore the better-ranked one."""
+    so equality on the object would keep both and the model would read the
+    same passage twice.
+
+    ORDER IS QUERY ORDER, NOT SCORE ORDER, and this needs saying because
+    an earlier version of this docstring claimed "best-ranked first",
+    which was false the moment there were two queries -- being found
+    earlier is not being ranked higher. It is left unsorted deliberately:
+    `SearchHit.score` comes out of Qdrant's Reciprocal Rank Fusion, which
+    is a rank-based score computed WITHIN one query, so scores from two
+    different searches are not on a comparable scale and sorting by them
+    would be a second quiet wrongness rather than a fix. Fusing several
+    sub-query rankings honestly is retrieval work and belongs to ST-23,
+    which owns the hybrid search. Until then: whoever trims this list to
+    "the top N" is trimming by query order, and this docstring is the
+    warning."""
     seen: dict[tuple[str, str], SearchHit] = {}
     for batch in batches:
         for hit in batch:
@@ -272,7 +311,16 @@ def make_fetch_parents(ports: AgentPorts) -> Callable[[AgentState], dict]:
     thing entirely -- the wrong workspace, or a mixed-up store -- and that
     raises, because the one failure a sourced-answer product cannot absorb
     is answering out of a section that belongs to someone else's
-    workspace."""
+    workspace.
+
+    AND THERE IS A FLOOR AT ZERO, which is not the same rule as the one
+    above and was missing until a review asked what "loaded 0 of 5" does.
+    It answered, handing the model an empty context while attaching five
+    source citations built from the chunk metadata -- an answer citing five
+    documents whose text was never read. F-03 calls the source line the
+    product's contract with the user, so that case routes to a refusal
+    instead, with its own wording: the passages were found, the sections
+    could not be read, and the next step is a Sync."""
 
     def fetch_parents(state: AgentState) -> dict:
         wanted = tuple(dict.fromkeys(hit.parent_id for hit in state["passages"]))
@@ -292,6 +340,10 @@ def make_fetch_parents(ports: AgentPorts) -> Callable[[AgentState], dict]:
         )
         return {
             "parents": parents,
+            # Computed once, here, and read by both the router and the
+            # refusal node. Recomputing the same condition in two places
+            # is how a refusal ends up carrying the wrong explanation.
+            "parents_unreadable": bool(wanted) and not parents,
             "steps": [
                 TraceStep(
                     StepKind.PARENTS,
@@ -354,11 +406,17 @@ def make_refuse(_ports: AgentPorts) -> Callable[[AgentState], dict]:
 
     def refuse(state: AgentState) -> dict:
         searched = len(searches_in(state["steps"]))
+        unreadable = state["parents_unreadable"]
+        detail = (
+            "refused: passages found, no section readable"
+            if unreadable
+            else f"refused after {searched} search(es)"
+        )
         return {
             "answer_kind": AnswerKind.REFUSAL,
-            "answer_text": REFUSAL_TEXT,
+            "answer_text": REFUSAL_TEXT_UNREADABLE if unreadable else REFUSAL_TEXT,
             "answer_sources": (),
-            "steps": [TraceStep(StepKind.REFUSAL, f"refused after {searched} search(es)")],
+            "steps": [TraceStep(StepKind.REFUSAL, detail)],
         }
 
     return refuse
@@ -377,6 +435,16 @@ def route_after_rewrite(state: AgentState) -> str:
     read it by the same rule; `_spoken` is where the blank is actually
     stopped."""
     return CLARIFY if state["clarification"] is not None else RETRIEVE
+
+
+def route_after_parents(state: AgentState) -> str:
+    """The floor under box P: no readable section, no answer.
+
+    Partial is fine and deliberate -- four sections of five still answers,
+    and the trace says so. Zero is not: the model would be handed an empty
+    context while the answer still carried a source list built from the
+    chunks, which is a citation to a document nothing read (F-03)."""
+    return REFUSE if state["parents_unreadable"] else ANSWER
 
 
 def route_after_grade(state: AgentState) -> str:

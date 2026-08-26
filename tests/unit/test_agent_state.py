@@ -61,7 +61,7 @@ def test_a_refusal_and_a_clarification_may_carry_no_sources():
 
 @pytest.mark.parametrize("text", ["", "   ", "\n\t "], ids=["empty", "spaces", "blank"])
 def test_an_answer_with_no_text_cannot_be_built(text):
-    """UX spec 6.2 gives all three variants a text body. Whitespace
+    """UX spec 6.2 gives each assistant variant a text body. Whitespace
     is checked as well as emptiness because a model returning "\\n" is the
     realistic version of this failure, and it is truthy."""
     with pytest.raises(ValueError, match="no text"):
