@@ -139,7 +139,62 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-ST-21 AGENT GRAPH SKELETON **MERGED as 24479ba** (PR #49, squash),
+ST-23 HYBRID RETRIEVAL + RELEVANCE GRADER + REWORD, on branch
+`feat/S2-ST-23-hybrid-retrieval-grader`, gate green by hand, NOT merged
+and NOT reviewed. 451 passed / 2 skipped, up from 404. 15 mutations, all
+15 killed.
+
+It fills the three seams ST-21 named for it -- `retrieve`, `grade`,
+`reword` -- and builds one thing nobody owned.
+
+THE PLAN GAP THIS STORY FOUND: **no BUILD-PLAN row owns the ADR-06
+chat-model interface.** Checked three ways before writing a line (graph
+search; a project-wide grep across every `*.py` for
+`langchain|chat_model|ChatGoogle|ChatOllama|init_chat_model`, which found
+only `config.py` lines 32 and 34 -- the model NAMES; and reading every
+plan row). ST-23 is the first story whose gate needs a model to exist, so
+`agent/chat.py` lands here. Recorded so ST-24 does not rediscover it.
+
+THE TWO DECISIONS THAT SHAPE EVERYTHING ELSE:
+1. The seam is Sanad's own `complete(system, user) -> str`, NOT
+   langchain's `BaseChatModel`. Passing the framework object through
+   would allow `with_structured_output` for the verdict, which is more
+   reliable against a real cloud model AND untestable under this
+   project's own rule -- docs/phase2/CLAUDE.md requires a scripted fake
+   with no API keys, and langchain's fakes cannot serve structured
+   output (`bind_tools` raises `NotImplementedError` at
+   `langchain_core/language_models/chat_models.py:2510`, read from the
+   installed package). A seam the mandated test double cannot satisfy is
+   a seam that gets tested by pretending.
+2. AN UNPARSEABLE GRADER REPLY RAISES. It is never counted as off-topic.
+   Those two outcomes are one keystroke apart in code and a world apart
+   for the reader: off-topic tells the user their documents do not cover
+   the question, and a model that answered gibberish has made no such
+   claim. The retry ceiling multiplies it -- three unparseable replies
+   would produce a refusal listing three searches, as if the corpus had
+   been examined three times.
+
+TWO DEFECTS FOUND BY RUNNING IT, neither visible to any test:
+- `OFF-TOPIC` with a hyphen raised, while the comment beside the pattern
+  claimed hyphens folded. A docstring describing behaviour the code does
+  not have is worse than none: it is the reason nobody re-reads the line.
+- THE INTEGRATION FIXTURE WAS TOO SMALL FOR ITS OWN PROPERTY. The HR
+  document produced ONE child chunk, so a search depth of 1 and a depth
+  of 3 both returned one hit and the test proving the operator's setting
+  governs proved nothing. Third time this project has shipped that exact
+  shape (ST-14, ST-16, here). The fixture is now a realistic three-article
+  extract and the fixture itself asserts it produces >= 3 children, so it
+  cannot silently shrink back.
+
+WHAT THIS STORY DOES NOT PROVE, and it is the honest limit: that a real
+language model grades French legal passages correctly. Nothing on this
+machine can -- no cloud key, no Ollama, see the blocker below. Everything
+under the agent IS real in the integration test: real embedded Qdrant,
+real chunking, real parent JSON, real hybrid search, the real three
+ports. Only the encoders and the chat model are faked, both for reasons
+already written down.
+
+Previous: ST-21 AGENT GRAPH SKELETON **MERGED as 24479ba** (PR #49, squash),
 2026-08-26, and re-verified on main after the merge rather than only on
 the branch.
 
@@ -761,15 +816,20 @@ in its own change.
    is two lines: drop the parameter and use `report.folder_path`.
 
 ## Next (ordered queue, top 3 only)
-0. ST-23 HYBRID RETRIEVAL + GRADER + REWORD CEILING (YL). The critical
-   path runs ST-21 -> ST-23 -> ST-24, and ST-21 was built to be filled
-   in: `agent/ports.py` names the three seams ST-23 owns (`retrieve`,
-   `grade`, `reword`) with their contracts, and the note on the retrieve
-   seam says where the Qdrant client must come from. Exit gate: retry
-   count never exceeds config, off-topic fixture triggers exactly one
-   reword. Read `agent/ports.py` first, not this file.
-1. ST-22 clarification + rewrite-and-split (YL), which fills the other
-   two seams and needs no new wiring.
+0. ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL (YL). The
+   critical path's next link, and after ST-23 only ONE seam stands
+   between the project and an end-to-end sourced answer: `write_answer`.
+   Everything it needs is already there -- the passages, the full parent
+   sections, the source list and the refusal path. It needs one registry
+   prompt and one port implementation. Exit gate: F-03/F-05 on fixtures;
+   an answer without sources cannot render as final, which
+   `Answer.__post_init__` already enforces structurally.
+1. ST-22 clarification + rewrite-and-split (YL), which fills the last
+   two seams (`clarify`, `rewrite`) and needs no new wiring.
+2. A MODEL ON THIS MACHINE, which is not a story but blocks proving any
+   of them for real -- see the blocker below. A Gemini key in `.env` or
+   Ollama with one 7B instruct model. Until then every agent claim is
+   fake-model-only, and Checkpoint C2 cannot happen.
 2. THE TWO OWED REVIEW PASSES, now both recorded rather than one: ST-12
    (1862a58, owner MB by agreement 2026-07-28) and ST-21 (24479ba,
    merged without the rule-5 partner review at the human's instruction).
