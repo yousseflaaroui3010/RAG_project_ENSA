@@ -52,6 +52,21 @@ class Settings(BaseSettings):
     retry_ceiling: int = 2
     # Retrieval depth: number of child chunks pulled per hybrid search.
     retrieval_depth_k: int = 5
+    # Mirrors docs/phase2/openapi.yaml AskRequest `question`
+    # (minLength/maxLength). Checked in agent/graph.py's `ask`, because
+    # ADR-13 has the UI calling the same service functions IN-PROCESS --
+    # so the HTTP layer's validation is not in that path and a question
+    # that never passes through a route is otherwise unchecked.
+    question_min_length: int = 1
+    question_max_length: int = 2000
+    # How many sub-queries architecture 5.2's "rewrite and split" may
+    # produce for one question. The retry ceiling bounds how many ROUNDS
+    # run; this bounds how wide a round is, and without it a misbehaving
+    # rewrite returning forty phrases costs (ceiling + 1) x 40 real model
+    # and store calls for one question -- each one also disclosed back to
+    # the user in an honest refusal (F-05). ST-22 owns the splitting and
+    # may tune this; it is a guard rail, not a target.
+    max_sub_queries: int = 5
 
     # --- Chunking (architecture §7.5) ---
     # Parents split on markdown headings H1-H3, merged below
