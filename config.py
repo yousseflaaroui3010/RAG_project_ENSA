@@ -29,7 +29,36 @@ class Settings(BaseSettings):
     # provider by changing these values, never by editing module code.
     model_mode: str = "cloud"
     # Cloud: any Gemini model available on the free tier (Google AI Studio).
-    chat_model_cloud: str = "gemini-2.0-flash"
+    #
+    # A PINNED MODEL NAME ROTS, and this one did. The default here was
+    # `gemini-2.0-flash` from 2026-07-20 until 2026-08-27, when the first
+    # real call ever made from this project came back
+    # `404 NOT_FOUND: This model models/gemini-2.0-flash is no longer
+    # available`. Nothing in the repo could have caught that: it was a
+    # correct value when it was written, no test invokes a real provider
+    # (docs/phase2/CLAUDE.md forbids keys in tests, rightly), and a dead
+    # model name is invisible to ruff, to pytest and to the typechecker.
+    # The only check that finds it is a live call. Re-verify this value
+    # whenever an agent story is picked up, not from memory.
+    #
+    # Pinned to a specific stable version rather than the moving
+    # `gemini-flash-latest` alias: the evaluation gate (G1-G3) compares
+    # scores across releases, and a model that changes underneath a
+    # threshold makes those numbers meaningless.
+    #
+    # WHY THIS ONE. It is the successor Google's own 404 names: "Please
+    # update your code to use models/gemini-3.6-flash". Following the
+    # vendor's stated migration path beats picking by taste, and the
+    # value was then verified by a live call rather than trusted. The
+    # account also offers 2.5-flash, 3.5-flash, 3.7-flash and lite
+    # variants, all free tier; 2.5 and 3.5 were both confirmed working
+    # too, so there is a fallback if this one is retired next.
+    #
+    # Which model FINALLY ships is still not settled here: that belongs
+    # to the golden-set evaluation (ST-32/ST-36), which compares them on
+    # real questions with real numbers. ADR-06 exists precisely so that
+    # choice stays one line in this file.
+    chat_model_cloud: str = "gemini-3.6-flash"
     # Local: any Ollama-served instruct model >= 7B (ADR-06 floor).
     chat_model_local: str = "mistral"
     # Gemini / Google AI Studio API key; read in cloud mode only.

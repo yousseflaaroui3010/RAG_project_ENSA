@@ -23,17 +23,31 @@ So the parse is generous about FORM and strict about MEANING. "relevant",
 forms are all read; anything that is not one of the two verdicts stops the
 answer with a named error.
 
-UNVERIFIED, and it stays that way until someone runs it against a real
-model: HOW OFTEN A REAL MODEL IS CHATTY. A reply like "RELEVANT because
-article 13 covers it" raises here rather than being read as RELEVANT,
-which is the strict reading of a prompt that says "reply with exactly one
-word". Accepting a leading verdict followed by prose would be more
-forgiving and is a one-line change -- but it is a guess until it is
-measured, and nothing on this machine can measure it: there is no cloud
-key and no Ollama (see the blocker in BUILD-STATE). Strict-and-loud was
-chosen over lenient-and-guessing because the failure is then a named
-error somebody reads, not a silent slide toward the refusal path. The
-task that settles it is the first real-model run.
+NO LONGER UNVERIFIED, as of 2026-08-27. This docstring used to say a real
+model's chattiness could not be measured here, because there was no cloud
+key and no Ollama. A key arrived, and the question was settled by running
+it rather than by reasoning about it.
+
+MEASURED: four live calls against Google AI Studio, two models
+(gemini-2.5-flash and gemini-3.5-flash), each graded one on-topic and one
+off-topic case. All four replies were EXACTLY the one word asked for --
+"RELEVANT" and "OFF_TOPIC", no prose, no punctuation, no preamble -- and
+all four verdicts were correct, including correctly rejecting a pump
+maintenance manual as off-topic for a labour-law question. Zero parse
+failures.
+
+So the strict parser costs nothing against a real model with this prompt,
+and the lenient alternative -- accepting a leading verdict followed by
+prose -- would have bought tolerance nobody needs while making a confused
+reply harder to notice. The decision stands, now on evidence.
+
+WHAT IS STILL UNVERIFIED, narrowed rather than closed: this was four
+calls on two models with one prompt and short passages. It says nothing
+about behaviour on a 4,000-character parent section, under load, or on
+the local Ollama path, which is still unreachable on this machine. If a
+real corpus run starts throwing GraderReplyError, the fix is a measured
+one -- read the raw replies first, then decide -- not a guess at the
+regex.
 """
 
 from __future__ import annotations

@@ -1,8 +1,23 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: **24479ba on main** -- ST-21 MERGED (PR #49, squash)
-on 2026-08-26. Updated at merge time, and the numbers below were taken
-AFTER the merge, on main, not copied from the branch.
+Last verified commit: **1ce0f65 on main**, 2026-08-27. Four PRs landed
+since the previous header and all four are merged: #49 (ST-21), #52
+(journal re-stamp), #53 (ST-23) and #54 (ignore the design reference).
+
+MEASURED ON MAIN AT 1ce0f65, all four gate.yml steps by hand, after the
+merges rather than before: `uv sync --frozen` clean (170 packages),
+`uv run ruff check .` exit 0, `uv run pytest` **451 passed / 2 skipped**,
+`gitleaks detect` exit 0 "no leaks found" (77 commits, 2.94 MB).
+
+ONE NUMBER TO DISTRUST IN THIS FILE, stated so nobody quotes it as a
+performance figure: the suite's WALL TIME swings wildly on this machine --
+90s, 181s, 260s, 308s and 504s were all observed for the same 451 tests
+in one day. That is machine load, not the code. The pass count is the
+signal; the seconds are noise.
+
+A LIVE MODEL CALL NOW WORKS from this machine (Gemini, cloud mode) and
+finding that out immediately exposed a dead pinned model name -- see the
+blockers section, which is the most important entry in this update.
 
 This is the first time this header has obeyed its own rule end to end.
 The rule, restated because it was written five staleness incidents ago:
@@ -139,7 +154,23 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-ST-23 HYBRID RETRIEVAL + RELEVANCE GRADER + REWORD, on branch
+THE ANSWERING HALF IS BUILT EXCEPT FOR ONE SEAM. ST-21 and ST-23 are both
+MERGED (24479ba and af14c4e). Of the eight ports `agent/ports.py` defines,
+four are filled and real: `retrieve`, `grade`, `reword` (ST-23) and
+`fetch_parents` (ST-21). Four remain stubbed, and only ONE of them stands
+between this project and an end-to-end sourced answer: `write_answer`,
+which is ST-24. The other three -- `summarize`, `clarify`, `rewrite` --
+are ST-22 and ST-25 and are not on the critical path.
+
+THE UI DESIGN ARRIVED 2026-08-27, as `designrag-main/` -- a generated
+React + Vite + Tailwind prototype of all three screens. It is GITIGNORED
+(PR #54) and is a picture of the UI, not the UI: CR-02 puts the interface
+on server-rendered Jinja templates and ADR-10 rules out a JS toolchain, so
+nothing under its `src/` is ever copied. ST-27 and ST-28 read it the way
+you would read a Figma file. Reviewed against the signed UX spec; findings
+in their own section below.
+
+Previous: ST-23 HYBRID RETRIEVAL + RELEVANCE GRADER + REWORD, on branch
 `feat/S2-ST-23-hybrid-retrieval-grader`, gate green by hand, NOT merged
 and NOT reviewed. 451 passed / 2 skipped, up from 404. 15 mutations, all
 15 killed.
@@ -563,16 +594,23 @@ here because the second bullet is what the story turned out to be about:
   config.py finds nothing) -- but every UI story is now built on a
   different base than the original BUILD-PLAN assumed. Read docs/journal/CR-02.md
   before starting one.
-- What does NOT exist yet: any UI, any retrieval, any vector store, any
-  sync engine, and `app.py` does not exist so Sanad cannot be launched.
-  Four ingestion/indexing stages now exist and NONE of them are wired to
+- STALE AS WRITTEN, corrected 2026-08-27 rather than deleted, because the
+  correction is the useful part: this bullet claimed "what does NOT exist
+  yet: any UI, any retrieval, any vector store, any sync engine". Three
+  of those four are now false. The vector store landed with ST-16
+  (52ee47b), the sync engine with ST-17 (0210408), and retrieval with
+  ST-23 (af14c4e). Only the UI is still absent, and `app.py` still does
+  not exist, so Sanad still cannot be launched -- that is ST-27, ST-28
+  and ST-51.
+  A "what does not exist" list is the fastest-rotting sentence a journal
+  can contain, because every story is an attempt to falsify one of its
+  entries. If another one is written, date it and expect to revisit it.
+  The original text, kept because its REASON still explains the design:
+  "Four ingestion/indexing stages now exist and NONE of them are wired to
   each other: ST-12 decides what needs ingesting, ST-13 converts it,
   ST-14 splits it, ST-15 embeds the children -- and nothing calls any of
   them until ST-17. That is deliberate and is what has kept each one
-  unit-testable with no database, no vector store in existence.
-  `chunking.py` writes no parent JSON and no vector, `embeddings.py`
-  writes nothing anywhere: §7.5's parent store and the Qdrant write are
-  both ST-16.
+  unit-testable with no database, no vector store in existence."
 - FIXED 2026-08-09, was the sharpest thing the rubric review found:
   `chunk_document` was NOT idempotent. Parent ids came from
   `repo.new_id()`, so the same document chunked twice yielded a disjoint
@@ -815,21 +853,69 @@ in its own change.
    by hand. Harmless today (same row, same process, one read apart). Fix
    is two lines: drop the parameter and use `report.folder_path`.
 
+## UI DESIGN REVIEW -- `designrag-main/` vs the signed UX spec (2026-08-27)
+Read before starting ST-27 or ST-28. The design is a good base and got
+most of the hard parts right; five things drifted from UX-01 v1.0 and one
+of them is a real accessibility failure, not a preference.
+
+WHAT IT GOT RIGHT, and it is more than a generator usually manages: all
+four message variants (user, answer, refusal, clarification), all six
+sync statuses, all three focus-trapping overlays (passage viewer, delete
+confirm, create/rename), and the awkward states most mockups skip --
+interrupted answers, partial reports, the blocked second sync, the
+over-capacity warning, the missing folder. It has `aria-live` regions and
+real `focus-visible` rings.
+
+FIVE DRIFTS. The first is MEASURED, not an opinion:
+1. **`border-strong` fails its contrast floor in BOTH themes.** The
+   design dropped the spec's palette for Tailwind defaults. Mostly
+   harmless -- text, muted, accent and focus all still clear their floors
+   -- except `border-strong`, which UX-01 section 3.4 says must clear
+   **3:1** because it is the only thing identifying a control boundary.
+   Computed, not estimated: **1.48:1 light** (#cbd5e1 on #ffffff) and
+   **1.88:1 dark** (#334155 on #090d16). Both fail. That breaks UX-01
+   acceptance criterion 10, and it is precisely the trap section 3.4
+   names: "getting this backwards is the usual way an interface fails
+   1.4.11 while looking fine". The spec's own values pass: #6E7681 gives
+   4.59 light and 3.94 dark.
+2. **It invented two screens**: `ScreenId` includes `analytics` and
+   `settings`. UX-01 section 13 rules out an analytics screen BY NAME,
+   and the inventory is three screens.
+3. **An avatar component**, imported into the chat screen. Section 13:
+   "no multi-user presence, avatars, or account UI" -- V1 is single-user.
+4. **No skip-to-content link.** Section 4 makes it the first focusable
+   element on the page. Not found by two greps.
+5. **No reduced-motion handling** (acceptance criterion 12), and no
+   768px/1024px behaviour, so the desktop-only notice and the stacking
+   source rail do not exist yet.
+Also cosmetic but worth fixing at the same time: it uses a system font
+stack rather than the humanist-sans + monospace pairing section 3.3
+requires, and Tailwind's 16px body rather than the spec's 15px scale.
+
+NONE of this blocks ST-27/ST-28 -- they are fixes to a reference, not to
+shipped code. Fix them in the design, or accept each one in writing.
+
 ## Next (ordered queue, top 3 only)
 0. ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL (YL). The
-   critical path's next link, and after ST-23 only ONE seam stands
-   between the project and an end-to-end sourced answer: `write_answer`.
-   Everything it needs is already there -- the passages, the full parent
-   sections, the source list and the refusal path. It needs one registry
-   prompt and one port implementation. Exit gate: F-03/F-05 on fixtures;
-   an answer without sources cannot render as final, which
-   `Answer.__post_init__` already enforces structurally.
-1. ST-22 clarification + rewrite-and-split (YL), which fills the last
-   two seams (`clarify`, `rewrite`) and needs no new wiring.
-2. A MODEL ON THIS MACHINE, which is not a story but blocks proving any
-   of them for real -- see the blocker below. A Gemini key in `.env` or
-   Ollama with one 7B instruct model. Until then every agent claim is
-   fake-model-only, and Checkpoint C2 cannot happen.
+   critical path's next link, and after ST-23 exactly ONE seam stands
+   between this project and an end-to-end sourced answer: `write_answer`.
+   Everything it needs already exists -- the passages, the full parent
+   sections, the source list, the refusal path, a working chat model and
+   a prompt registry with two entries to copy the shape from. It needs
+   one `prompts/answer-writer/PROMPT.md` and one port implementation in
+   `agent/answering.py`. Exit gate: F-03/F-05 on fixtures; an answer
+   without sources cannot render as final, which `Answer.__post_init__`
+   already enforces structurally, so that half is done.
+   AND IT IS NOW PROVABLE FOR REAL, which ST-23 was not: cloud mode
+   works, so ST-24 can be exercised against a live model instead of only
+   a scripted fake. Do both -- the fake in the suite, the live call by
+   hand -- because the live call is what found the dead model name.
+1. ST-22 clarification + rewrite-and-split (YL), which fills the last two
+   seams (`clarify`, `rewrite`) and needs no new wiring.
+2. ST-27 / ST-28, the two UI screens, now that a design exists. Read the
+   UI DESIGN REVIEW section above FIRST -- it lists five drifts from the
+   signed UX spec, one of which is a measured contrast failure. And read
+   `agent/ports.py` before assuming what the UI can call.
 2. THE TWO OWED REVIEW PASSES, now both recorded rather than one: ST-12
    (1862a58, owner MB by agreement 2026-07-28) and ST-21 (24479ba,
    merged without the rule-5 partner review at the human's instruction).
@@ -991,8 +1077,47 @@ their own `chore/` branch, now together with 8.
 
 ## Blockers / waiting on human
 
-- NO MODEL OF ANY KIND IS REACHABLE ON THIS MACHINE, and it blocks more
-  than one story. Found 2026-08-26 while starting ST-23, by checking
+- HALF CLOSED 2026-08-27, and closing it found a defect nothing else
+  could have. A Gemini key now exists in a local `.env` and CLOUD MODE
+  WORKS -- but only after a fix, because the first real call this project
+  has ever made came back:
+      404 NOT_FOUND: This model models/gemini-2.0-flash is no longer
+      available. Please update your code to use models/gemini-3.6-flash
+  THE PINNED MODEL NAME HAD BEEN RETIRED BY GOOGLE. It was correct when
+  ST-02 wrote it on 2026-07-20 and dead by the time anything called it.
+  Nothing in the repo could have caught that: ruff cannot, pytest cannot
+  (docs/phase2/CLAUDE.md rightly forbids API keys in tests, so no test
+  invokes a real provider), and the typechecker sees a valid string. The
+  only check that finds a dead model name is a live call. That is the
+  "verify, never remember" rule paying for itself, and it is now written
+  into config.py beside the value so the next reader re-checks it.
+  FIXED: `chat_model_cloud` is now `gemini-3.6-flash`, which is the
+  successor Google's own error names, verified by a live call rather than
+  trusted. 2.5-flash and 3.5-flash were also confirmed working, so there
+  is a fallback if this one is retired next.
+  AND THE SAME CALL SETTLED AN OPEN QUESTION ST-23 HAD LABELLED
+  UNVERIFIED: whether a real model is chatty enough to break the grader's
+  strict one-word parse. It is not. Four live calls across two models,
+  each grading one on-topic and one off-topic case, returned EXACTLY
+  "RELEVANT" or "OFF_TOPIC" -- no prose, no punctuation, no preamble --
+  and all four verdicts were correct, including correctly rejecting a
+  pump-maintenance manual as off-topic for a labour-law question. Zero
+  parse failures. The strict parser stands, now on evidence.
+  STILL OPEN, and narrowed rather than hand-waved:
+    * `ollama` is still not installed and nothing listens on
+      127.0.0.1:11434 (a real socket connect, not a guess), so ADR-06's
+      strict_local mode remains unexercised and risk R4's offline demo
+      fallback is still unproven.
+    * The four calls used short passages and one prompt. Nothing is known
+      about behaviour on a 4,000-character parent section or under load.
+    * BUILD-PLAN's CHECKPOINT C2 is now REACHABLE but not reached: it
+      needs ST-24's answer node and ST-07's real corpus, neither of which
+      exists.
+  Owner: YL. Raised 2026-08-26, half closed 2026-08-27.
+
+- WAS, and kept because the reasoning is still the record of how it was
+  found: NO MODEL OF ANY KIND IS REACHABLE ON THIS MACHINE, and it blocks
+  more than one story. Found 2026-08-26 while starting ST-23, by checking
   rather than by assuming:
     * `cloud_api_key` is EMPTY and there is no `.env` file at all (only
       `.env.example`), so ADR-06's cloud mode cannot make a call. Note

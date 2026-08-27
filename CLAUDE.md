@@ -65,11 +65,17 @@ Rules for the block, learned the hard way on this project:
 
 ## Start here: query the graph before you read files
 
-This repo is indexed in codebase-memory (1,209 nodes / 4,781 edges as of
-2026-08-26, every source file covered, 0 skipped). **Structure questions
-go to the graph first, not to Read/Grep/Glob.** Mostly-flat repo, ~5,000
-lines across 9 root modules plus `agent/` and `db/`: reading three files
-to answer "who calls X" costs more tokens than the whole graph query does.
+This repo is indexed in codebase-memory, every source file covered, 0
+skipped. **Structure questions go to the graph first, not to
+Read/Grep/Glob.** Mostly-flat repo: 9 root modules plus the `agent/` and
+`db/` packages. Reading three files to answer "who calls X" costs more
+tokens than the whole graph query does.
+
+**No node count is written here on purpose.** It was quoted twice and
+went stale twice within two days (892 -> 1,209 -> 1,350 as stories
+landed), which trains a reader to distrust the whole section. Run
+`index_status` if you need the number; it is one call and it is never
+wrong.
 
 Project name for every call, and copy it exactly:
 
