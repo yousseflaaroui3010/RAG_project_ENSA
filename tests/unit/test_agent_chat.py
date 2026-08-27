@@ -5,15 +5,18 @@ Cloud-key mode uses the team's API key ... strict-local mode runs a local
 model through the same interface"), and docs/phase2/CLAUDE.md's hard rule
 that no test carries an API key.
 
-NOTHING HERE INVOKES A MODEL. Every test asserts on the object that was
-BUILT -- its class and the model name it was given -- and stops there.
-That is not a limitation being worked around; it is the only honest thing
-a test can do when the machine it runs on has no key and no Ollama, and it
-is what keeps the suite runnable in CI where ADR-12 forbids keys outright.
-What these tests can prove is that the config value selects the right
-provider and that a misconfiguration fails with a sentence a human can
-act on. What they cannot prove is that either provider answers, and
-BUILD-STATE says so in the same words.
+NOTHING HERE INVOKES A MODEL, and that stays true even though a cloud key
+now exists on the build machine. ADR-12 forbids keys in CI outright, so a
+test that called a provider would pass on one laptop and fail in the gate
+-- which is worse than not testing it. Every test asserts on the object
+that was BUILT (its class, and the model name it was given) and stops.
+
+WHAT THESE TESTS PROVE: the config value selects the right provider, and
+a misconfiguration fails with a sentence a human can act on.
+WHAT THEY CANNOT: that the provider answers. That was proven separately,
+by hand, on 2026-08-27 -- and it immediately found what no test here
+could, because the fault was not in the code: the pinned model name had
+been RETIRED by Google, and every call returned 404. See config.py.
 """
 
 from __future__ import annotations
@@ -47,7 +50,7 @@ def test_cloud_mode_builds_a_google_ai_studio_model_not_a_vertex_one(monkeypatch
     silently pointing at Vertex."""
     _with_settings(
         monkeypatch, model_mode=CLOUD, cloud_api_key="not-a-real-key",
-        chat_model_cloud="gemini-2.0-flash",
+        chat_model_cloud="gemini-3.6-flash",
     )
     from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -55,7 +58,7 @@ def test_cloud_mode_builds_a_google_ai_studio_model_not_a_vertex_one(monkeypatch
 
     assert isinstance(chat, _LangChainChat)
     assert isinstance(chat._model, ChatGoogleGenerativeAI)
-    assert chat._model.model.endswith("gemini-2.0-flash")
+    assert chat._model.model.endswith("gemini-3.6-flash")
 
 
 def test_strict_local_mode_builds_an_ollama_model_at_the_configured_url(monkeypatch):
@@ -76,8 +79,9 @@ def test_strict_local_mode_builds_an_ollama_model_at_the_configured_url(monkeypa
 
 
 def test_cloud_mode_without_a_key_says_so_before_any_call_is_made(monkeypatch):
-    """The state this machine is actually in, and the default mode is
-    `cloud` -- so this is the out-of-the-box experience, not an edge case.
+    """The out-of-the-box experience, because `model_mode` defaults to
+    `cloud` and a fresh clone has no key -- not an edge case, the first
+    thing a new teammate hits.
 
     It fails at BUILD time with a sentence naming both ways out. The
     alternative is a provider's 401 arriving three nodes into an answer,
