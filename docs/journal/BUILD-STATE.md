@@ -1,13 +1,21 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: **1ce0f65 on main**, 2026-08-27. Four PRs landed
-since the previous header and all four are merged: #49 (ST-21), #52
-(journal re-stamp), #53 (ST-23) and #54 (ignore the design reference).
+Last verified commit: **c7c2085 on main**, 2026-08-27. Five PRs landed
+since the previous header and all five are merged: #49 (ST-21), #52
+(journal re-stamp), #53 (ST-23), #54 (ignore the design reference) and
+#55 (the retired cloud model name).
 
-MEASURED ON MAIN AT 1ce0f65, all four gate.yml steps by hand, after the
+MEASURED ON MAIN AT c7c2085, all four gate.yml steps by hand, after the
 merges rather than before: `uv sync --frozen` clean (170 packages),
-`uv run ruff check .` exit 0, `uv run pytest` **451 passed / 2 skipped**,
-`gitleaks detect` exit 0 "no leaks found" (77 commits, 2.94 MB).
+`uv run ruff check .` exit 0, `uv run pytest` **451 passed / 2 skipped**
+in 351s, `gitleaks detect` exit 0 "no leaks found" (2.98 MB scanned).
+
+HOW TO READ THIS HEADER, because the re-stamp rule chases its own tail
+otherwise: the commit named above is the one the GATE WAS MEASURED ON.
+The only commit that can come after it is the journal commit recording
+that measurement, which changes no code. If you find any OTHER commit on
+main above it, this header is stale -- re-measure, do not patch the
+number.
 
 ONE NUMBER TO DISTRUST IN THIS FILE, stated so nobody quotes it as a
 performance figure: the suite's WALL TIME swings wildly on this machine --
@@ -852,6 +860,51 @@ in its own change.
    another's files -- and passing `folder` separately re-opens that door
    by hand. Harmless today (same row, same process, one read apart). Fix
    is two lines: drop the parameter and use `report.folder_path`.
+
+## HANDOFF -- read this first, then stop reading (2026-08-27)
+This file is long and most of it is history. Everything a new session
+needs to START is in this section; the rest is evidence for claims made
+here, to be consulted when a specific claim matters.
+
+WHERE THE BUILD IS. Ingestion is finished and merged: change detection,
+conversion, chunking, embeddings, both derived stores, and the sync
+engine that wires them (ST-12 through ST-17). The answering half is
+built except for one seam: the agent graph and its trace (ST-21) and
+hybrid retrieval, the relevance grader and the reword (ST-23) are merged.
+There is still NO UI and NO `app.py`, so Sanad cannot be launched.
+
+THE ONE SEAM. `agent/ports.py` defines eight callables. Four are real --
+`retrieve`, `grade`, `reword`, `fetch_parents`. Four are stubbed, and
+only ONE is on the critical path: **`write_answer`, which is ST-24**.
+Fill it and the product answers a real question end to end for the first
+time. Read `agent/ports.py` before anything else; it names each seam's
+owner and contract.
+
+WHAT IS TRUE ABOUT MODELS, as of 2026-08-27. Cloud mode WORKS: a Gemini
+key is in a local `.env` and `gemini-3.6-flash` answers. Strict-local
+does NOT: `ollama` is not installed and nothing listens on 11434. So a
+story can now be proven against a real model -- and should be, by hand,
+because that is exactly what found the retired model name that no test
+could see.
+
+THE FIVE THINGS MOST LIKELY TO WASTE A NEW SESSION'S TIME:
+1. Assuming the UI is React. It is not. `designrag-main/` is a gitignored
+   picture; CR-02 puts the interface on Jinja templates and ADR-10 rules
+   out a JS toolchain.
+2. Rebuilding the chat-model seam. `agent/chat.py` exists and works.
+3. Writing a prompt inline. `prompts/` is the registry and
+   `agent/prompts.py` is the loader; two entries already show the shape.
+4. Trusting a pinned external value. One was dead for five weeks and
+   nothing in the repo could see it.
+5. Editing another owner's modules. `change_detection.py`, `conversion.py`,
+   `chunking.py`, `parent_store.py`, `vector_store.py`, `sync.py` and
+   `embeddings.py` are MB's. Read and call them; do not change them.
+
+REVIEW DEBT, unchanged and still owed: ST-12 (1862a58, oldest), ST-21
+(24479ba) and ST-23 (af14c4e) all merged without the rule-5 partner
+review. On this project a post-green pass has found a real defect on five
+stories running, so the debt is real even where the evidence looked
+strong.
 
 ## UI DESIGN REVIEW -- `designrag-main/` vs the signed UX spec (2026-08-27)
 Read before starting ST-27 or ST-28. The design is a good base and got
