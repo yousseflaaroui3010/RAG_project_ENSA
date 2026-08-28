@@ -179,13 +179,28 @@ _LABEL = re.compile(
 # there is nothing to disambiguate -- the model is not writing a sentence
 # -- so whatever follows is an annotation on a verdict that stands.
 #
-# WHAT IS DELIBERATELY LEFT OUT, recorded rather than silently accepted:
-# `NOT COVERED - rien ici`, the SPACED spelling with a trailing note, is
-# read as an answer. It cannot be told apart from `Not covered: overtime
-# rates. Article 13 sets the trial period at three months.`, which is a
-# correct answer on one line, and losing that is the worse error. Both
-# directions are pinned by tests; see the DECISIONS row.
+# AND CASE IS THE THIRD DISCRIMINATOR, which an earlier version of this
+# comment wrongly said did not exist. It claimed `NOT COVERED - rien ici`
+# "cannot be told apart" from `Not covered: overtime rates. Article 13
+# sets the trial period at three months.` That was false, and a wrong
+# REASON in a comment is worse than a missing one: it hands the next
+# reader a constraint that was never real. They differ in case. A model
+# does not write an answer in capitals, so a SHOUTED `NOT COVERED` is a
+# verdict even with a note after it, while a sentence-case `Not covered`
+# is prose.
+#
+# The shouted form still has to be a SINGLE-LINE reply. That is what
+# separates `NOT COVERED - rien ici` (a decline) from a caps gap-heading
+# followed by a real answer on the next line, which stays an answer.
+#
+# STILL ACCEPTED AND NOT FIXED, so it is not rediscovered as a surprise:
+# `Not-covered by Article 13, but Article 14 sets it at trois mois.` --
+# the HYPHEN spelling in front of ordinary prose -- reads as a decline.
+# It is a strange thing to write (prose uses a space, and that case
+# answers correctly), and closing it would cost the three real misses
+# that dropping the token stop list fixed. See the DECISIONS row.
 _DECLINE_TOKEN = re.compile(r"^not[-_]covered\b", re.IGNORECASE)
+_DECLINE_SHOUTED = re.compile(r"^NOT COVERED\b")
 _DECLINE_PROSE = re.compile(r"^not\s+covered\s*[.!?]?$", re.IGNORECASE)
 
 
@@ -206,10 +221,12 @@ def _is_decline(reply: str) -> bool:
     first = _LABEL.sub("", lines[0])
     if _DECLINE_TOKEN.match(first):
         return True
-    # The prose spelling has to be the WHOLE reply, so a second line with
-    # anything in it settles the question: this is an answer whose author
-    # happened to open by naming what it could not cover.
-    return len(lines) == 1 and bool(_DECLINE_PROSE.match(first))
+    # Both SPACED spellings have to be a single-line reply. A second line
+    # with anything in it settles the question: this is an answer whose
+    # author happened to open by naming what it could not cover.
+    if len(lines) != 1:
+        return False
+    return bool(_DECLINE_SHOUTED.match(first) or _DECLINE_PROSE.match(first))
 
 
 def _section_block(
