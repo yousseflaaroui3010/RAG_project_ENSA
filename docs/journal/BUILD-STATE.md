@@ -163,9 +163,36 @@ copied.
 
 ## Now
 ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL, on branch
-`feat/S2-ST-24-answer-node`, gate green by hand, NOT MERGED. 490 passed /
-2 skipped, up from 451. ruff exit 0. 15 mutations injected one at a time,
-all 15 killed.
+`feat/S2-ST-24-answer-node`, the whole gate green by hand in gate.yml
+order, NOT MERGED. `uv sync --frozen` clean (170 packages), `uv run ruff
+check .` exit 0, `uv run pytest` **498 passed / 2 skipped** (451 on main),
+`gitleaks detect` exit 0 "no leaks found" (3.07 MB, 84 commits). 18
+mutations injected one at a time, all 18 killed.
+
+FOUR DECORATED DECLINES WERE BEING READ AS ANSWERS, and this is the entry
+to keep: found by RUNNING the parser over hand-built edge cases, not by
+reading it and not by any test. `NOT_COVERED —` with an em dash, a
+bulleted `- NOT_COVERED`, a heading `# NOT_COVERED`, and a byte-order-
+marked one all came back as prose. Every one fails in the SAME direction
+and it is the dangerous one: the model declined, the graph read an answer,
+and the user gets a bubble saying "NOT_COVERED" with source cards under it
+and `refusal` false -- which F-08's out-of-scope half scores as a
+non-refusal. An em dash is what a model writing fluent prose actually
+reaches for, so that row is tolerance the parser needs rather than
+padding. Sixth story running where the post-green pass found what the
+suite could not.
+
+AND ST-21'S OWN RECORDED LESSON WAS REPEATED INSIDE THIS STORY, written
+down rather than quietly fixed. The mutation harness restores with `git
+checkout --`, and it was run while that parser fix was still UNCOMMITTED,
+so the restore discarded it. ST-21 wrote the rule into this file in almost
+these words -- "commit the green checkpoint FIRST, then mutate; `git
+checkout --` is then the restore" -- and it was still repeated one story
+later. It was cheap only by luck: the test file sat outside the harness's
+restore list, so the suite went loudly red instead of quietly green. THE
+REAL FIX IS NOT MORE CARE: the harness should refuse to run against a
+dirty tree. That guard does not exist. Owner YL, with the `chore/` branch
+that also folds ST-23's fake-chat copies.
 
 **SANAD ANSWERS A REAL QUESTION END TO END FOR THE FIRST TIME.** Five of
 the eight ports in `agent/ports.py` are now real, and every port on the
