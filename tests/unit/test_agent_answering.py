@@ -188,6 +188,7 @@ def test_the_answer_comes_back_as_the_model_wrote_it():
         "NOT_COVERED — rien dans ces sections",
         "NOT_COVERED (the sections do not mention it)",
         "not covered.",
+        "NOT COVERED - rien dans ces sections",
         "NOT_COVERED les sections ne parlent pas de ce sujet.",
         "**NOT_COVERED** rien dans ces sections",
         "Reponse : NOT_COVERED",
@@ -203,6 +204,7 @@ def test_the_answer_comes_back_as_the_model_wrote_it():
         "spaced", "hyphenated", "labelled", "explained-on-a-second-line",
         "explained-after-a-hyphen", "explained-after-an-em-dash",
         "explained-in-brackets", "prose-spelling-alone-on-the-line",
+        "shouted-then-explained",
         "explained-after-a-space", "emphasised-then-explained",
         "french-label", "french-label-accented",
         "bulleted", "numbered", "as-a-heading", "quoted-block",
@@ -302,20 +304,34 @@ def test_a_gap_named_on_its_own_line_does_not_discard_the_answer_below_it(reply)
     assert _write(ScriptedChat(reply)) == reply
 
 
-def test_the_spaced_spelling_with_a_note_is_read_as_an_answer():
-    """A RECORDED BOUNDARY, not an oversight -- see the DECISIONS row.
+def test_a_shouted_decline_with_a_note_is_still_a_decline():
+    """CASE is the third discriminator, and this test exists because a
+    review pointed out that the previous version of this file DENIED that.
 
-    "NOT COVERED - rien ici" is almost certainly a decline, and it is read
-    as an answer anyway. It cannot be told apart from "Not covered:
-    overtime rates. Article 13 sets the trial period at three months.",
-    which is a correct answer on one line, and losing that is the worse
-    error of the two: the user is told their documents lack something they
-    have, and the answer is kept nowhere.
+    It asserted the opposite -- that "NOT COVERED - rien ici" had to be
+    read as an answer, because it "cannot be told apart" from "Not
+    covered: overtime rates. Article 13 sets the trial period at three
+    months." That reason was simply false. They differ in case, and a
+    model does not write an answer in capitals.
 
-    The underscore and hyphen spellings have no such ambiguity and DO
-    carry a trailing note. This test exists so the boundary is visible and
-    deliberate rather than discovered later as a bug."""
-    reply = "NOT COVERED - rien dans ces sections"
+    Worth keeping as a lesson about decision records rather than about
+    regexes: a wrong REASON is worse than a missing one, because the next
+    reader inherits a constraint that was never real."""
+    with pytest.raises(AnswerNotCoveredError):
+        _write(ScriptedChat("NOT COVERED - rien dans ces sections"))
+
+
+def test_a_shouted_gap_heading_above_a_real_answer_is_still_an_answer():
+    """The guard on the rule above, and the reason the shouted form must
+    still be a SINGLE-LINE reply.
+
+    Letting capitals alone decide would re-open the defect two reviews
+    have now closed: a model that heads its answer with the gap and then
+    answers underneath would lose everything below the heading."""
+    reply = (
+        "NOT COVERED: overtime rates.\n"
+        "Article 13 sets the trial period at three months."
+    )
 
     assert _write(ScriptedChat(reply)) == reply
 
