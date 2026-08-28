@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 
-from agent.ports import AgentPorts
+from agent.ports import AgentPorts, AnswerNotCoveredError
 from agent.state import AgentState, AnswerKind, Source
 from agent.trace import StepKind, TraceStep, rewords_in, searches_in
 from config import get_settings
@@ -50,17 +50,29 @@ REFUSE = "refuse"
 # The honest refusal (F-05, PRD section 11: "plain language, no jargon,
 # never fake success, always name a next step").
 #
-# ST-24 OWNS THE FINAL WORDING and this is not it -- it is the minimum
-# that is true. The searches themselves are not pasted in here: they are
-# on the answer object as `searched`, and UX spec 6.2 gives the refusal
-# variant its own design that "states what was searched". Putting the list
-# in the prose as well would be the same facts in two places, free to
-# disagree.
+# FINAL WORDING, settled by ST-24, which owns it. Four decisions in four
+# sentences, all of them checkable against a signed document:
+#
+# * "and I will not guess" is in there because UX spec 6.2 asks for the
+#   refusal to be "styled as a legitimate outcome, not a failure", and
+#   copy that only apologises undercuts a design that does not. This
+#   sentence says a choice was made, which is the product's whole claim.
+# * The searches are NOT pasted into the prose. They are on the answer
+#   object as `searched`, and 6.2 gives the refusal variant its own design
+#   that "states what was searched" -- the same facts in two places are
+#   two places free to disagree.
+# * All three next steps PRD F-05 names are offered (rephrase, add the
+#   document, switch workspace), because which one is right depends on
+#   something the product cannot see: whether the document exists at all.
+# * Interface copy is English for V1 (PRD section 5), even though the
+#   documents and the question are usually French. This is interface copy,
+#   not answer content; the answer itself follows the question's language,
+#   which is the answer-writer prompt's rule.
 REFUSAL_TEXT = (
-    "I could not find an answer to this question in this workspace. "
-    "The searches I ran are listed with this message. You could rephrase "
-    "the question, add the document that covers it to this workspace, or "
-    "switch to the workspace that does."
+    "I could not answer this from the documents in this workspace, and I "
+    "will not guess. The searches I ran are listed with this message. You "
+    "could rephrase the question, add the document that covers it to this "
+    "workspace, or switch to the workspace that holds it."
 )
 
 # The other refusal, and it is a different fact about the world: the
@@ -80,6 +92,12 @@ _AMBIGUOUS = "ambiguous, asking one clarifying question"
 _RELEVANT = "passages address the question"
 _OFF_TOPIC = "passages do not address the question"
 _NOTHING_FOUND = "no passages found"
+# The third way a question ends in a refusal, and the only one the trace
+# has to distinguish for a reader: the sections WERE read and none of them
+# answers the question. The user-facing text is the same as any other "not
+# covered here", because the user's next step is the same; the mechanism
+# differs and the trace is where a mechanism belongs (F-10).
+_NOT_IN_SECTIONS = "refused: sections read, none of them answers the question"
 
 
 def _spoken(value: str, port: str) -> str:
@@ -184,6 +202,23 @@ def _sources_for(passages: tuple[SearchHit, ...]) -> tuple[Source, ...]:
     for hit in passages:
         seen.setdefault(Source(hit.source_file, hit.section_label), None)
     return tuple(seen)
+
+
+def _refusal_draft(text: str, detail: str) -> dict:
+    """The state update that makes a question end in an honest refusal.
+
+    TWO NODES produce one: `refuse`, which is the routed end of the F-04
+    loop, and `answer`, when the writer reads the sections and declines
+    (F-05). One helper rather than two literals, because the pair that
+    matters is `answer_kind` and `answer_sources`: a refusal that kept a
+    source list would be an unsourced claim wearing citations, and the
+    second copy of that pairing is exactly where it would go wrong."""
+    return {
+        "answer_kind": AnswerKind.REFUSAL,
+        "answer_text": text,
+        "answer_sources": (),
+        "steps": [TraceStep(StepKind.REFUSAL, detail)],
+    }
 
 
 def make_summarize(ports: AgentPorts) -> Callable[[AgentState], dict]:
@@ -378,15 +413,38 @@ def make_answer(ports: AgentPorts) -> Callable[[AgentState], dict]:
     The sources come from the passages the graph retrieved, not from the
     model's output. F-03 makes the source line the product's contract with
     the user; a citation the model composed could name a file that was
-    never searched."""
+    never searched.
+
+    ONE TUPLE DOES BOTH JOBS, and that is the point of this node. `cited`
+    is the passages whose section the store could actually produce, and it
+    is BOTH what the writer is shown AND what the sources are built from.
+    An earlier version passed every passage to the writer and cited every
+    passage, which was right whenever box P loaded everything and quietly
+    wrong the moment it did not: "loaded 4 of 5" answered from four
+    sections and printed five source cards, so one card pointed at a
+    document whose text nothing had read. That is the same defect the floor
+    at zero already refuses, surviving in the partial case -- and it could
+    not be fixed by filtering in two places, because two filters agreeing
+    is a convention and one filter is a fact.
+
+    THE DECLINE (F-05). `write_answer` may raise `AnswerNotCoveredError`:
+    the sections were read and they do not answer the question. Writing
+    prose that says so instead would produce an `Answer` of kind `answer`,
+    with `refusal` false and source cards attached, whose text refuses --
+    which the evaluation's out-of-scope half would score as a non-refusal
+    and a reader would have no way to tell from a real answer."""
 
     def answer(state: AgentState) -> dict:
-        passages = state["passages"]
-        text = _spoken(
-            ports.write_answer(state["question"], passages, state["parents"]),
-            "write_answer",
-        )
-        sources = _sources_for(passages)
+        parents = state["parents"]
+        cited = tuple(hit for hit in state["passages"] if hit.parent_id in parents)
+        try:
+            text = _spoken(
+                ports.write_answer(state["question"], cited, parents),
+                "write_answer",
+            )
+        except AnswerNotCoveredError:
+            return _refusal_draft(REFUSAL_TEXT, _NOT_IN_SECTIONS)
+        sources = _sources_for(cited)
         return {
             "answer_kind": AnswerKind.ANSWER,
             "answer_text": text,
@@ -407,17 +465,11 @@ def make_refuse(_ports: AgentPorts) -> Callable[[AgentState], dict]:
     def refuse(state: AgentState) -> dict:
         searched = len(searches_in(state["steps"]))
         unreadable = state["parents_unreadable"]
-        detail = (
-            "refused: passages found, no section readable"
-            if unreadable
-            else f"refused after {searched} search(es)"
-        )
-        return {
-            "answer_kind": AnswerKind.REFUSAL,
-            "answer_text": REFUSAL_TEXT_UNREADABLE if unreadable else REFUSAL_TEXT,
-            "answer_sources": (),
-            "steps": [TraceStep(StepKind.REFUSAL, detail)],
-        }
+        if unreadable:
+            return _refusal_draft(
+                REFUSAL_TEXT_UNREADABLE, "refused: passages found, no section readable"
+            )
+        return _refusal_draft(REFUSAL_TEXT, f"refused after {searched} search(es)")
 
     return refuse
 

@@ -28,7 +28,7 @@ import pytest
 
 import agent.nodes
 from agent.graph import ask
-from agent.ports import AgentPorts
+from agent.ports import AgentPorts, AnswerNotCoveredError
 from agent.state import AnswerKind, Turn
 from agent.trace import StepKind
 from config import get_settings
@@ -633,6 +633,135 @@ def test_some_sections_readable_still_answers():
     )
 
     assert answer.kind is AnswerKind.ANSWER
+
+
+def test_only_the_sections_that_could_be_read_are_cited():
+    """ST-24's source contract, in the partial case that used to break it.
+
+    "loaded 1 of 2" answered from ONE section and printed TWO source cards,
+    so one card pointed at a document whose text nothing had read -- the
+    same defect the floor at zero refuses, surviving whenever box P loaded
+    some but not all.
+
+    THE SECOND HIT IS A DIFFERENT FILE ON PURPOSE. With `dataclasses.
+    replace(HIT, parent_id=...)` alone it keeps the same file and label, so
+    `_sources_for` collapses the two into one `Source` and the narrowed and
+    un-narrowed lists come out IDENTICAL -- the "keyed so duplicates
+    collapse" shape, and the assertion could not fail however the code
+    behaved."""
+    unreadable = dataclasses.replace(
+        HIT, parent_id="p-2", source_file="guide-cnss.docx", section_label=None
+    )
+
+    answer = _ask(
+        ports=_ports(
+            retrieve=lambda ws, query: (HIT, unreadable),
+            fetch_parents=lambda ws, ids: {"p-1": PARENT_TEXT},
+        )
+    )
+
+    assert answer.kind is AnswerKind.ANSWER
+    assert [source.file_name for source in answer.sources] == ["code-du-travail.pdf"]
+
+
+def test_the_writer_is_shown_exactly_the_passages_that_will_be_cited():
+    """One tuple does both jobs, asserted at the seam rather than inferred.
+
+    Two filters that agree is a convention; one tuple is a fact. This test
+    is what stops the two drifting apart later -- a writer shown a passage
+    it cannot read, or a citation for a passage it never saw."""
+    unreadable = dataclasses.replace(
+        HIT, parent_id="p-2", source_file="guide-cnss.docx", section_label=None
+    )
+    write = _Recorder(ANSWER_TEXT)
+
+    answer = _ask(
+        ports=_ports(
+            retrieve=lambda ws, query: (HIT, unreadable),
+            fetch_parents=lambda ws, ids: {"p-1": PARENT_TEXT},
+            write_answer=write,
+        )
+    )
+
+    shown = write.calls[0][1]
+    assert shown == (HIT,)
+    assert {source.file_name for source in answer.sources} == {
+        hit.source_file for hit in shown
+    }
+
+
+# --- 5.2 box A: the writer may decline (F-05) --------------------------
+
+
+def test_the_refusal_wording_carries_what_f_05_requires_of_it():
+    """The other refusal tests compare `answer.text` to `REFUSAL_TEXT`,
+    which pins WHICH constant was used and says nothing about what it
+    says -- both sides read the same string, so a copy edit that dropped
+    F-05's next step would leave every one of them green.
+
+    This pins the PROPERTIES the spec requires instead of the bytes, so
+    the wording stays free to be edited and cannot quietly stop meeting
+    F-05: "states what it looked for, and suggests a next step (rephrase,
+    add documents, switch workspace)"."""
+    text = agent.nodes.REFUSAL_TEXT.lower()
+
+    assert "searches" in text, "F-05: the refusal points at what was searched"
+    assert "rephrase" in text
+    assert "add the document" in text
+    assert "switch to the workspace" in text
+
+
+def test_a_writer_that_declines_refuses_instead_of_answering():
+    """The F-05 hole this closes: the grader judges 500-character CHILD
+    chunks and the writer reads the full sections, so a grader that was
+    generous once leaves the writer with two options -- decline, or invent.
+
+    Writing "I could not find this" as prose instead would produce an
+    answer-kind object with `refusal` false and source cards attached,
+    whose text refuses. The evaluation's out-of-scope half would score that
+    as a non-refusal, and a reader could not tell it from a real answer."""
+
+    def declines(question, passages, parents):
+        raise AnswerNotCoveredError("the sections do not answer it")
+
+    answer = _ask(ports=_ports(write_answer=declines))
+
+    assert answer.kind is AnswerKind.REFUSAL
+    assert answer.refusal is True
+    assert answer.sources == ()
+    assert answer.text == agent.nodes.REFUSAL_TEXT
+
+
+def test_a_declined_answer_still_discloses_what_was_searched():
+    """F-05's second clause: a refusal "states what it looked for". This
+    refusal is produced by a DIFFERENT node from the routed one, so the
+    disclosure is a property of the answer object rather than of the
+    refuse node remembering -- and this is the test that says so."""
+
+    def declines(question, passages, parents):
+        raise AnswerNotCoveredError("the sections do not answer it")
+
+    answer = _ask(ports=_ports(write_answer=declines))
+
+    assert answer.searched == (QUESTION,)
+
+
+def test_the_trace_says_the_sections_were_read_before_the_refusal():
+    """Two refusals reach the user with the same words, because the user's
+    next step is the same. They are NOT the same event, and the trace is
+    where a mechanism belongs (F-10): this one ran box P and read the
+    sections, so the route must show the parent fetch before the refusal
+    and the detail must not say "refused after 1 search(es)"."""
+
+    def declines(question, passages, parents):
+        raise AnswerNotCoveredError("the sections do not answer it")
+
+    answer = _ask(ports=_ports(write_answer=declines))
+
+    assert _kinds(answer)[-2:] == [StepKind.PARENTS, StepKind.REFUSAL]
+    assert answer.trace.steps[-1].detail == (
+        "refused: sections read, none of them answers the question"
+    )
 
 
 def test_a_refusal_never_fetches_a_parent(monkeypatch):
