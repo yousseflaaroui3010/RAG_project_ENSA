@@ -693,6 +693,24 @@ def test_the_writer_is_shown_exactly_the_passages_that_will_be_cited():
 # --- 5.2 box A: the writer may decline (F-05) --------------------------
 
 
+def test_the_refusal_wording_carries_what_f_05_requires_of_it():
+    """The other refusal tests compare `answer.text` to `REFUSAL_TEXT`,
+    which pins WHICH constant was used and says nothing about what it
+    says -- both sides read the same string, so a copy edit that dropped
+    F-05's next step would leave every one of them green.
+
+    This pins the PROPERTIES the spec requires instead of the bytes, so
+    the wording stays free to be edited and cannot quietly stop meeting
+    F-05: "states what it looked for, and suggests a next step (rephrase,
+    add documents, switch workspace)"."""
+    text = agent.nodes.REFUSAL_TEXT.lower()
+
+    assert "searches" in text, "F-05: the refusal points at what was searched"
+    assert "rephrase" in text
+    assert "add the document" in text
+    assert "switch to the workspace" in text
+
+
 def test_a_writer_that_declines_refuses_instead_of_answering():
     """The F-05 hole this closes: the grader judges 500-character CHILD
     chunks and the writer reads the full sections, so a grader that was

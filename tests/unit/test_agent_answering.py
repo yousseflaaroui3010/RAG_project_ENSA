@@ -231,6 +231,23 @@ def test_an_answer_beginning_with_those_two_words_in_a_sentence_still_answers():
     assert _write(ScriptedChat(reply)) == reply
 
 
+def test_a_partial_answer_that_names_what_it_could_not_cover_is_still_an_answer():
+    """Only the FIRST line decides, and this is the test that says so.
+
+    The prompt asks a model with partial coverage to "answer that part and
+    state plainly which part they do not cover", so a reply whose SECOND
+    line opens with "Not covered:" is exactly what a well-behaved model
+    produces. A parser that scanned every line would throw that whole
+    answer away and tell the user their workspace covers nothing -- and
+    every other test in this file passes with that bug in place."""
+    reply = (
+        "La periode d'essai est de trois mois pour les cadres.\n"
+        "Not covered: le cas des contrats saisonniers."
+    )
+
+    assert _write(ScriptedChat(reply)) == reply
+
+
 def test_the_decline_says_it_is_the_refusal_path_working_not_a_fault():
     """Whoever reads this error is looking at a log line, and the honest
     refusal is the product's headline feature rather than a breakage. An
