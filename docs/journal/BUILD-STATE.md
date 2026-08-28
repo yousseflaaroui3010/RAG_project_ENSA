@@ -1,14 +1,37 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: **c7c2085 on main**, 2026-08-27. Five PRs landed
-since the previous header and all five are merged: #49 (ST-21), #52
-(journal re-stamp), #53 (ST-23), #54 (ignore the design reference) and
-#55 (the retired cloud model name).
+Last verified commit: **2ebb74d on main**, 2026-08-28. Three PRs landed
+since the previous header and all three are merged: #58 (the dead model
+name in `.env.example`), #57 (ST-24) and #59 (the decline parser's case
+rule).
 
-MEASURED ON MAIN AT c7c2085, all four gate.yml steps by hand, after the
+MEASURED ON MAIN AT 2ebb74d, all four gate.yml steps by hand, after the
 merges rather than before: `uv sync --frozen` clean (170 packages),
-`uv run ruff check .` exit 0, `uv run pytest` **451 passed / 2 skipped**
-in 351s, `gitleaks detect` exit 0 "no leaks found" (2.98 MB scanned).
+`uv run ruff check .` exit 0, `uv run pytest` **522 passed / 2 skipped**
+in 190s, `gitleaks detect` exit 0 "no leaks found" (3.26 MB scanned).
+
+**SANAD NOW ANSWERS A REAL QUESTION END TO END, WITH SOURCES.** ST-24
+closed the last seam on the critical path. Five of the eight ports in
+`agent/ports.py` are real and every one on the ANSWER path is. There is
+still no UI and no `app.py`, so it cannot be LAUNCHED -- but the engine
+runs, in a test, with real retrieval, real sections and real citations.
+
+WHAT ST-24 COST, worth reading before the next agent story: the answer
+itself was the easy half. The decline parser -- the one word that lets
+the model say "these sections do not answer it" -- took THREE versions
+and TWO review passes, and the first two versions were both wrong in the
+direction that DISCARDS A CORRECT ANSWER. Neither was visible by reading
+the code. Both lived in the interaction between the code and a sentence
+the prompt itself instructs the model to write. 31 mutations were injected
+across the story and all 31 were killed, and the mutation battery did not
+find either defect: a battery is only as wide as the list you write for
+it, and neither defect was on the list.
+
+Previous header, kept because its own rule is the one this header obeys:
+Last verified commit c7c2085 on main, 2026-08-27, with five PRs merged
+(#49 ST-21, #52 journal re-stamp, #53 ST-23, #54 the design reference,
+#55 the retired cloud model name), `uv run pytest` **451 passed / 2
+skipped** in 351s and gitleaks clean over 2.98 MB.
 
 HOW TO READ THIS HEADER, because the re-stamp rule chases its own tail
 otherwise: the commit named above is the one the GATE WAS MEASURED ON.
@@ -162,12 +185,19 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL, on branch
-`feat/S2-ST-24-answer-node`, the whole gate green by hand in gate.yml
-order, NOT MERGED. `uv sync --frozen` clean (170 packages), `uv run ruff
-check .` exit 0, `uv run pytest` **520 passed / 2 skipped** (451 on main),
-`gitleaks detect` exit 0 "no leaks found" (3.12 MB). 29 mutations injected
-one at a time, all 29 killed.
+ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL **MERGED as c511bc8**
+(PR #57, squash), 2026-08-28, followed by `2ebb74d` (PR #59, the decline
+parser's case rule). The whole gate was run by hand in gate.yml order on
+the branch AND RE-RUN ON MAIN after each merge: `uv sync --frozen` clean
+(170 packages), `uv run ruff check .` exit 0, `uv run pytest` **522 passed
+/ 2 skipped** on main (451 at the branch point), `gitleaks detect` exit 0
+"no leaks found". CI `verify` green on both PRs. 31 mutations injected one
+at a time, all 31 killed.
+
+IT HAD BOTH REVIEW PASSES BEFORE MERGE, which no story on this project had
+managed before: a COLD verifier read and the RULE-5 pass. The rule-5 pass
+said DO NOT APPROVE, its blocking finding was fixed, and it then approved
+on re-review. ST-12, ST-21 and ST-23 are still owed theirs.
 
 TWO REVIEW PASSES RAN, and the second one is the entry worth keeping.
 
@@ -385,12 +415,13 @@ PARKED by this story, visible rather than fixed:
 - `_index` and the two-workspace corpus fixture are now a second copy
   across the two integration files. Second copy, allowed; a third earns a
   `tests/integration/conftest.py`.
-- **`.env.example` still names the DEAD model** `gemini-2.0-flash`. PR #55
-  fixed `config.py` and missed the example file, so a teammate copying it
-  gets a 404. There is an uncommitted one-line fix sitting in the working
-  tree; it is NOT in this branch, because a one-line drive-by inside a
-  feature squash is exactly what rule 2 keeps out. Needs its own `fix/`
-  branch. Owner YL.
+- ~~`.env.example` still names the DEAD model~~ **CLOSED, PR #58.** It
+  named `gemini-2.0-flash`, which PR #55 fixed in `config.py` and missed
+  here -- and because `.env` is read by pydantic-settings, a teammate
+  copying the example would have OVERRIDDEN the corrected default, so the
+  file whose job is to help someone start was the one thing that could
+  break them. Landed on its own one-line `fix/` branch rather than inside
+  ST-24's squash.
 - No composition root builds the real `AgentPorts` yet. ST-24 wires them
   in its integration test; a `build_ports()` cannot be honest until ST-22
   and ST-25 land, and one written now would either carry the dangerous
@@ -1147,11 +1178,49 @@ THE FIVE THINGS MOST LIKELY TO WASTE A NEW SESSION'S TIME:
    `chunking.py`, `parent_store.py`, `vector_store.py`, `sync.py` and
    `embeddings.py` are MB's. Read and call them; do not change them.
 
-REVIEW DEBT, unchanged and still owed: ST-12 (1862a58, oldest), ST-21
+REVIEW DEBT, still owed on three stories: ST-12 (1862a58, oldest), ST-21
 (24479ba) and ST-23 (af14c4e) all merged without the rule-5 partner
-review. On this project a post-green pass has found a real defect on five
-stories running, so the debt is real even where the evidence looked
-strong.
+review. ST-24 is NOT on this list -- it is the first story on this project
+to get both passes before merging, and that is exactly why the debt is
+worth paying: its rule-5 pass said DO NOT APPROVE and its blocking finding
+was a defect that discarded correct answers, invisible to a green suite
+and to a 29-mutation battery. Six stories running now.
+
+WHAT THAT REVIEW ACTUALLY COST, because "get a review" is cheap advice
+until you see the bill: two passes, three versions of one regex, and the
+second pass found the first pass's defect only partly fixed. Neither
+defect could be seen by reading the code -- both lived in the interaction
+between the parser and a sentence the prompt itself asks the model to
+write. If a future story has a model reply to interpret, budget for this.
+
+## WHAT A PLAN SURVEY FOUND, 2026-08-28 (three things nobody had flagged)
+Done by reading BUILD-PLAN against the repo rather than against this file,
+after ST-24 merged. All three are facts about the repo, checked, not
+inferred from the journal.
+
+1. **ST-05 WAS NEVER DONE.** There is no `Dockerfile` and no compose file
+   anywhere in the repo. Its exit gate is "`docker compose up` serves a UI
+   stub in the browser". Nothing in this journal says it is outstanding.
+2. **ST-03 IS NOT WHAT THIS FILE ASSUMED, and it is in better shape than
+   the last entry implied.** There is no `ci.yml` -- only `gate.yml` --
+   which is why an earlier entry said ST-03 was not a confirm-and-close.
+   But its exit gate is "a deliberately failing test blocks a PR", and
+   that IS demonstrated by history: of 71 `gate.yml` runs, **8 have
+   failed**, every one of them on a `pull_request` event, across four
+   branches (ST-02 x5, ST-12, and two chore branches). The gate is not a
+   check nobody has watched fail.
+3. **CORRECTION, and it is a correction of something this session almost
+   recorded as fact: `main` IS PROTECTED.** The legacy branch-protection
+   API returns 404 for this repo, which reads exactly like "no protection"
+   -- and that is what it was briefly reported as. The repo uses GitHub
+   RULESETS instead: `protect-main`, active, requiring a pull request,
+   requiring the `verify` status check with a strict up-to-date policy,
+   and blocking force-push, deletion and non-linear history. So ST-04 is
+   done, a red gate genuinely does block a merge, and direct pushes to
+   main are rejected by the platform rather than by good manners.
+   The lesson is the project's own absence rule, in a new place: an API
+   that 404s is UNVERIFIED, never a negative finding. Query the other
+   endpoint before concluding a guard is missing.
 
 ## UI DESIGN REVIEW -- `designrag-main/` vs the signed UX spec (2026-08-27)
 Read before starting ST-27 or ST-28. The design is a good base and got
@@ -1196,11 +1265,14 @@ NONE of this blocks ST-27/ST-28 -- they are fixes to a reference, not to
 shipped code. Fix them in the design, or accept each one in writing.
 
 ## Next (ordered queue, top 3 only)
-0. MERGE ST-24 (YL). Green by hand on `feat/S2-ST-24-answer-node`, PR #57,
-   CI green. BOTH review passes have now run -- a cold verifier read and
-   the rule-5 pass -- and every blocking and worth-fixing item from each is
-   closed. Owed before it lands: a re-stamp of this file's header taken at
-   merge time rather than now.
+0. ST-22 CLARIFICATION + REWRITE-AND-SPLIT (YL). The last two model seams,
+   `clarify` and `rewrite`, and the graph already routes to both -- so it
+   is two registry prompts plus one module, the same shape as ST-23 and
+   ST-24. Exit gate: an ambiguous fixture triggers exactly ONE clarifying
+   question, and the flow RESUMES after the reply. The resume half is the
+   part with a real design question in it: `make_clarify`'s docstring says
+   ST-22 resumes by asking again with the reply in hand, and nothing has
+   settled what the caller passes.
    Exit gate met and how: F-03 and F-05 both pass on real fixtures in
    `tests/integration/test_ask_sourced_answer.py` (8 tests, every port on
    the answer path real); "an answer without sources cannot render as
