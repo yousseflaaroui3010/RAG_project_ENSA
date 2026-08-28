@@ -162,8 +162,243 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-THE ANSWERING HALF IS BUILT EXCEPT FOR ONE SEAM. ST-21 and ST-23 are both
-MERGED (24479ba and af14c4e). Of the eight ports `agent/ports.py` defines,
+ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL, on branch
+`feat/S2-ST-24-answer-node`, the whole gate green by hand in gate.yml
+order, NOT MERGED. `uv sync --frozen` clean (170 packages), `uv run ruff
+check .` exit 0, `uv run pytest` **520 passed / 2 skipped** (451 on main),
+`gitleaks detect` exit 0 "no leaks found" (3.12 MB). 29 mutations injected
+one at a time, all 29 killed.
+
+TWO REVIEW PASSES RAN, and the second one is the entry worth keeping.
+
+THE RULE-5 PASS SAID **DO NOT APPROVE**, and it was right: its blocking
+finding was the COLD PASS'S DEFECT SURVIVING ONE ROUND OF FIXING. The
+first fix said the prose spelling of the decline must be the whole first
+LINE. Still too weak -- a model that names the gap on line one and answers
+on line two passes a first-line test and loses its answer:
+
+    Not covered.
+    Article 13 sets the trial period at three months.
+
+THE LESSON, which is bigger than the bug: two rounds of review on one
+regex, and each version looked obviously right until someone RAN it on a
+reply nobody had thought of. Neither defect was visible in the code. Both
+lived in the INTERACTION between the code and a sentence the prompt itself
+instructs the model to write. That is the argument for cold reading as a
+practice rather than a formality, and it is why the parser was finally
+rewritten on ONE PRINCIPLE instead of patched a fourth time: an underscore
+or a hyphen between the two words never occurs in prose, so those are
+verdicts and may carry a trailing note; a SPACE makes it ordinary English,
+and ordinary English must be the entire reply. Dropping the token side's
+stop list closed three further misses in the same change.
+
+THE DECLINE BRANCH NOW LOGS the discarded reply's first line, and that is
+the half to keep even if the parser changes again. It is the branch where
+a mistake is PERMANENTLY INVISIBLE: an answer read as a decline is thrown
+away, the user is told their documents do not cover the question, and
+nothing records what was lost. Two parser versions did exactly that and
+BOTH were found by a person reading code, never by the running product.
+
+RECORDED, NOT FIXED, with its own test so it stays deliberate:
+`NOT COVERED - rien ici` -- the SPACED spelling with a trailing note -- is
+read as an ANSWER. It cannot be told apart from `Not covered: overtime
+rates. Article 13 sets the trial period at three months.`, a correct
+answer on one line, and losing that is the worse error.
+
+THE COLD VERIFIER PASS, which ran first, found 2 blocking, 4 worth fixing
+and 6 notes; all six of the first two categories are closed. Its first
+blocking finding is the one the rule-5 pass then had to finish:
+
+**A CORRECT ANSWER WAS BEING THROWN AWAY, and the branch's own prompt is
+what caused it.** The prompt instructs the model: "if they answer part of
+the question, answer that part and state plainly which part they do not
+cover." A model obeying that in English, naming the gap FIRST, opens with
+the words "Not covered" -- and the decline parser read every one of these
+as a refusal and discarded the answer:
+
+    Not covered: overtime rates. Article 13 sets the trial period at
+    three months.
+    Not covered, but Article 13 sets it at three months.
+    Not covered - the sections list only the trial period.
+
+So the user's documents held the answer, the model wrote it, and the
+product replied that nothing was found and suggested they add the missing
+document. The text was kept nowhere and nothing was logged. Note what kind
+of defect this is: reading the parser in isolation could never surface it,
+because the bug only exists in the INTERACTION between the parser and a
+sentence the prompt itself asks for. Fixed by splitting the spellings --
+`NOT_COVERED` and `NOT-COVERED` are TOKENS (no sentence produces that
+underscore or hyphen by accident) and may carry a trailing note; "not
+covered" with a space is prose and must be the whole first line.
+
+**THE F-03 INTEGRATION TEST COULD NOT FAIL.** It asserted that the cited
+files were a subset of the files consulted -- in a workspace holding ONE
+document, where that is true whatever the code does. Its companion
+assertion, "every section label contains 'Article'", was true because
+every heading in that one document starts with the word. A second document
+is now indexed into the same workspace with a different file name and
+headings carrying no article number, and the test runs a CONTROL PROBE in
+both directions: the labour question must not cite the CNSS guide, AND the
+CNSS question must cite it -- without the second half, the first is
+equally true of an index that never worked. Fifth shipped instance of a
+fixture too small for its own property, and the first one caught by
+somebody other than the author.
+
+Also closed, all reproduced before being fixed:
+- a section that loads as BLANK counted as read. `parent_store` only
+  checks the `text` field is PRESENT, so a blank one was a successful
+  read: the trace said "loaded 2 of 2", the router saw a full mapping, the
+  model got a headed block with nothing under it, and the document was
+  still printed as a source card. Fixed in `agent/stores.py`, where
+  "loaded" is defined, so the trace, the router and the citation cannot
+  disagree.
+- an empty model completion raised `_spoken`'s "the write_answer port
+  returned a blank string" -- accurate about the shape, wrong about the
+  culprit, and it sent whoever read it into ST-24's module for a
+  provider's safety filter. Now `EmptyAnswerError`, and deliberately NOT a
+  decline: a refusal is a claim about the user's documents.
+- a literal byte-order mark sat inside a regex character class, invisible
+  in an editor and one reformat from being silently deleted.
+- the module docstring described the parser two revisions earlier and its
+  UNVERIFIED paragraph contradicted the live probe.
+- the decline drift check tied the CONSTANT to the prompt file while the
+  regex spelled the token a third time; it now also runs the real parser.
+
+FOUR DECORATED DECLINES WERE BEING READ AS ANSWERS, and this is the entry
+to keep: found by RUNNING the parser over hand-built edge cases, not by
+reading it and not by any test. `NOT_COVERED —` with an em dash, a
+bulleted `- NOT_COVERED`, a heading `# NOT_COVERED`, and a byte-order-
+marked one all came back as prose. Every one fails in the SAME direction
+and it is the dangerous one: the model declined, the graph read an answer,
+and the user gets a bubble saying "NOT_COVERED" with source cards under it
+and `refusal` false -- which F-08's out-of-scope half scores as a
+non-refusal. An em dash is what a model writing fluent prose actually
+reaches for, so that row is tolerance the parser needs rather than
+padding. Sixth story running where the post-green pass found what the
+suite could not.
+
+AND ST-21'S OWN RECORDED LESSON WAS REPEATED INSIDE THIS STORY, written
+down rather than quietly fixed. The mutation harness restores with `git
+checkout --`, and it was run while that parser fix was still UNCOMMITTED,
+so the restore discarded it. ST-21 wrote the rule into this file in almost
+these words -- "commit the green checkpoint FIRST, then mutate; `git
+checkout --` is then the restore" -- and it was still repeated one story
+later. It was cheap only by luck: the test file sat outside the harness's
+restore list, so the suite went loudly red instead of quietly green. THE
+REAL FIX IS NOT MORE CARE: the harness should refuse to run against a
+dirty tree. That guard does not exist. Owner YL, with the `chore/` branch
+that also folds ST-23's fake-chat copies.
+
+**SANAD ANSWERS A REAL QUESTION END TO END FOR THE FIRST TIME.** Five of
+the eight ports in `agent/ports.py` are now real, and every port on the
+ANSWER path is: `retrieve`, `grade`, `reword`, `fetch_parents` and
+`write_answer`. The three that remain stubbed -- `summarize`, `clarify`,
+`rewrite` -- are ST-25 and ST-22 and are not on the critical path.
+`tests/integration/test_ask_sourced_answer.py` is the first test in the
+project where nothing on the answer path is a stub: real embedded Qdrant,
+real chunking, real parent JSON on disk, real hybrid search, real
+answering. Only the two encoders and the chat model are faked, both for
+reasons already written down.
+
+THE TWO DECISIONS THAT SHAPE THIS STORY, both in DECISIONS:
+
+1. **ONE TUPLE DOES BOTH JOBS.** `make_answer` builds `cited` -- the
+   passages whose section box P could actually load -- and uses it BOTH as
+   what the writer is shown AND as what the source list is built from.
+   The previous arrangement showed the writer the loaded sections while
+   citing every passage, which was right whenever box P loaded everything
+   and wrong the moment it did not: "loaded 4 of 5" answered from four
+   sections and printed FIVE source cards, so one card pointed at a
+   document whose text nothing had read. That is the same defect the floor
+   at zero refuses, surviving in the partial case, and F-03 calls the
+   source line the product's contract with the user. Deliberately NOT
+   fixed by filtering in two places: two filters agreeing is a convention,
+   one tuple is a fact.
+2. **THE WRITER MAY DECLINE.** The grader (ST-23) judges 500-character
+   CHILD chunks; the writer reads the FULL sections. A grader that was
+   generous once leaves the writer exactly two moves -- decline, or invent
+   -- and inventing is the failure this product exists to demonstrate the
+   absence of. So the prompt licenses one word, `NOT_COVERED`, and
+   `AnswerNotCoveredError` routes it to the honest refusal. It is an
+   EXCEPTION rather than a `str | None` return, and that is the load-
+   bearing half: a port that forgets a `return` yields None, so under the
+   other design a plain coding mistake becomes a fluent, honest-LOOKING
+   refusal that lists the searches it ran. Raising cannot happen by
+   omission.
+
+PROVEN AGAINST THE REAL MODEL, which is the half no test in this repo can
+reach, and it is the reason to keep doing this. Five cases through the
+real `build_write_answer` and `build_grade` on live `gemini-3.6-flash`:
+French covered, English covered, two not-covered, one partly covered. **0
+unexpected outcomes.** Both not-covered cases came back `NOT_COVERED`,
+including a genuine near-miss -- "conge annuel paye" appears inside
+Article 52's anciennete counting rule, so a sloppy model had material to
+invent from. The English question was answered in English and the French
+ones in French. The partly-covered case answered the covered half and
+named the uncovered half in prose WITHOUT tripping the decline parser,
+which is the interaction no unit test covers. No bracketed reference
+numbers anywhere. The probe lives in the session scratchpad and is NOT
+committed: docs/phase2/CLAUDE.md forbids keys in tests, fixtures and CI.
+
+TWO TESTS WRITTEN BECAUSE THE MUTATION LIST WAS DRAWN UP BEFORE IT WAS
+RUN, and both rules were enforced by nothing until then:
+- **"only the FIRST line decides a decline"** had no test. Every decline
+  case put the token on line one, so a parser scanning every line passed
+  all of them -- while destroying exactly the partial answer the prompt
+  asks for, whose second line naturally opens "Not covered: ...". The
+  live probe produced that shape on its fifth case, so it is not
+  hypothetical.
+- **REFUSAL_TEXT's own content** had no test. The refusal tests compare
+  `answer.text` to `REFUSAL_TEXT`: both sides read the same constant, so
+  they pin WHICH constant was used and nothing about what it says, and a
+  copy edit dropping F-05's next step left every one of them green. That
+  is the self-referential shape from the prove-it skill, written by
+  someone who had just quoted that skill. The new test pins the three
+  next steps F-05 names, not the bytes, so the wording stays editable.
+
+ST-21 LEFT REFUSAL_TEXT'S FINAL WORDING TO THIS STORY and it is now
+settled. It says "and I will not guess", because UX spec 6.2 asks for the
+refusal to be "styled as a legitimate outcome, not a failure" and copy
+that only apologises undercuts a design that does not. The searches stay
+OFF the prose and on the answer object as `searched`; 6.2 gives the
+refusal variant its own design that states what was searched, and the same
+facts in two places are two places free to disagree. Interface copy is
+English (PRD section 5) even though the documents and the question are
+usually French -- the ANSWER follows the question's language, which is the
+prompt's rule and was verified live in both directions.
+
+A THIRD REFUSAL REASON EXISTS NOW and deliberately shares its words with
+the first: "the sections were read and none of them answers the question"
+renders as `REFUSAL_TEXT`, because the user's next step is identical.
+Only the trace detail separates them (ADR-09, F-10). Contrast the
+UNREADABLE-sections refusal, which keeps its own words because its next
+step genuinely differs: run a Sync.
+
+PARKED by this story, visible rather than fixed:
+- `tests/fake_chat.py` was extracted so ST-24 did not write the fourth and
+  fifth copies of the scripted fake. **ST-23's two copies are NOT
+  migrated** (`tests/unit/test_agent_grading.py`,
+  `tests/integration/test_ask_retry_loop.py`) -- rewriting another story's
+  tests inside this diff is the drive-by the scoped boy-scout rule keeps
+  out. Same shape as ST-23's own fake-encoders row, settled the same way.
+  Owner YL, its own one-file `chore/` branch.
+- `_index` and the two-workspace corpus fixture are now a second copy
+  across the two integration files. Second copy, allowed; a third earns a
+  `tests/integration/conftest.py`.
+- **`.env.example` still names the DEAD model** `gemini-2.0-flash`. PR #55
+  fixed `config.py` and missed the example file, so a teammate copying it
+  gets a 404. There is an uncommitted one-line fix sitting in the working
+  tree; it is NOT in this branch, because a one-line drive-by inside a
+  feature squash is exactly what rule 2 keeps out. Needs its own `fix/`
+  branch. Owner YL.
+- No composition root builds the real `AgentPorts` yet. ST-24 wires them
+  in its integration test; a `build_ports()` cannot be honest until ST-22
+  and ST-25 land, and one written now would either carry the dangerous
+  stubs `agent/ports.py` exists to forbid or be rewritten twice. ST-51.
+
+Previous: THE ANSWERING HALF IS BUILT EXCEPT FOR ONE SEAM. ST-21 and ST-23
+are both MERGED (24479ba and af14c4e). Of the eight ports
+`agent/ports.py` defines,
 four are filled and real: `retrieve`, `grade`, `reword` (ST-23) and
 `fetch_parents` (ST-21). Four remain stubbed, and only ONE of them stands
 between this project and an end-to-end sourced answer: `write_answer`,
@@ -866,19 +1101,30 @@ This file is long and most of it is history. Everything a new session
 needs to START is in this section; the rest is evidence for claims made
 here, to be consulted when a specific claim matters.
 
-WHERE THE BUILD IS. Ingestion is finished and merged: change detection,
-conversion, chunking, embeddings, both derived stores, and the sync
-engine that wires them (ST-12 through ST-17). The answering half is
-built except for one seam: the agent graph and its trace (ST-21) and
-hybrid retrieval, the relevance grader and the reword (ST-23) are merged.
-There is still NO UI and NO `app.py`, so Sanad cannot be launched.
+WHERE THE BUILD IS, updated 2026-08-28. Ingestion is finished and merged:
+change detection, conversion, chunking, embeddings, both derived stores,
+and the sync engine that wires them (ST-12 through ST-17). **The answering
+half is now complete on the critical path**: the agent graph and its trace
+(ST-21) and hybrid retrieval, the grader and the reword (ST-23) are
+merged, and the answer node with its source contract and honest refusal
+(ST-24) is green on `feat/S2-ST-24-answer-node`, NOT yet merged. There is
+still NO UI and NO `app.py`, so Sanad cannot be LAUNCHED -- but it does
+now answer a real question end to end, in a test.
 
-THE ONE SEAM. `agent/ports.py` defines eight callables. Four are real --
-`retrieve`, `grade`, `reword`, `fetch_parents`. Four are stubbed, and
-only ONE is on the critical path: **`write_answer`, which is ST-24**.
-Fill it and the product answers a real question end to end for the first
-time. Read `agent/ports.py` before anything else; it names each seam's
-owner and contract.
+THE SEAMS. `agent/ports.py` defines eight callables. FIVE are real --
+`retrieve`, `grade`, `reword`, `fetch_parents`, `write_answer` -- and
+every one of them is on the answer path. Three are stubbed and NONE is on
+the critical path: `clarify` and `rewrite` (ST-22) and `summarize`
+(ST-25). Read `agent/ports.py` before anything else; it names each seam's
+owner and contract, and it is the file that says why there are no
+defaults.
+
+CORRECTION TO THIS SECTION'S OWN PREVIOUS TEXT, kept rather than
+overwritten because the shape repeats: it said "four are real ... only ONE
+is on the critical path", which was true on 2026-08-27 and false the next
+day. A handoff section is the fastest-rotting prose in this file, because
+every story exists to falsify one of its sentences. Date any count written
+here and expect to revisit it.
 
 WHAT IS TRUE ABOUT MODELS, as of 2026-08-27. Cloud mode WORKS: a Gemini
 key is in a local `.env` and `gemini-3.6-flash` answers. Strict-local
@@ -893,7 +1139,8 @@ THE FIVE THINGS MOST LIKELY TO WASTE A NEW SESSION'S TIME:
    out a JS toolchain.
 2. Rebuilding the chat-model seam. `agent/chat.py` exists and works.
 3. Writing a prompt inline. `prompts/` is the registry and
-   `agent/prompts.py` is the loader; two entries already show the shape.
+   `agent/prompts.py` is the loader; three entries now show the shape
+   (`relevance-grader`, `query-reword`, `answer-writer`).
 4. Trusting a pinned external value. One was dead for five weeks and
    nothing in the repo could see it.
 5. Editing another owner's modules. `change_detection.py`, `conversion.py`,
@@ -949,22 +1196,21 @@ NONE of this blocks ST-27/ST-28 -- they are fixes to a reference, not to
 shipped code. Fix them in the design, or accept each one in writing.
 
 ## Next (ordered queue, top 3 only)
-0. ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL (YL). The
-   critical path's next link, and after ST-23 exactly ONE seam stands
-   between this project and an end-to-end sourced answer: `write_answer`.
-   Everything it needs already exists -- the passages, the full parent
-   sections, the source list, the refusal path, a working chat model and
-   a prompt registry with two entries to copy the shape from. It needs
-   one `prompts/answer-writer/PROMPT.md` and one port implementation in
-   `agent/answering.py`. Exit gate: F-03/F-05 on fixtures; an answer
-   without sources cannot render as final, which `Answer.__post_init__`
-   already enforces structurally, so that half is done.
-   AND IT IS NOW PROVABLE FOR REAL, which ST-23 was not: cloud mode
-   works, so ST-24 can be exercised against a live model instead of only
-   a scripted fake. Do both -- the fake in the suite, the live call by
-   hand -- because the live call is what found the dead model name.
+0. MERGE ST-24 (YL). Green by hand on `feat/S2-ST-24-answer-node`, PR #57,
+   CI green. BOTH review passes have now run -- a cold verifier read and
+   the rule-5 pass -- and every blocking and worth-fixing item from each is
+   closed. Owed before it lands: a re-stamp of this file's header taken at
+   merge time rather than now.
+   Exit gate met and how: F-03 and F-05 both pass on real fixtures in
+   `tests/integration/test_ask_sourced_answer.py` (8 tests, every port on
+   the answer path real); "an answer without sources cannot render as
+   final" is enforced structurally by `Answer.__post_init__` and pinned
+   end to end by the lost-section test, which shows the product citing
+   LESS rather than citing a document nothing read.
 1. ST-22 clarification + rewrite-and-split (YL), which fills the last two
-   seams (`clarify`, `rewrite`) and needs no new wiring.
+   seams (`clarify`, `rewrite`) and needs no new wiring. It is no longer
+   on the critical path -- ST-24 closed that -- but it is the smallest
+   remaining agent story and the graph already routes to it.
 2. ST-27 / ST-28, the two UI screens, now that a design exists. Read the
    UI DESIGN REVIEW section above FIRST -- it lists five drifts from the
    signed UX spec, one of which is a measured contrast failure. And read

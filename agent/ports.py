@@ -102,9 +102,45 @@ Reword = Callable[[str, tuple[str, ...], int], Sequence[str]]
 # index is visible instead of silently shrinking the context.
 FetchParents = Callable[[str, tuple[str, ...]], Mapping[str, str]]
 
+class AnswerNotCoveredError(Exception):
+    """The sections handed to `write_answer` do not answer the question.
+
+    Part of the PORT CONTRACT rather than of one implementation, which is
+    why it lives here: `agent/nodes.py` catches it to route the honest
+    refusal (F-05), and the graph must not have to import ST-24's module
+    to know what its own seam can do.
+
+    WHY THIS IS AN EXCEPTION AND NOT A RETURN VALUE, because the obvious
+    alternative -- widen the return to `str | None`, as `Clarify` already
+    does -- is a trap here. A port implementation that forgets a `return`
+    yields None, and under that design a plain coding mistake becomes a
+    fluent, honest-LOOKING refusal that lists the searches it ran. That is
+    the same failure `agent/grading.py` refuses for an unparseable verdict:
+    a fault in our code must never impersonate a claim about the user's
+    documents. Raising cannot happen by omission.
+
+    WHY THE SEAM NEEDS IT AT ALL. The grader (F-04) judges 500-character
+    CHILD chunks; the writer reads the full sections. A grader that was
+    generous once leaves the writer with exactly two options -- decline, or
+    invent -- and F-05's rule is that the product never fills a gap with
+    invented content. F-05 is also gated at 20 out of 20 on the out-of-
+    scope golden set, so one escape blocks a release."""
+
+
 # (question, passages, parent_texts) -> the answer text, written from
 # those sections only (F-03). Sources are attached by the graph, from the
 # same passages, so the model cannot invent a citation.
+#
+# `passages` is NARROWER than what retrieval found: the graph passes only
+# the hits whose section it could actually load, and builds the source list
+# from that same tuple. So "every source cited was in front of the model"
+# holds by construction rather than by both sides agreeing to filter the
+# same way. See `agent/nodes.py::make_answer`.
+#
+# Raises `AnswerNotCoveredError` when the sections do not answer the
+# question. Returning prose that says so would produce an `Answer` of kind
+# `answer`, with `refusal` false and source cards attached, whose text
+# refuses -- a refusal wearing an answer's clothes.
 WriteAnswer = Callable[[str, tuple[SearchHit, ...], Mapping[str, str]], str]
 
 

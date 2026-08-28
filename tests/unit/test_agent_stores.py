@@ -50,6 +50,40 @@ def test_the_full_section_comes_back_keyed_by_parent_id(tmp_path):
     assert texts == {"p-1": ARTICLE_13.text, "p-2": ARTICLE_14.text}
 
 
+def test_a_section_that_loads_with_no_text_is_left_out_like_a_missing_one(tmp_path):
+    """FOUND BY A COLD REVIEW of ST-24, and it is a hole in this module
+    rather than in the answer writer.
+
+    `parent_store` only checks that the `text` field is PRESENT, so a
+    parent JSON whose text is blank comes back as a SUCCESSFUL read. Every
+    count downstream then believes it: the trace says "loaded 2 of 2",
+    `route_after_parents` sees a full mapping and routes to the answer,
+    the model is handed a headed block with nothing under it, and the
+    document is still printed as a source card. That is a citation to text
+    nothing read -- the one thing F-03's source line promises cannot
+    happen, arriving through a file that merely looks fine.
+
+    Leaving it out puts the case back on machinery that already exists:
+    the shortfall shows in the trace, the citation goes with it, and zero
+    readable sections still routes to the Sync refusal.
+
+    The blank is written by EDITING THE FILE ON DISK rather than by
+    building a `Parent`, because that is how it actually happens -- a
+    truncated write or a half-synced file, not a caller passing "" in."""
+    import json
+
+    base = _store(tmp_path, ARTICLE_13, ARTICLE_14)
+    path = base / WORKSPACE / "p-1.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["text"] = "   \n "
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+    texts = parent_texts(WORKSPACE, ("p-1", "p-2"), base_path=base)
+
+    assert "p-1" not in texts
+    assert texts == {"p-2": ARTICLE_14.text}
+
+
 def test_the_same_id_twice_is_read_once(tmp_path, monkeypatch):
     """Four chunks of one article open, read and parse ONE file.
 
