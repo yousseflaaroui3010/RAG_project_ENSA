@@ -162,8 +162,121 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-THE ANSWERING HALF IS BUILT EXCEPT FOR ONE SEAM. ST-21 and ST-23 are both
-MERGED (24479ba and af14c4e). Of the eight ports `agent/ports.py` defines,
+ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL, on branch
+`feat/S2-ST-24-answer-node`, gate green by hand, NOT MERGED. 490 passed /
+2 skipped, up from 451. ruff exit 0. 15 mutations injected one at a time,
+all 15 killed.
+
+**SANAD ANSWERS A REAL QUESTION END TO END FOR THE FIRST TIME.** Five of
+the eight ports in `agent/ports.py` are now real, and every port on the
+ANSWER path is: `retrieve`, `grade`, `reword`, `fetch_parents` and
+`write_answer`. The three that remain stubbed -- `summarize`, `clarify`,
+`rewrite` -- are ST-25 and ST-22 and are not on the critical path.
+`tests/integration/test_ask_sourced_answer.py` is the first test in the
+project where nothing on the answer path is a stub: real embedded Qdrant,
+real chunking, real parent JSON on disk, real hybrid search, real
+answering. Only the two encoders and the chat model are faked, both for
+reasons already written down.
+
+THE TWO DECISIONS THAT SHAPE THIS STORY, both in DECISIONS:
+
+1. **ONE TUPLE DOES BOTH JOBS.** `make_answer` builds `cited` -- the
+   passages whose section box P could actually load -- and uses it BOTH as
+   what the writer is shown AND as what the source list is built from.
+   The previous arrangement showed the writer the loaded sections while
+   citing every passage, which was right whenever box P loaded everything
+   and wrong the moment it did not: "loaded 4 of 5" answered from four
+   sections and printed FIVE source cards, so one card pointed at a
+   document whose text nothing had read. That is the same defect the floor
+   at zero refuses, surviving in the partial case, and F-03 calls the
+   source line the product's contract with the user. Deliberately NOT
+   fixed by filtering in two places: two filters agreeing is a convention,
+   one tuple is a fact.
+2. **THE WRITER MAY DECLINE.** The grader (ST-23) judges 500-character
+   CHILD chunks; the writer reads the FULL sections. A grader that was
+   generous once leaves the writer exactly two moves -- decline, or invent
+   -- and inventing is the failure this product exists to demonstrate the
+   absence of. So the prompt licenses one word, `NOT_COVERED`, and
+   `AnswerNotCoveredError` routes it to the honest refusal. It is an
+   EXCEPTION rather than a `str | None` return, and that is the load-
+   bearing half: a port that forgets a `return` yields None, so under the
+   other design a plain coding mistake becomes a fluent, honest-LOOKING
+   refusal that lists the searches it ran. Raising cannot happen by
+   omission.
+
+PROVEN AGAINST THE REAL MODEL, which is the half no test in this repo can
+reach, and it is the reason to keep doing this. Five cases through the
+real `build_write_answer` and `build_grade` on live `gemini-3.6-flash`:
+French covered, English covered, two not-covered, one partly covered. **0
+unexpected outcomes.** Both not-covered cases came back `NOT_COVERED`,
+including a genuine near-miss -- "conge annuel paye" appears inside
+Article 52's anciennete counting rule, so a sloppy model had material to
+invent from. The English question was answered in English and the French
+ones in French. The partly-covered case answered the covered half and
+named the uncovered half in prose WITHOUT tripping the decline parser,
+which is the interaction no unit test covers. No bracketed reference
+numbers anywhere. The probe lives in the session scratchpad and is NOT
+committed: docs/phase2/CLAUDE.md forbids keys in tests, fixtures and CI.
+
+TWO TESTS WRITTEN BECAUSE THE MUTATION LIST WAS DRAWN UP BEFORE IT WAS
+RUN, and both rules were enforced by nothing until then:
+- **"only the FIRST line decides a decline"** had no test. Every decline
+  case put the token on line one, so a parser scanning every line passed
+  all of them -- while destroying exactly the partial answer the prompt
+  asks for, whose second line naturally opens "Not covered: ...". The
+  live probe produced that shape on its fifth case, so it is not
+  hypothetical.
+- **REFUSAL_TEXT's own content** had no test. The refusal tests compare
+  `answer.text` to `REFUSAL_TEXT`: both sides read the same constant, so
+  they pin WHICH constant was used and nothing about what it says, and a
+  copy edit dropping F-05's next step left every one of them green. That
+  is the self-referential shape from the prove-it skill, written by
+  someone who had just quoted that skill. The new test pins the three
+  next steps F-05 names, not the bytes, so the wording stays editable.
+
+ST-21 LEFT REFUSAL_TEXT'S FINAL WORDING TO THIS STORY and it is now
+settled. It says "and I will not guess", because UX spec 6.2 asks for the
+refusal to be "styled as a legitimate outcome, not a failure" and copy
+that only apologises undercuts a design that does not. The searches stay
+OFF the prose and on the answer object as `searched`; 6.2 gives the
+refusal variant its own design that states what was searched, and the same
+facts in two places are two places free to disagree. Interface copy is
+English (PRD section 5) even though the documents and the question are
+usually French -- the ANSWER follows the question's language, which is the
+prompt's rule and was verified live in both directions.
+
+A THIRD REFUSAL REASON EXISTS NOW and deliberately shares its words with
+the first: "the sections were read and none of them answers the question"
+renders as `REFUSAL_TEXT`, because the user's next step is identical.
+Only the trace detail separates them (ADR-09, F-10). Contrast the
+UNREADABLE-sections refusal, which keeps its own words because its next
+step genuinely differs: run a Sync.
+
+PARKED by this story, visible rather than fixed:
+- `tests/fake_chat.py` was extracted so ST-24 did not write the fourth and
+  fifth copies of the scripted fake. **ST-23's two copies are NOT
+  migrated** (`tests/unit/test_agent_grading.py`,
+  `tests/integration/test_ask_retry_loop.py`) -- rewriting another story's
+  tests inside this diff is the drive-by the scoped boy-scout rule keeps
+  out. Same shape as ST-23's own fake-encoders row, settled the same way.
+  Owner YL, its own one-file `chore/` branch.
+- `_index` and the two-workspace corpus fixture are now a second copy
+  across the two integration files. Second copy, allowed; a third earns a
+  `tests/integration/conftest.py`.
+- **`.env.example` still names the DEAD model** `gemini-2.0-flash`. PR #55
+  fixed `config.py` and missed the example file, so a teammate copying it
+  gets a 404. There is an uncommitted one-line fix sitting in the working
+  tree; it is NOT in this branch, because a one-line drive-by inside a
+  feature squash is exactly what rule 2 keeps out. Needs its own `fix/`
+  branch. Owner YL.
+- No composition root builds the real `AgentPorts` yet. ST-24 wires them
+  in its integration test; a `build_ports()` cannot be honest until ST-22
+  and ST-25 land, and one written now would either carry the dangerous
+  stubs `agent/ports.py` exists to forbid or be rewritten twice. ST-51.
+
+Previous: THE ANSWERING HALF IS BUILT EXCEPT FOR ONE SEAM. ST-21 and ST-23
+are both MERGED (24479ba and af14c4e). Of the eight ports
+`agent/ports.py` defines,
 four are filled and real: `retrieve`, `grade`, `reword` (ST-23) and
 `fetch_parents` (ST-21). Four remain stubbed, and only ONE of them stands
 between this project and an end-to-end sourced answer: `write_answer`,
@@ -866,19 +979,30 @@ This file is long and most of it is history. Everything a new session
 needs to START is in this section; the rest is evidence for claims made
 here, to be consulted when a specific claim matters.
 
-WHERE THE BUILD IS. Ingestion is finished and merged: change detection,
-conversion, chunking, embeddings, both derived stores, and the sync
-engine that wires them (ST-12 through ST-17). The answering half is
-built except for one seam: the agent graph and its trace (ST-21) and
-hybrid retrieval, the relevance grader and the reword (ST-23) are merged.
-There is still NO UI and NO `app.py`, so Sanad cannot be launched.
+WHERE THE BUILD IS, updated 2026-08-28. Ingestion is finished and merged:
+change detection, conversion, chunking, embeddings, both derived stores,
+and the sync engine that wires them (ST-12 through ST-17). **The answering
+half is now complete on the critical path**: the agent graph and its trace
+(ST-21) and hybrid retrieval, the grader and the reword (ST-23) are
+merged, and the answer node with its source contract and honest refusal
+(ST-24) is green on `feat/S2-ST-24-answer-node`, NOT yet merged. There is
+still NO UI and NO `app.py`, so Sanad cannot be LAUNCHED -- but it does
+now answer a real question end to end, in a test.
 
-THE ONE SEAM. `agent/ports.py` defines eight callables. Four are real --
-`retrieve`, `grade`, `reword`, `fetch_parents`. Four are stubbed, and
-only ONE is on the critical path: **`write_answer`, which is ST-24**.
-Fill it and the product answers a real question end to end for the first
-time. Read `agent/ports.py` before anything else; it names each seam's
-owner and contract.
+THE SEAMS. `agent/ports.py` defines eight callables. FIVE are real --
+`retrieve`, `grade`, `reword`, `fetch_parents`, `write_answer` -- and
+every one of them is on the answer path. Three are stubbed and NONE is on
+the critical path: `clarify` and `rewrite` (ST-22) and `summarize`
+(ST-25). Read `agent/ports.py` before anything else; it names each seam's
+owner and contract, and it is the file that says why there are no
+defaults.
+
+CORRECTION TO THIS SECTION'S OWN PREVIOUS TEXT, kept rather than
+overwritten because the shape repeats: it said "four are real ... only ONE
+is on the critical path", which was true on 2026-08-27 and false the next
+day. A handoff section is the fastest-rotting prose in this file, because
+every story exists to falsify one of its sentences. Date any count written
+here and expect to revisit it.
 
 WHAT IS TRUE ABOUT MODELS, as of 2026-08-27. Cloud mode WORKS: a Gemini
 key is in a local `.env` and `gemini-3.6-flash` answers. Strict-local
@@ -893,7 +1017,8 @@ THE FIVE THINGS MOST LIKELY TO WASTE A NEW SESSION'S TIME:
    out a JS toolchain.
 2. Rebuilding the chat-model seam. `agent/chat.py` exists and works.
 3. Writing a prompt inline. `prompts/` is the registry and
-   `agent/prompts.py` is the loader; two entries already show the shape.
+   `agent/prompts.py` is the loader; three entries now show the shape
+   (`relevance-grader`, `query-reword`, `answer-writer`).
 4. Trusting a pinned external value. One was dead for five weeks and
    nothing in the repo could see it.
 5. Editing another owner's modules. `change_detection.py`, `conversion.py`,
@@ -949,22 +1074,19 @@ NONE of this blocks ST-27/ST-28 -- they are fixes to a reference, not to
 shipped code. Fix them in the design, or accept each one in writing.
 
 ## Next (ordered queue, top 3 only)
-0. ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL (YL). The
-   critical path's next link, and after ST-23 exactly ONE seam stands
-   between this project and an end-to-end sourced answer: `write_answer`.
-   Everything it needs already exists -- the passages, the full parent
-   sections, the source list, the refusal path, a working chat model and
-   a prompt registry with two entries to copy the shape from. It needs
-   one `prompts/answer-writer/PROMPT.md` and one port implementation in
-   `agent/answering.py`. Exit gate: F-03/F-05 on fixtures; an answer
-   without sources cannot render as final, which `Answer.__post_init__`
-   already enforces structurally, so that half is done.
-   AND IT IS NOW PROVABLE FOR REAL, which ST-23 was not: cloud mode
-   works, so ST-24 can be exercised against a live model instead of only
-   a scripted fake. Do both -- the fake in the suite, the live call by
-   hand -- because the live call is what found the dead model name.
+0. MERGE ST-24 (YL). Green by hand on `feat/S2-ST-24-answer-node` and NOT
+   merged. Owed before it lands: the rule-5 partner review, and a
+   re-stamp of this file's header taken at merge time rather than now.
+   Exit gate met and how: F-03 and F-05 both pass on real fixtures in
+   `tests/integration/test_ask_sourced_answer.py` (8 tests, every port on
+   the answer path real); "an answer without sources cannot render as
+   final" is enforced structurally by `Answer.__post_init__` and pinned
+   end to end by the lost-section test, which shows the product citing
+   LESS rather than citing a document nothing read.
 1. ST-22 clarification + rewrite-and-split (YL), which fills the last two
-   seams (`clarify`, `rewrite`) and needs no new wiring.
+   seams (`clarify`, `rewrite`) and needs no new wiring. It is no longer
+   on the critical path -- ST-24 closed that -- but it is the smallest
+   remaining agent story and the graph already routes to it.
 2. ST-27 / ST-28, the two UI screens, now that a design exists. Read the
    UI DESIGN REVIEW section above FIRST -- it lists five drifts from the
    signed UX spec, one of which is a measured contrast failure. And read
