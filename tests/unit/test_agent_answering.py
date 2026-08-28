@@ -186,6 +186,8 @@ def test_the_answer_comes_back_as_the_model_wrote_it():
         "NOT_COVERED\nLes sections ne parlent pas de ce sujet.",
         "NOT_COVERED - rien dans ces sections",
         "NOT_COVERED — rien dans ces sections",
+        "NOT_COVERED (the sections do not mention it)",
+        "not covered.",
         "- NOT_COVERED",
         "# NOT_COVERED",
         "> NOT_COVERED",
@@ -195,6 +197,7 @@ def test_the_answer_comes_back_as_the_model_wrote_it():
         "plain", "lowercase", "padded", "full-stop", "emphasised", "quoted",
         "spaced", "hyphenated", "labelled", "explained-on-a-second-line",
         "explained-after-a-hyphen", "explained-after-an-em-dash",
+        "explained-in-brackets", "prose-spelling-alone-on-the-line",
         "bulleted", "as-a-heading", "quoted-block", "byte-order-mark",
     ],
 )
@@ -234,6 +237,35 @@ def test_an_answer_beginning_with_those_two_words_in_a_sentence_still_answers():
     -- end of line, a full stop, a dash -- not by more of a sentence."""
     reply = "Not covered by Article 13, but Article 14 sets it at trois mois."
 
+    assert _write(ScriptedChat(reply)) == reply
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Not covered: overtime rates. Article 13 sets the trial period at three months.",
+        "Not covered, but Article 13 sets it at three months.",
+        "Not covered - the sections list only the trial period, which is three months.",
+        "**Not covered:** overtime. Article 13 says three months.",
+    ],
+    ids=["colon", "comma", "dash", "emphasised"],
+)
+def test_a_partial_answer_that_names_its_gap_first_is_not_thrown_away(reply):
+    """FOUND BY A COLD REVIEW, and it was the worst defect in this story.
+
+    This branch's own prompt tells the model: "if they answer part of the
+    question, answer that part and state plainly which part they do not
+    cover." A model obeying that in English, and naming the gap FIRST,
+    opens with the words "Not covered". The first version of this parser
+    read all four of these as declines and threw the answer away -- so the
+    user's documents contained the answer, the model wrote it, and the
+    product replied that nothing was found and suggested they add the
+    missing document. The text was kept nowhere and nothing was logged.
+
+    The fix is why there are two patterns rather than one: `NOT_COVERED`
+    with an underscore or a hyphen is a TOKEN and may carry a trailing
+    note; "not covered" with a space is ordinary prose and has to be the
+    whole line. Every row here is a real answer to a real question."""
     assert _write(ScriptedChat(reply)) == reply
 
 
@@ -290,6 +322,20 @@ def test_the_decline_word_in_the_code_is_the_word_the_prompt_asks_for():
     assert NOT_COVERED in load_prompt(ANSWER_PROMPT_ID).system
 
 
+def test_the_word_the_prompt_asks_for_is_the_word_the_parser_accepts():
+    """The other half of that drift check, and it closes a gap a cold
+    review found in the first one.
+
+    The check above ties the CONSTANT to the prompt file. But the thing
+    that actually decides a decline is the regex, which spells the token a
+    third time -- so the constant and the prompt could agree perfectly
+    while the regex accepted something else. This runs the real parser
+    over the real word."""
+    from agent.answering import _is_decline
+
+    assert _is_decline(NOT_COVERED) is True
+
+
 # --- the wiring faults ------------------------------------------------
 
 
@@ -304,6 +350,41 @@ def test_a_passage_with_no_section_text_is_refused_at_the_seam():
             passages=(HIT, OTHER_HIT),
             parents={HIT.parent_id: SECTION},
         )
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\n\n"], ids=["empty", "spaces", "newlines"])
+def test_a_section_that_loaded_as_nothing_is_refused_like_a_missing_one(blank):
+    """A section that loads as nothing is not a section that loaded.
+
+    `parent_store` only checks the `text` field is PRESENT, so a parent
+    JSON whose text is blank arrives as a SUCCESSFUL read -- and every
+    count downstream believes it. The trace says "loaded 1 of 1", the
+    model gets a headed block with nothing under it, and the document is
+    still printed as a source card: a citation to text nothing read.
+
+    `agent/stores.py` omits these before the graph ever sees them; this is
+    the backstop for a hand-wired port, and it has to treat blank and
+    absent as one case because they are equally unread."""
+    with pytest.raises(ValueError, match="no section text"):
+        _write(ScriptedChat(ANSWER), parents={HIT.parent_id: blank})
+
+
+def test_an_empty_reply_is_not_read_as_a_refusal():
+    """The most dangerous confusion available in this module, asserted as
+    a DIFFERENT outcome rather than as another decline.
+
+    A cloud model returns an empty completion when a safety filter trips
+    or a response is truncated. Turning that into `AnswerNotCoveredError`
+    would tell the user, with the product's full confidence, that their
+    documents do not cover the question -- when nothing judged anything.
+    Same rule `agent/grading.py` applies to an unparseable verdict."""
+    from agent.answering import EmptyAnswerError
+
+    with pytest.raises(EmptyAnswerError) as caught:
+        _write(ScriptedChat("   \n  "))
+
+    assert not isinstance(caught.value, AnswerNotCoveredError)
+    assert ANSWER_PROMPT_ID in str(caught.value)
 
 
 def test_no_passages_at_all_is_a_wiring_fault_not_a_question():

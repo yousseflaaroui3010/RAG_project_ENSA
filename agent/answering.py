@@ -36,31 +36,39 @@ TWO THINGS THIS MODULE DELIBERATELY DOES NOT DO.
    Naming the article in a sentence is what a human would do and is what
    the reader can check.
 
-READING THE DECLINE, and this is the line most worth arguing about. The
-grader can compare its whole reply to two known words; here the ordinary
-reply is free prose, so "does the reply contain NOT_COVERED" would misread
-an answer that merely quotes the token. The rule is therefore POSITIONAL:
-the token must open the reply and be followed by end-of-line or a
-separator. So
+READING THE DECLINE is the hard part of this file, and it took three
+attempts. The grader can compare its whole reply to two known words; here
+the ordinary reply is free prose, so both naive rules are wrong. "Does the
+reply contain NOT_COVERED" misreads an answer that quotes the token.
+"Does the reply start with the words not covered" throws away a correct
+answer -- see `_DECLINE_TOKEN` and `_DECLINE_WORDS` below, which carry the
+worked examples and the reason there are two of them.
 
-    "NOT_COVERED"              -> decline
-    "**NOT_COVERED.**"         -> decline
-    "NOT_COVERED - rien ici"   -> decline
-    "Not covered by Article 13, but the trial period is three months"
-                               -> an ANSWER, because "covered" is followed
-                                  by a word rather than by a stop
+The shape, in one line: the decline must be the FIRST line with anything
+in it; a TOKEN spelling (`NOT_COVERED`, `NOT-COVERED`) may carry a
+trailing note; the PROSE spelling ("not covered") must be the whole line.
 
-The last row is the one the rule exists for, and it is deliberately
-resolved towards ANSWER: `NOT_COVERED` is what the prompt asks for
-literally, and ST-23 measured four out of four live Gemini replies obeying
-an exactly-one-word instruction with no decoration at all, so a partial
-match is far more likely to be prose than a decline.
+WHAT IS NOW VERIFIED, and this paragraph used to say the opposite. It said
+a real model's behaviour could not be measured here. It was measured, on
+2026-08-28, by running it rather than by reasoning about it: five live
+calls to `gemini-3.6-flash` through this module and `agent/grading.py` --
+one French covered, one English covered, two not covered, one partly
+covered. Both not-covered cases came back as a bare `NOT_COVERED`,
+including a genuine near-miss where the sections mention the questioned
+term inside an unrelated rule. The English question was answered in
+English and the French ones in French. The partly-covered case answered
+the covered half and named the uncovered half in prose WITHOUT tripping
+the decline parser, which is the interaction no unit test reaches. No
+bracketed reference numbers appeared in any reply.
 
-UNVERIFIED, and it stays that way until a real corpus run: whether a real
-model declines when it should. Every test here scripts the reply, which
-proves this module reads a decline correctly and proves nothing about a
-model producing one. ST-32's golden-set evaluation is what settles it, and
-F-08's out-of-scope half is exactly that measurement.
+WHAT IS STILL UNVERIFIED, narrowed rather than closed: that was FIVE calls
+on one model with short sections and no retrieval underneath. It says
+nothing about a 4,000-character parent section, about the local Ollama
+path (still unreachable on this machine), or about how often a real corpus
+produces the partial-answer shape. Every reply in the test suite is
+scripted, so the suite proves this module READS a decline correctly and
+proves nothing about one being produced. ST-32's golden-set evaluation is
+what settles it, and F-08's out-of-scope half is exactly that measurement.
 """
 
 from __future__ import annotations
@@ -82,6 +90,24 @@ ANSWER_PROMPT_ID = "answer-writer"
 # disabling the decline.
 NOT_COVERED = "NOT_COVERED"
 
+
+class EmptyAnswerError(Exception):
+    """The model returned nothing at all.
+
+    A distinct type rather than a decline, for the reason
+    `agent/grading.py` gives about an unparseable verdict: a refusal is a
+    claim about the USER'S DOCUMENTS, and an empty completion is a fact
+    about the MODEL. Letting one impersonate the other emits the most
+    damaging thing this product can produce -- an honest-looking refusal,
+    listing the searches it ran, when nothing actually judged anything.
+
+    It lives here rather than in `agent/ports.py` because, unlike
+    `AnswerNotCoveredError`, no node routes on it: the graph lets it
+    through to the caller, which `test_a_port_that_raises_is_not_papered_
+    over` already pins, and turning it into a clear error with a retry
+    action for the reader is the API layer's job (PRD section 11)."""
+
+
 # Decoration a model may wrap a one-word reply in. Stripped from the
 # candidate line before matching, never from the answer itself -- an
 # answer's asterisks are the model's formatting and belong to the reader.
@@ -91,25 +117,44 @@ _DECORATION = re.compile(r"[`*\"']+")
 # from the START of the line and never from the middle, because a `-`
 # removed anywhere would turn "NOT-COVERED" into "NOTCOVERED" and break
 # the very spelling the fold below exists to accept.
-_LEADING_MARKUP = re.compile("^[\\s﻿>#+*\\-]+")
+_LEADING_MARKUP = re.compile(r"^[\s\ufeff>#+*\-]+")
 # A leading "Verdict:" / "Answer -" style label, same shape as the one
 # `agent/grading.py` tolerates on a verdict.
 _LABEL = re.compile(r"^\s*(verdict|answer|response)\s*[:\-]\s*", re.IGNORECASE)
-# The decline itself: at the START of the line, and followed by a stop
-# rather than by more words. See the module docstring for why the position
-# matters and which way the ambiguous case is resolved.
+
+# TWO SPELLINGS, READ UNDER TWO DIFFERENT RULES, and the split is the most
+# important thing in this file. It was NOT the first design; a cold review
+# found the first one throwing away correct answers.
 #
-# BOTH DASHES ARE IN THE STOP LIST, and the em dash is there because
-# RUNNING the parser put it there rather than because it was reasoned
-# about: `NOT_COVERED - rien` was read as a decline and
-# `NOT_COVERED — rien` was not, and an em dash is what a model writing
-# fluent prose actually reaches for. Every gap in this class fails in the
-# SAME dangerous direction -- a decline read as an answer, shipped to the
-# reader as a bubble saying "NOT_COVERED" with source cards under it, and
-# scored as a non-refusal by F-08's out-of-scope half.
-_DECLINE = re.compile(
-    "^not[-_ ]?covered\\s*(?:[.!?,:;–—-]|$)", re.IGNORECASE
+# `NOT_COVERED` and `NOT-COVERED` are TOKENS. The underscore and the
+# hyphen are what make them tokens: no French or English sentence produces
+# either by accident, so text after one is a model adding a note to its
+# verdict, and the verdict still stands.
+#
+# `not covered` with a SPACE is ordinary prose, and this branch's own
+# prompt is what makes that dangerous. It instructs the model: "if they
+# answer part of the question, answer that part and state plainly which
+# part they do not cover." A model obeying that in English, naming the gap
+# first, writes
+#
+#     Not covered: overtime rates. Article 13 sets the trial period at
+#     three months.
+#
+# -- a CORRECT answer, from the user's own documents, which the first
+# version of this parser read as a refusal and discarded. The user was
+# then told their workspace does not cover something it does, and the
+# answer the model wrote was kept nowhere. So the spaced spelling must be
+# the WHOLE first line to count as a decline.
+#
+# The stop list on the token side is wide (both dashes, an opening
+# bracket) because every gap in it fails the other way: a real decline
+# read as an answer, shipped as a bubble reading "NOT_COVERED (...)" with
+# source cards under it and `refusal` false, which F-08's out-of-scope
+# half scores as a non-refusal. Both directions are pinned by tests.
+_DECLINE_TOKEN = re.compile(
+    "^not[-_]covered\\b\\s*(?:[(.!?,:;–—-]|$)", re.IGNORECASE
 )
+_DECLINE_WORDS = re.compile(r"^not\s+covered\s*[.!?]?$", re.IGNORECASE)
 
 
 def _is_decline(reply: str) -> bool:
@@ -123,7 +168,10 @@ def _is_decline(reply: str) -> bool:
         candidate = _LEADING_MARKUP.sub("", _DECORATION.sub("", line)).strip()
         if not candidate:
             continue
-        return bool(_DECLINE.match(_LABEL.sub("", candidate)))
+        candidate = _LABEL.sub("", candidate)
+        return bool(
+            _DECLINE_TOKEN.match(candidate) or _DECLINE_WORDS.match(candidate)
+        )
     return False
 
 
@@ -148,7 +196,14 @@ def _section_block(
     for hit in passages:
         if hit.parent_id in seen:
             continue
-        if hit.parent_id not in parent_texts:
+        section = parent_texts.get(hit.parent_id) or ""
+        if not section.strip():
+            # ABSENT AND BLANK ARE ONE CASE HERE, deliberately. `agent/
+            # stores.py` already omits a section that loads with no text,
+            # so this is the backstop for a hand-wired port -- and it has
+            # to catch both, because a blank section is exactly as unread
+            # as a missing one while looking, to every count downstream,
+            # like a section that loaded.
             raise ValueError(
                 f"the write_answer port was handed passage {hit.parent_id!r} "
                 f"from {hit.source_file!r} with no section text for it. The "
@@ -161,7 +216,7 @@ def _section_block(
         where = hit.source_file
         if hit.section_label:
             where = f"{where} -- {hit.section_label}"
-        blocks.append(f"[{where}]\n{parent_texts[hit.parent_id]}")
+        blocks.append(f"[{where}]\n{section}")
     if not blocks:
         raise ValueError(
             "the write_answer port was given no passages. An answer with "
@@ -196,6 +251,31 @@ def build_write_answer(
             question=question, sections=_section_block(passages, parent_texts)
         )
         reply = model.complete(prompt.system, user)
+        if not reply or not reply.strip():
+            # AN EMPTY COMPLETION IS A FACT ABOUT THE MODEL, not a claim
+            # about the user's documents, and the two must not share an
+            # outcome -- the same rule `agent/grading.py` applies to an
+            # unparseable verdict. A cloud model returns nothing when a
+            # safety filter trips or a response is truncated, so this is
+            # an ordinary Tuesday rather than a broken port.
+            #
+            # It is NOT turned into a decline. A refusal is the product
+            # telling the user their workspace does not cover the
+            # question, stated with full confidence, and nothing here
+            # knows that. Left to `_spoken` in agent/nodes.py it would
+            # have raised "the write_answer port returned a blank string"
+            # -- sending whoever reads it to THIS module for a fault that
+            # belongs to the model.
+            raise EmptyAnswerError(
+                f"the answer model returned an empty completion for a "
+                f"question with {len(parent_texts)} section(s) of context. "
+                f"This is not a refusal and is not being turned into one: "
+                f"an honest refusal (F-05) is a claim about the user's "
+                f"documents, and nothing here knows anything about them. A "
+                f"cloud model returns nothing when a safety filter trips or "
+                f"the response is cut short -- retry, or check the "
+                f"{ANSWER_PROMPT_ID!r} prompt."
+            )
         if _is_decline(reply):
             raise AnswerNotCoveredError(
                 f"the answer writer read {len(parent_texts)} section(s) and "

@@ -189,6 +189,59 @@ celui-ci n'a pas ete observe.
 
 SOURCE_FILE = "code-du-travail.pdf"
 
+# A SECOND DOCUMENT IN THE SAME WORKSPACE, and it exists for one reason: a
+# workspace holding a single file cannot fail a citation test. With one
+# file, "every source cited names a file the trace consulted" is true
+# whatever the code does, and "every label contains 'Article'" is true
+# because every heading in the other document starts with that word. A
+# cold review caught exactly that vacuity here.
+#
+# So this one is deliberately UNLIKE the labour code in both respects: a
+# different file name, and headings that carry no article number, so a
+# citation that leaked from it is visible in both the file name and the
+# label. Its vocabulary is disjoint from the labour-law questions asked
+# below -- cotisation, plafond, affiliation, immatriculation -- so a
+# labour-law query does not reach it by accident, and the control probe
+# below proves it IS reachable by its own question rather than merely
+# absent.
+CNSS_DOCUMENT = """# Affiliation et immatriculation
+
+Tout employeur exercant une activite assujettie doit demander son
+affiliation a la Caisse dans les trente jours qui suivent l'embauche de
+son premier salarie. L'affiliation donne lieu a la delivrance d'un numero
+qui doit figurer sur toutes les declarations ulterieures adressees a la
+Caisse. L'employeur procede ensuite a l'immatriculation de chacun de ses
+salaries, laquelle est personnelle et definitive : un salarie deja
+immatricule chez un precedent employeur conserve son numero et il
+appartient au nouvel employeur de le reprendre sur ses declarations plutot
+que d'en demander un second. Toute modification de la situation juridique
+de l'entreprise, changement de denomination, transfert de siege ou
+cessation d'activite, doit etre signalee dans les trente jours. Le defaut
+d'affiliation, comme le defaut d'immatriculation d'un salarie, expose
+l'employeur a une majoration calculee sur les sommes qui auraient du etre
+declarees, sans prejudice de la regularisation des droits du salarie
+concerne, lesquels ne peuvent en aucun cas etre reduits du fait d'une
+negligence imputable a l'employeur.
+
+# Cotisations et plafond
+
+Les cotisations sont assises sur l'ensemble des remunerations percues par
+le salarie, y compris les primes, les gratifications et les avantages en
+argent ou en nature. Une partie des cotisations est plafonnee et l'autre
+est due sur la totalite de la remuneration, le plafond etant fixe par voie
+reglementaire et revise periodiquement. La part salariale est precomptee
+par l'employeur au moment du paiement de la remuneration ; l'employeur qui
+n'a pas opere ce precompte en temps utile ne peut plus le reclamer au
+salarie et en supporte definitivement la charge. Les declarations et le
+versement correspondant sont adresses a la Caisse selon une periodicite
+fixee par les textes, et tout retard donne lieu a des majorations
+calculees par mois ou fraction de mois de retard. Un employeur qui
+conteste le montant reclame doit neanmoins verser la somme non contestee
+dans le delai normal, la contestation ne suspendant pas l'exigibilite.
+"""
+
+CNSS_FILE = "guide-cnss.txt"
+
 # A short, plausible answer, scripted. What matters is that it comes back
 # unchanged with the right citations attached, not what it says.
 WRITTEN_ANSWER = (
@@ -197,29 +250,38 @@ WRITTEN_ANSWER = (
 )
 
 
+def _index(client, parents_dir, markdown: str, source_file: str):
+    """Chunk, store the parents and embed the children -- the real thing."""
+    result = chunking.chunk_document(markdown, source_file=source_file)
+    parent_store.save_parents(
+        parents=result.parents, workspace_id=WS_HR, base_path=parents_dir
+    )
+    vector_store.upsert_children(
+        client,
+        workspace_id=WS_HR,
+        children=result.children,
+        dense_vectors=embeddings.embed_passages(
+            [child.text for child in result.children]
+        ),
+    )
+    return result
+
+
 @pytest.fixture
 def corpus(tmp_path, monkeypatch):
-    """One real workspace: real chunking, real parents on disk, real
-    embedded Qdrant.
+    """One real workspace holding TWO real documents: real chunking, real
+    parents on disk, real embedded Qdrant.
 
-    The two assertions are the fixture guarding its own preconditions --
-    see the note on HR_DOCUMENT for why a smaller fixture would make this
-    file's central property untestable."""
+    Every assertion here is the fixture guarding its own preconditions.
+    Three of this project's shipped defects were a fixture too small for
+    the property its tests claimed (ST-14, ST-16, ST-23), and a fourth was
+    found in THIS file by a cold review -- a one-document workspace, in
+    which a test about citing the wrong file cannot fail."""
     install_fake_encoders(monkeypatch)
     parents_dir = tmp_path / "parents"
     with vector_store.open_store(tmp_path / "qdrant") as client:
-        result = chunking.chunk_document(HR_DOCUMENT, source_file=SOURCE_FILE)
-        parent_store.save_parents(
-            parents=result.parents, workspace_id=WS_HR, base_path=parents_dir
-        )
-        vector_store.upsert_children(
-            client,
-            workspace_id=WS_HR,
-            children=result.children,
-            dense_vectors=embeddings.embed_passages(
-                [child.text for child in result.children]
-            ),
-        )
+        result = _index(client, parents_dir, HR_DOCUMENT, SOURCE_FILE)
+        other = _index(client, parents_dir, CNSS_DOCUMENT, CNSS_FILE)
         assert len(result.parents) >= 3, (
             "each article must survive as its own parent, or the label a "
             "source cites is a merged label and this file proves nothing "
@@ -229,6 +291,13 @@ def corpus(tmp_path, monkeypatch):
             "an article must split into several children, or 'the model "
             "read the section' and 'the model read the chunk' are the same "
             "assertion (architecture 7.5)"
+        )
+        assert other.parents, "the second document must really be indexed"
+        assert not any(
+            "Article" in (parent.section_label or "") for parent in other.parents
+        ), (
+            "the second document's labels must NOT look like the labour "
+            "code's, or a citation that leaked from it would be invisible"
         )
         yield client, parents_dir
 
@@ -326,29 +395,73 @@ def test_the_model_is_shown_the_whole_article_not_the_chunk_that_matched(
     assert SOURCE_FILE in shown
 
 
-def test_every_source_cited_names_a_file_the_trace_says_was_consulted(
+def test_a_citation_never_names_the_other_document_in_the_workspace(
     corpus, monkeypatch
 ):
     """F-03's "written only from passages found in the active workspace",
-    checked as a closed loop rather than by inspection: the citations must
-    be a subset of what the searches actually touched.
+    as a CONTROL PROBE rather than a bare negative.
 
-    This is the assertion that would catch a citation the MODEL composed,
-    which is the failure `agent/nodes.py` builds the source list itself to
-    prevent."""
+    The first version of this test lived in a one-document workspace and
+    asserted that the cited files were a subset of the files consulted --
+    which is true whatever the code does when there is only one file to
+    cite. A cold review deleted it on those grounds, and rightly.
+
+    Two questions now run against the SAME two-document workspace. The
+    labour-law one must not cite the CNSS guide, and the CNSS one must
+    cite it. The second half is what makes the first half mean anything:
+    without it, "the guide was not cited" is equally true of a workspace
+    where the guide was never indexed, never searchable, or where
+    retrieval is broken for every question. That is the absence rule --
+    prove the route works before trusting an empty result from it."""
     client, parents_dir = corpus
     _with_ceiling(monkeypatch, 0)
-    model = ScriptedChat("RELEVANT", WRITTEN_ANSWER)
+
+    labour = ask(
+        workspace_id=WS_HR,
+        question="periode d'essai renouvelable pour les cadres et assimiles",
+        ports=_ports(client, parents_dir, ScriptedChat("RELEVANT", WRITTEN_ANSWER)),
+    )
+    social = ask(
+        workspace_id=WS_HR,
+        question="affiliation immatriculation cotisations plafond de la Caisse",
+        ports=_ports(client, parents_dir, ScriptedChat("RELEVANT", WRITTEN_ANSWER)),
+    )
+
+    labour_cited = {source.file_name for source in labour.sources}
+    social_cited = {source.file_name for source in social.sources}
+
+    assert labour_cited == {SOURCE_FILE}
+    assert CNSS_FILE in social_cited, (
+        "the control half: the CNSS guide must be reachable by its own "
+        "question, or the assertion above is true of a broken index"
+    )
+    assert labour_cited <= set(labour.trace.files_consulted)
+
+
+def test_a_labour_law_answer_is_never_labelled_with_the_other_document(
+    corpus, monkeypatch
+):
+    """The label half of F-03, which "file name plus section label" makes
+    two separate promises about.
+
+    A citation can name the right FILE and the wrong SECTION -- that is
+    the defect the citation-marker labelling was built to fix, where a
+    passage from Article 235 was cited as "Titre II : Definitions". Here
+    the second document's headings deliberately carry no article number,
+    so a label pulled from the wrong place is visible."""
+    client, parents_dir = corpus
+    _with_ceiling(monkeypatch, 0)
 
     answer = ask(
         workspace_id=WS_HR,
-        question="indemnite de licenciement et preavis",
-        ports=_ports(client, parents_dir, model),
+        question="indemnite de licenciement apres six mois de travail continu",
+        ports=_ports(client, parents_dir, ScriptedChat("RELEVANT", WRITTEN_ANSWER)),
     )
 
-    cited = {source.file_name for source in answer.sources}
-    assert cited
-    assert cited <= set(answer.trace.files_consulted)
+    assert answer.sources
+    for source in answer.sources:
+        assert source.file_name == SOURCE_FILE
+        assert "Article" in (source.section_label or "")
 
 
 # --- F-05: honest refusal, both ways in ------------------------------

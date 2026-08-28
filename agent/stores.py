@@ -87,5 +87,29 @@ def parent_texts(
                 workspace_id,
             )
             continue
+        if not parent.text or not parent.text.strip():
+            # A SECTION THAT LOADS AS NOTHING IS NOT A SECTION THAT LOADED,
+            # and treating it as one is worse than treating it as missing.
+            # `parent_store` only checks the `text` field is PRESENT, so a
+            # blank one arrives here as a successful read -- and every
+            # count downstream then believes it: the trace says "loaded 5
+            # of 5", `route_after_parents` sees a full mapping, the model
+            # is handed a headed block with nothing under it, and the
+            # document is printed as a source card. That is a citation to
+            # text nothing read, which is the one thing F-03's source line
+            # promises cannot happen.
+            #
+            # Omitting it instead puts the case back on the machinery that
+            # already handles a section the store cannot produce: the
+            # shortfall shows in the trace, the citation is dropped with
+            # it, and zero readable sections still routes to the Sync
+            # refusal.
+            logger.warning(
+                "parent %s in workspace %s loaded with no text; answering "
+                "without that section. The workspace may need a re-sync.",
+                parent_id,
+                workspace_id,
+            )
+            continue
         texts[parent_id] = parent.text
     return texts
