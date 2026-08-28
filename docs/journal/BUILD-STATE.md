@@ -165,9 +165,70 @@ copied.
 ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL, on branch
 `feat/S2-ST-24-answer-node`, the whole gate green by hand in gate.yml
 order, NOT MERGED. `uv sync --frozen` clean (170 packages), `uv run ruff
-check .` exit 0, `uv run pytest` **498 passed / 2 skipped** (451 on main),
-`gitleaks detect` exit 0 "no leaks found" (3.07 MB, 84 commits). 18
-mutations injected one at a time, all 18 killed.
+check .` exit 0, `uv run pytest` **511 passed / 2 skipped** (451 on main),
+`gitleaks detect` exit 0 "no leaks found" (3.07 MB, 84 commits). 23
+mutations injected one at a time, all 23 killed.
+
+A COLD VERIFIER PASS RAN ON THE BRANCH and found 2 blocking, 4 worth
+fixing and 6 notes. All six of the first two categories are closed. It is
+the fifth review on this project to find a real defect while the suite was
+green, and the first blocking finding is the sharpest thing anyone has
+found in this story:
+
+**A CORRECT ANSWER WAS BEING THROWN AWAY, and the branch's own prompt is
+what caused it.** The prompt instructs the model: "if they answer part of
+the question, answer that part and state plainly which part they do not
+cover." A model obeying that in English, naming the gap FIRST, opens with
+the words "Not covered" -- and the decline parser read every one of these
+as a refusal and discarded the answer:
+
+    Not covered: overtime rates. Article 13 sets the trial period at
+    three months.
+    Not covered, but Article 13 sets it at three months.
+    Not covered - the sections list only the trial period.
+
+So the user's documents held the answer, the model wrote it, and the
+product replied that nothing was found and suggested they add the missing
+document. The text was kept nowhere and nothing was logged. Note what kind
+of defect this is: reading the parser in isolation could never surface it,
+because the bug only exists in the INTERACTION between the parser and a
+sentence the prompt itself asks for. Fixed by splitting the spellings --
+`NOT_COVERED` and `NOT-COVERED` are TOKENS (no sentence produces that
+underscore or hyphen by accident) and may carry a trailing note; "not
+covered" with a space is prose and must be the whole first line.
+
+**THE F-03 INTEGRATION TEST COULD NOT FAIL.** It asserted that the cited
+files were a subset of the files consulted -- in a workspace holding ONE
+document, where that is true whatever the code does. Its companion
+assertion, "every section label contains 'Article'", was true because
+every heading in that one document starts with the word. A second document
+is now indexed into the same workspace with a different file name and
+headings carrying no article number, and the test runs a CONTROL PROBE in
+both directions: the labour question must not cite the CNSS guide, AND the
+CNSS question must cite it -- without the second half, the first is
+equally true of an index that never worked. Fifth shipped instance of a
+fixture too small for its own property, and the first one caught by
+somebody other than the author.
+
+Also closed, all reproduced before being fixed:
+- a section that loads as BLANK counted as read. `parent_store` only
+  checks the `text` field is PRESENT, so a blank one was a successful
+  read: the trace said "loaded 2 of 2", the router saw a full mapping, the
+  model got a headed block with nothing under it, and the document was
+  still printed as a source card. Fixed in `agent/stores.py`, where
+  "loaded" is defined, so the trace, the router and the citation cannot
+  disagree.
+- an empty model completion raised `_spoken`'s "the write_answer port
+  returned a blank string" -- accurate about the shape, wrong about the
+  culprit, and it sent whoever read it into ST-24's module for a
+  provider's safety filter. Now `EmptyAnswerError`, and deliberately NOT a
+  decline: a refusal is a claim about the user's documents.
+- a literal byte-order mark sat inside a regex character class, invisible
+  in an editor and one reformat from being silently deleted.
+- the module docstring described the parser two revisions earlier and its
+  UNVERIFIED paragraph contradicted the live probe.
+- the decline drift check tied the CONSTANT to the prompt file while the
+  regex spelled the token a third time; it now also runs the real parser.
 
 FOUR DECORATED DECLINES WERE BEING READ AS ANSWERS, and this is the entry
 to keep: found by RUNNING the parser over hand-built edge cases, not by
