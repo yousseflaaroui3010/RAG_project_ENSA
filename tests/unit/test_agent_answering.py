@@ -188,7 +188,12 @@ def test_the_answer_comes_back_as_the_model_wrote_it():
         "NOT_COVERED — rien dans ces sections",
         "NOT_COVERED (the sections do not mention it)",
         "not covered.",
+        "NOT_COVERED les sections ne parlent pas de ce sujet.",
+        "**NOT_COVERED** rien dans ces sections",
+        "Reponse : NOT_COVERED",
+        "Réponse : NOT_COVERED",
         "- NOT_COVERED",
+        "1. NOT_COVERED",
         "# NOT_COVERED",
         "> NOT_COVERED",
         "﻿NOT_COVERED",
@@ -198,7 +203,10 @@ def test_the_answer_comes_back_as_the_model_wrote_it():
         "spaced", "hyphenated", "labelled", "explained-on-a-second-line",
         "explained-after-a-hyphen", "explained-after-an-em-dash",
         "explained-in-brackets", "prose-spelling-alone-on-the-line",
-        "bulleted", "as-a-heading", "quoted-block", "byte-order-mark",
+        "explained-after-a-space", "emphasised-then-explained",
+        "french-label", "french-label-accented",
+        "bulleted", "numbered", "as-a-heading", "quoted-block",
+        "byte-order-mark",
     ],
 )
 def test_a_one_word_decline_is_not_an_answer(reply):
@@ -256,7 +264,7 @@ def test_a_partial_answer_that_names_its_gap_first_is_not_thrown_away(reply):
     This branch's own prompt tells the model: "if they answer part of the
     question, answer that part and state plainly which part they do not
     cover." A model obeying that in English, and naming the gap FIRST,
-    opens with the words "Not covered". The first version of this parser
+    opens with the words "Not covered". An early version of this parser
     read all four of these as declines and threw the answer away -- so the
     user's documents contained the answer, the model wrote it, and the
     product replied that nothing was found and suggested they add the
@@ -265,7 +273,50 @@ def test_a_partial_answer_that_names_its_gap_first_is_not_thrown_away(reply):
     The fix is why there are two patterns rather than one: `NOT_COVERED`
     with an underscore or a hyphen is a TOKEN and may carry a trailing
     note; "not covered" with a space is ordinary prose and has to be the
-    whole line. Every row here is a real answer to a real question."""
+    whole reply. Every row here is a real answer to a real question."""
+    assert _write(ScriptedChat(reply)) == reply
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Not covered.\nArticle 13 sets the trial period at three months.",
+        "# Not covered\nArticle 13 sets the trial period at three months.",
+        "**Not covered**\nArticle 13 sets the trial period at three months.",
+    ],
+    ids=["plain", "as-a-heading", "emphasised"],
+)
+def test_a_gap_named_on_its_own_line_does_not_discard_the_answer_below_it(reply):
+    """FOUND BY THE RULE-5 REVIEW, and it is the same defect as the test
+    below surviving one round of fixing.
+
+    The first fix said the prose spelling must be the whole first LINE.
+    That is still too weak: a model that names the gap on line one and
+    answers on line two passes a first-line test and loses its answer.
+    The prompt asks for "NOT_COVERED and nothing else", so the rule is the
+    whole REPLY -- a second line with anything in it settles it.
+
+    Two rounds of review on one regex is worth recording. Each version
+    looked obviously right until someone ran it on a reply nobody had
+    thought of."""
+    assert _write(ScriptedChat(reply)) == reply
+
+
+def test_the_spaced_spelling_with_a_note_is_read_as_an_answer():
+    """A RECORDED BOUNDARY, not an oversight -- see the DECISIONS row.
+
+    "NOT COVERED - rien ici" is almost certainly a decline, and it is read
+    as an answer anyway. It cannot be told apart from "Not covered:
+    overtime rates. Article 13 sets the trial period at three months.",
+    which is a correct answer on one line, and losing that is the worse
+    error of the two: the user is told their documents lack something they
+    have, and the answer is kept nowhere.
+
+    The underscore and hyphen spellings have no such ambiguity and DO
+    carry a trailing note. This test exists so the boundary is visible and
+    deliberate rather than discovered later as a bug."""
+    reply = "NOT COVERED - rien dans ces sections"
+
     assert _write(ScriptedChat(reply)) == reply
 
 
@@ -298,6 +349,27 @@ def test_a_partial_answer_that_names_what_it_could_not_cover_is_still_an_answer(
     )
 
     assert _write(ScriptedChat(reply)) == reply
+
+
+def test_a_discarded_reply_leaves_a_trace_in_the_log(caplog):
+    """The branch where a mistake is otherwise PERMANENTLY invisible.
+
+    If the parser reads an ANSWER as a decline, the model's text is thrown
+    away, the user is told their documents do not cover the question, and
+    nothing anywhere records what was lost. Two versions of this parser did
+    exactly that, and both were found by a person reading the code -- never
+    by anything the running product reported.
+
+    The FIRST LINE only: docs/phase2/CLAUDE.md forbids logging a full
+    request body, and the first line is what settles whether the
+    classification was right."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="agent.answering"):
+        with pytest.raises(AnswerNotCoveredError):
+            _write(ScriptedChat("NOT_COVERED les sections ne parlent pas."))
+
+    assert "NOT_COVERED les sections ne parlent pas." in caplog.text
 
 
 def test_the_decline_says_it_is_the_refusal_path_working_not_a_fault():

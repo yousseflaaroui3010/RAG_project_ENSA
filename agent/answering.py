@@ -73,6 +73,7 @@ what settles it, and F-08's out-of-scope half is exactly that measurement.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable, Mapping
 
@@ -80,6 +81,8 @@ from agent.chat import ChatModel
 from agent.ports import AnswerNotCoveredError
 from agent.prompts import load_prompt
 from vector_store import SearchHit
+
+logger = logging.getLogger(__name__)
 
 ANSWER_PROMPT_ID = "answer-writer"
 
@@ -117,10 +120,24 @@ _DECORATION = re.compile(r"[`*\"']+")
 # from the START of the line and never from the middle, because a `-`
 # removed anywhere would turn "NOT-COVERED" into "NOTCOVERED" and break
 # the very spelling the fold below exists to accept.
-_LEADING_MARKUP = re.compile(r"^[\s\ufeff>#+*\-]+")
+#
+# A LIST NUMBER counts as markup too ("1. NOT_COVERED"). The lookahead is
+# what keeps it from eating a decimal: "1.5 hours" has no space after the
+# stop, so nothing is stripped.
+_LEADING_MARKUP = re.compile(r"^(?:[\s\ufeff>#+*\-]|\d+[.)](?=\s))+")
 # A leading "Verdict:" / "Answer -" style label, same shape as the one
 # `agent/grading.py` tolerates on a verdict.
-_LABEL = re.compile(r"^\s*(verdict|answer|response)\s*[:\-]\s*", re.IGNORECASE)
+#
+# THE FRENCH WORDS ARE HERE BECAUSE THE PROMPT PUT THEM THERE. It tells
+# the model to reply in the language the question was asked in, and this
+# product's questions are mostly French -- so "R\u00e9ponse : NOT_COVERED" is a
+# shape the prompt itself invites, and an English-only label list would
+# have read it as prose. Accented and unaccented spellings both, because
+# a model is as likely to write one as the other.
+_LABEL = re.compile(
+    r"^\s*(verdict|answer|response|r[\u00e9e]ponse|r[\u00e9e]sultat)\s*[:\-]\s*",
+    re.IGNORECASE,
+)
 
 # TWO SPELLINGS, READ UNDER TWO DIFFERENT RULES, and the split is the most
 # important thing in this file. It was NOT the first design; a cold review
@@ -140,21 +157,36 @@ _LABEL = re.compile(r"^\s*(verdict|answer|response)\s*[:\-]\s*", re.IGNORECASE)
 #     Not covered: overtime rates. Article 13 sets the trial period at
 #     three months.
 #
-# -- a CORRECT answer, from the user's own documents, which the first
+# -- a CORRECT answer, from the user's own documents, which an earlier
 # version of this parser read as a refusal and discarded. The user was
 # then told their workspace does not cover something it does, and the
-# answer the model wrote was kept nowhere. So the spaced spelling must be
-# the WHOLE first line to count as a decline.
+# answer the model wrote was kept nowhere.
 #
-# The stop list on the token side is wide (both dashes, an opening
-# bracket) because every gap in it fails the other way: a real decline
-# read as an answer, shipped as a bubble reading "NOT_COVERED (...)" with
-# source cards under it and `refusal` false, which F-08's out-of-scope
-# half scores as a non-refusal. Both directions are pinned by tests.
-_DECLINE_TOKEN = re.compile(
-    "^not[-_]covered\\b\\s*(?:[(.!?,:;–—-]|$)", re.IGNORECASE
-)
-_DECLINE_WORDS = re.compile(r"^not\s+covered\s*[.!?]?$", re.IGNORECASE)
+# SO THE PROSE SPELLING MUST BE THE WHOLE REPLY. "The whole first LINE"
+# was the version before this one and it was still wrong, caught by a
+# second review: a model that writes
+#
+#     Not covered.
+#     Article 13 sets the trial period at three months.
+#
+# passes a first-line test and loses its answer on line two. The prompt
+# asks for "NOT_COVERED and nothing else", so nothing else is the rule.
+#
+# The TOKEN side needs no stop list at all any more, and dropping it
+# closed three real misses in one go: `NOT_COVERED les sections ne
+# parlent pas` and `**NOT_COVERED** rien` were both being shipped to the
+# reader as answer text. Once the separator is an underscore or a hyphen
+# there is nothing to disambiguate -- the model is not writing a sentence
+# -- so whatever follows is an annotation on a verdict that stands.
+#
+# WHAT IS DELIBERATELY LEFT OUT, recorded rather than silently accepted:
+# `NOT COVERED - rien ici`, the SPACED spelling with a trailing note, is
+# read as an answer. It cannot be told apart from `Not covered: overtime
+# rates. Article 13 sets the trial period at three months.`, which is a
+# correct answer on one line, and losing that is the worse error. Both
+# directions are pinned by tests; see the DECISIONS row.
+_DECLINE_TOKEN = re.compile(r"^not[-_]covered\b", re.IGNORECASE)
+_DECLINE_PROSE = re.compile(r"^not\s+covered\s*[.!?]?$", re.IGNORECASE)
 
 
 def _is_decline(reply: str) -> bool:
@@ -164,15 +196,20 @@ def _is_decline(reply: str) -> bool:
     whole reply, so a token buried on line four is a quotation, not a
     verdict -- and a line that is only decoration ("***", "---") has
     nothing left in it, so it is skipped rather than answered."""
-    for line in (reply or "").splitlines():
-        candidate = _LEADING_MARKUP.sub("", _DECORATION.sub("", line)).strip()
-        if not candidate:
-            continue
-        candidate = _LABEL.sub("", candidate)
-        return bool(
-            _DECLINE_TOKEN.match(candidate) or _DECLINE_WORDS.match(candidate)
-        )
-    return False
+    lines = [
+        _LEADING_MARKUP.sub("", _DECORATION.sub("", line)).strip()
+        for line in (reply or "").splitlines()
+    ]
+    lines = [line for line in lines if line]
+    if not lines:
+        return False
+    first = _LABEL.sub("", lines[0])
+    if _DECLINE_TOKEN.match(first):
+        return True
+    # The prose spelling has to be the WHOLE reply, so a second line with
+    # anything in it settles the question: this is an answer whose author
+    # happened to open by naming what it could not cover.
+    return len(lines) == 1 and bool(_DECLINE_PROSE.match(first))
 
 
 def _section_block(
@@ -277,6 +314,22 @@ def build_write_answer(
                 f"{ANSWER_PROMPT_ID!r} prompt."
             )
         if _is_decline(reply):
+            # LOG THE FIRST LINE BEFORE DISCARDING THE REPLY, because this
+            # is the branch where a mistake is permanently invisible: if
+            # the parser reads an ANSWER as a decline, the model's text is
+            # thrown away, the user is told their documents do not cover
+            # the question, and nothing anywhere records what was lost.
+            # Two versions of this parser did exactly that, and both were
+            # found by someone reading the code rather than by anything
+            # the running product reported.
+            #
+            # The FIRST LINE only, never the body: docs/phase2/CLAUDE.md
+            # forbids logging a full request body, and the first line is
+            # what settles whether the classification was right.
+            logger.info(
+                "the answer writer declined; first line of the reply was %r",
+                reply.strip().splitlines()[0][:200],
+            )
             raise AnswerNotCoveredError(
                 f"the answer writer read {len(parent_texts)} section(s) and "
                 f"replied {NOT_COVERED}: they do not answer the question. "

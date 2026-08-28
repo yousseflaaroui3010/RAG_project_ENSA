@@ -398,8 +398,16 @@ def test_the_model_is_shown_the_whole_article_not_the_chunk_that_matched(
 def test_a_citation_never_names_the_other_document_in_the_workspace(
     corpus, monkeypatch
 ):
-    """F-03's "written only from passages found in the active workspace",
-    as a CONTROL PROBE rather than a bare negative.
+    """Citations track the document the question actually reached, as a
+    CONTROL PROBE rather than a bare negative.
+
+    SCOPE, stated honestly because an earlier docstring here overclaimed
+    it: both documents live in the SAME workspace, so this proves that
+    retrieval and the source list agree about WHICH DOCUMENT was read. It
+    does NOT prove F-03's "active workspace" scoping -- that is
+    cross-workspace isolation, and it is tested where it belongs, at
+    `tests/unit/test_agent_stores.py::test_one_workspace_cannot_read_
+    another_workspace_s_section`.
 
     The first version of this test lived in a one-document workspace and
     asserted that the cited files were a subset of the files consulted --
@@ -436,32 +444,14 @@ def test_a_citation_never_names_the_other_document_in_the_workspace(
         "question, or the assertion above is true of a broken index"
     )
     assert labour_cited <= set(labour.trace.files_consulted)
-
-
-def test_a_labour_law_answer_is_never_labelled_with_the_other_document(
-    corpus, monkeypatch
-):
-    """The label half of F-03, which "file name plus section label" makes
-    two separate promises about.
-
-    A citation can name the right FILE and the wrong SECTION -- that is
-    the defect the citation-marker labelling was built to fix, where a
-    passage from Article 235 was cited as "Titre II : Definitions". Here
-    the second document's headings deliberately carry no article number,
-    so a label pulled from the wrong place is visible."""
-    client, parents_dir = corpus
-    _with_ceiling(monkeypatch, 0)
-
-    answer = ask(
-        workspace_id=WS_HR,
-        question="indemnite de licenciement apres six mois de travail continu",
-        ports=_ports(client, parents_dir, ScriptedChat("RELEVANT", WRITTEN_ANSWER)),
+    # The LABEL half of "file name plus section label" (F-03), which is a
+    # separate promise: a citation can name the right file and the wrong
+    # section, which is the defect the citation-marker labelling exists to
+    # fix. The CNSS guide's headings carry no article number on purpose,
+    # so a label pulled from the wrong document is visible here.
+    assert all(
+        "Article" in (source.section_label or "") for source in labour.sources
     )
-
-    assert answer.sources
-    for source in answer.sources:
-        assert source.file_name == SOURCE_FILE
-        assert "Article" in (source.section_label or "")
 
 
 # --- F-05: honest refusal, both ways in ------------------------------
