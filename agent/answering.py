@@ -86,22 +86,41 @@ NOT_COVERED = "NOT_COVERED"
 # candidate line before matching, never from the answer itself -- an
 # answer's asterisks are the model's formatting and belong to the reader.
 _DECORATION = re.compile(r"[`*\"']+")
+# Markup a model may put in FRONT of a one-word reply: a bullet, a list
+# dash, a heading marker, a blockquote, a byte-order mark. Stripped only
+# from the START of the line and never from the middle, because a `-`
+# removed anywhere would turn "NOT-COVERED" into "NOTCOVERED" and break
+# the very spelling the fold below exists to accept.
+_LEADING_MARKUP = re.compile("^[\\s﻿>#+*\\-]+")
 # A leading "Verdict:" / "Answer -" style label, same shape as the one
 # `agent/grading.py` tolerates on a verdict.
 _LABEL = re.compile(r"^\s*(verdict|answer|response)\s*[:\-]\s*", re.IGNORECASE)
 # The decline itself: at the START of the line, and followed by a stop
 # rather than by more words. See the module docstring for why the position
 # matters and which way the ambiguous case is resolved.
-_DECLINE = re.compile(r"^not[-_ ]?covered\s*(?:[.!?,:;–-]|$)", re.IGNORECASE)
+#
+# BOTH DASHES ARE IN THE STOP LIST, and the em dash is there because
+# RUNNING the parser put it there rather than because it was reasoned
+# about: `NOT_COVERED - rien` was read as a decline and
+# `NOT_COVERED — rien` was not, and an em dash is what a model writing
+# fluent prose actually reaches for. Every gap in this class fails in the
+# SAME dangerous direction -- a decline read as an answer, shipped to the
+# reader as a bubble saying "NOT_COVERED" with source cards under it, and
+# scored as a non-refusal by F-08's out-of-scope half.
+_DECLINE = re.compile(
+    "^not[-_ ]?covered\\s*(?:[.!?,:;–—-]|$)", re.IGNORECASE
+)
 
 
 def _is_decline(reply: str) -> bool:
     """Did the model decline to answer from these sections?
 
-    Only the FIRST non-empty line is considered. A decline is a whole
-    reply, so a token buried on line four is a quotation, not a verdict."""
+    Only the FIRST line with anything in it is considered. A decline is a
+    whole reply, so a token buried on line four is a quotation, not a
+    verdict -- and a line that is only decoration ("***", "---") has
+    nothing left in it, so it is skipped rather than answered."""
     for line in (reply or "").splitlines():
-        candidate = _DECORATION.sub("", line).strip()
+        candidate = _LEADING_MARKUP.sub("", _DECORATION.sub("", line)).strip()
         if not candidate:
             continue
         return bool(_DECLINE.match(_LABEL.sub("", candidate)))

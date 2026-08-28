@@ -185,11 +185,17 @@ def test_the_answer_comes_back_as_the_model_wrote_it():
         "Answer: NOT_COVERED",
         "NOT_COVERED\nLes sections ne parlent pas de ce sujet.",
         "NOT_COVERED - rien dans ces sections",
+        "NOT_COVERED — rien dans ces sections",
+        "- NOT_COVERED",
+        "# NOT_COVERED",
+        "> NOT_COVERED",
+        "﻿NOT_COVERED",
     ],
     ids=[
         "plain", "lowercase", "padded", "full-stop", "emphasised", "quoted",
         "spaced", "hyphenated", "labelled", "explained-on-a-second-line",
-        "explained-after-a-dash",
+        "explained-after-a-hyphen", "explained-after-an-em-dash",
+        "bulleted", "as-a-heading", "quoted-block", "byte-order-mark",
     ],
 )
 def test_a_one_word_decline_is_not_an_answer(reply):
@@ -227,6 +233,20 @@ def test_an_answer_beginning_with_those_two_words_in_a_sentence_still_answers():
     is a real answer. The rule is that the token must be followed by a stop
     -- end of line, a full stop, a dash -- not by more of a sentence."""
     reply = "Not covered by Article 13, but Article 14 sets it at trois mois."
+
+    assert _write(ScriptedChat(reply)) == reply
+
+
+def test_stripping_a_bullet_does_not_invent_a_decline():
+    """The guard on the leading-markup strip, and it is needed because
+    that strip is what makes "- NOT_COVERED" a decline.
+
+    A bulleted answer opening with the same two words must still be an
+    answer. Without this, widening the tolerance for a decorated decline
+    would quietly widen the tolerance for a false one, and false refusals
+    are the direction that tells a user their documents lack something
+    they have."""
+    reply = "- Not covered by Article 13, but Article 14 sets it at trois mois."
 
     assert _write(ScriptedChat(reply)) == reply
 
