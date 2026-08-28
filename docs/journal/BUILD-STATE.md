@@ -165,15 +165,49 @@ copied.
 ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL, on branch
 `feat/S2-ST-24-answer-node`, the whole gate green by hand in gate.yml
 order, NOT MERGED. `uv sync --frozen` clean (170 packages), `uv run ruff
-check .` exit 0, `uv run pytest` **511 passed / 2 skipped** (451 on main),
-`gitleaks detect` exit 0 "no leaks found" (3.07 MB, 84 commits). 23
-mutations injected one at a time, all 23 killed.
+check .` exit 0, `uv run pytest` **520 passed / 2 skipped** (451 on main),
+`gitleaks detect` exit 0 "no leaks found" (3.12 MB). 29 mutations injected
+one at a time, all 29 killed.
 
-A COLD VERIFIER PASS RAN ON THE BRANCH and found 2 blocking, 4 worth
-fixing and 6 notes. All six of the first two categories are closed. It is
-the fifth review on this project to find a real defect while the suite was
-green, and the first blocking finding is the sharpest thing anyone has
-found in this story:
+TWO REVIEW PASSES RAN, and the second one is the entry worth keeping.
+
+THE RULE-5 PASS SAID **DO NOT APPROVE**, and it was right: its blocking
+finding was the COLD PASS'S DEFECT SURVIVING ONE ROUND OF FIXING. The
+first fix said the prose spelling of the decline must be the whole first
+LINE. Still too weak -- a model that names the gap on line one and answers
+on line two passes a first-line test and loses its answer:
+
+    Not covered.
+    Article 13 sets the trial period at three months.
+
+THE LESSON, which is bigger than the bug: two rounds of review on one
+regex, and each version looked obviously right until someone RAN it on a
+reply nobody had thought of. Neither defect was visible in the code. Both
+lived in the INTERACTION between the code and a sentence the prompt itself
+instructs the model to write. That is the argument for cold reading as a
+practice rather than a formality, and it is why the parser was finally
+rewritten on ONE PRINCIPLE instead of patched a fourth time: an underscore
+or a hyphen between the two words never occurs in prose, so those are
+verdicts and may carry a trailing note; a SPACE makes it ordinary English,
+and ordinary English must be the entire reply. Dropping the token side's
+stop list closed three further misses in the same change.
+
+THE DECLINE BRANCH NOW LOGS the discarded reply's first line, and that is
+the half to keep even if the parser changes again. It is the branch where
+a mistake is PERMANENTLY INVISIBLE: an answer read as a decline is thrown
+away, the user is told their documents do not cover the question, and
+nothing records what was lost. Two parser versions did exactly that and
+BOTH were found by a person reading code, never by the running product.
+
+RECORDED, NOT FIXED, with its own test so it stays deliberate:
+`NOT COVERED - rien ici` -- the SPACED spelling with a trailing note -- is
+read as an ANSWER. It cannot be told apart from `Not covered: overtime
+rates. Article 13 sets the trial period at three months.`, a correct
+answer on one line, and losing that is the worse error.
+
+THE COLD VERIFIER PASS, which ran first, found 2 blocking, 4 worth fixing
+and 6 notes; all six of the first two categories are closed. Its first
+blocking finding is the one the rule-5 pass then had to finish:
 
 **A CORRECT ANSWER WAS BEING THROWN AWAY, and the branch's own prompt is
 what caused it.** The prompt instructs the model: "if they answer part of
@@ -1162,9 +1196,11 @@ NONE of this blocks ST-27/ST-28 -- they are fixes to a reference, not to
 shipped code. Fix them in the design, or accept each one in writing.
 
 ## Next (ordered queue, top 3 only)
-0. MERGE ST-24 (YL). Green by hand on `feat/S2-ST-24-answer-node` and NOT
-   merged. Owed before it lands: the rule-5 partner review, and a
-   re-stamp of this file's header taken at merge time rather than now.
+0. MERGE ST-24 (YL). Green by hand on `feat/S2-ST-24-answer-node`, PR #57,
+   CI green. BOTH review passes have now run -- a cold verifier read and
+   the rule-5 pass -- and every blocking and worth-fixing item from each is
+   closed. Owed before it lands: a re-stamp of this file's header taken at
+   merge time rather than now.
    Exit gate met and how: F-03 and F-05 both pass on real fixtures in
    `tests/integration/test_ask_sourced_answer.py` (8 tests, every port on
    the answer path real); "an answer without sources cannot render as
