@@ -1316,13 +1316,69 @@ REVIEW PASS AT ALL. CORRECTION, and it is a
    `reword` (F-04, and `retrieve` is where `vector_store.search` and the
    parent fetch land). The seams and their contracts are already written
    down in agent/ports.py -- read that file first, not this one.
-2. ST-07 corpus v1 (MB). THE ONLY THING BLOCKING ST-18, and it needs no
-   code: the labour-code PDF, two HR/CNSS guides, and the manuals
-   workspace files, with source and date logged per file, French text
-   selectable rather than scanned. Until these exist on disk, ST-18
-   cannot produce a G4/G5 number that means anything. `data/` currently
-   holds one stray `parents/` test artifact and nothing else.
-2. ST-18 SPIKE, the moment ST-07 lands: index the real corpus, measure
+2. ST-07 corpus v1 (MB). **DONE 2026-08-29 on `feat/S1-ST-07-corpus-v1`.
+   ST-18 IS NO LONGER BLOCKED.** 13 files, hr 3 + manuals 10, every one
+   CONVERTED by Sanad's own conversion ladder. Exit gate is a command,
+   not a claim: `uv run python scripts/corpus.py verify`, exit 0.
+
+   WHAT CHANGED FROM THE STAND-IN, because two files were DELETED and a
+   graded report would otherwise have quoted them:
+   - the labour code is now the MINISTRY OF JUSTICE CONSOLIDATED edition
+     (loi 65-99 as at 2011-10-26, 201 pages, adala.justice.gov.ma), not
+     the ILO's 2004 first-promulgation text. Both are named as verified
+     sources in PRD section 17; the 2004 one is the code BEFORE its
+     amendments, and an HR generalist answering a 2026 question from
+     unamended 2004 wording is the exact failure this product exists to
+     prevent. The ILO copy was deleted rather than kept alongside: two
+     near-identical editions compete for the same retrieval hit and would
+     have made the ST-19 golden set score noise;
+   - `resume-legislation-travail.pdf` was DELETED. A private consulting
+     firm's 2016 summary of Moroccan labour law. PRD section 14 binds the
+     demo corpus to "public material (official legal texts, public
+     manuals)", so it was not merely the weakest file, it was out of
+     spec, and it reads authoritative enough to be cited as law;
+   - the CNSS side is now the actual statute -- dahir 1-72-184, from
+     ACAPS, the state regulator -- with the CLEISS guide kept and
+     LABELLED SECONDARY, because a corpus of nothing but statute cannot
+     answer "how does this work in practice".
+
+   A CORRECTION THIS STORY OWED ITSELF, and it is why the manuals
+   workspace needed no work at all: `data/corpus/SOURCES.md` called that
+   workspace "a stand-in ... French software documentation, not anyone's
+   manuals", and the Next queue repeated it for six days as a blocker.
+   THAT STANDARD WAS INVENTED, not signed. LD-02 says only "workspace 2 =
+   technical manuals"; PRD section 14 says "public manuals"; persona P2 is
+   a junior developer who "lives inside long technical manuals". The
+   French Python documentation is precisely that. Six days of ST-18 were
+   blocked on a requirement no signed document contains -- the same shape
+   as the withdrawn citation escalation of 2026-08-23: quote the clause
+   before declaring something non-compliant.
+
+   THE DELIVERY MECHANISM IS THE STORY. `data/` is git-ignored (LD-06), so
+   a corpus can NEVER reach the other machine through git, and the last one
+   did not: it sat on one laptop for six days. `scripts/corpus.py` is the
+   tracked half -- manifest, `fetch`, `verify`, `sources` -- and rebuilds
+   the corpus from nothing on any machine with one command. `verify` calls
+   `conversion.convert_file`, the same call sync makes, rather than doing
+   its own pymupdf inspection: a second opinion can disagree with the
+   product while both look green. What is proven is "Sanad reads every
+   file", which is what ST-18 needs. No new dependency (stdlib urllib).
+
+   BOTH FAILURE BRANCHES PROVEN, because a check that has never failed is
+   untested: a moved file exits 1 as MISSING, and a blank image-only PDF
+   written over a real one exits 1 as `skipped` carrying PRD F-16's own
+   wording. Restored, exit 0. `fetch` proven by deleting one PDF and one
+   archive-member file and watching both come back.
+
+   KNOWN AND NOT FIXED, owner ST-35: the manuals workspace is NOT
+   byte-reproducible. `howto-sockets.txt` was 23,215 bytes on 2026-08-23
+   and 22,757 today -- docs.python.org rebuilds the archive upstream. The
+   three HR PDFs are static files and are reproducible. `verify` and
+   SOURCES.md now print a sha256 per file so the drift is VISIBLE;
+   pinning and failing on a mismatch is deliberately left to the story
+   that freezes the golden set, because a freeze invented here would be
+   the wrong shape.
+2. ST-18 SPIKE, NOW UNBLOCKED: index the real corpus, measure
    G4/G5 and 20-question latency, give the OR-1 verdict. FOUR things are
    already known to be unmeasured, so the spike does not have to
    rediscover them: the per-file registry commit cost; the cost of
@@ -1339,9 +1395,15 @@ REVIEW PASS AT ALL. CORRECTION, and it is a
    real questions, cross-workspace isolation, parent resolution, a
    second sync, and the double-sync guard. It lives in the session
    scratchpad, not in the repo -- promoting it to `scripts/` is most of
-   ST-18's plumbing done. Query latency on that corpus was 0.17-0.22s
-   and indexing was dominated by CPU embedding; NEITHER is a G4/G5
-   number, because the corpus is a stand-in (data/corpus/SOURCES.md).
+   ST-18's plumbing done, and `scripts/` now EXISTS (ST-07 created it),
+   so that promotion has somewhere to land. Query latency on that corpus
+   was 0.17-0.22s and indexing was dominated by CPU embedding; NEITHER
+   was a G4/G5 number, because it ran against the stand-in. ST-07 has
+   since replaced the stand-in, so a re-run of that harness against
+   `data/corpus/` IS a G4/G5 measurement -- with one caveat to state in
+   the report rather than discover: the labour code grew from 119 pages
+   to 201 when the consolidated edition replaced the 2004 one, so every
+   earlier timing on this corpus is a floor, not a comparison.
 3. Post-hoc reviewer pass owed on ONE story now, not two. ST-17
    (0210408) is DONE -- see the review-pass section above; it found one
    data-deleting defect, fixed on PR #40, plus three findings recorded
