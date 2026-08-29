@@ -48,9 +48,17 @@ Rules for the block, learned the hard way on this project:
 
 | Task | Command |
 |---|---|
-| Tests | `uv run pytest -q` |
+| Tests | `uv run pytest` — **no `-q`**, see below |
 | Lint | `uv run ruff check .` |
 | App | `uv run python app.py` (app.py does not exist yet) |
+
+**Do not add `-q` to pytest here.** `pyproject.toml` already sets
+`addopts = "-q"`, so typing it again makes it `-qq`, and `-qq` DELETES the
+`N passed, M skipped` summary line. The run still happens and the exit code
+is still right — you just cannot see the number, which is the one thing
+every journal header in this project is required to quote. Found 2026-08-29
+by running the command this table used to recommend and getting a green with
+no count in it.
 
 ## Map
 
@@ -77,16 +85,22 @@ landed), which trains a reader to distrust the whole section. Run
 `index_status` if you need the number; it is one call and it is never
 wrong.
 
-Project name for every call, and copy it exactly:
+**The project name is NOT written here, and that is the fix, not an
+omission.** Get it by calling the `list_projects` tool (load it with
+`ToolSearch` first, like the others -- see the note below the table).
+It lists every project the server holds, which on a shared server is more
+than this one: take the entry whose `root_path` is this repository, and
+pass its name verbatim to every other graph call.
 
-```
-C-Users-lenovo-OneDrive-Documents-Projects-RAG_project_ENSA
-```
-
-It contains `OneDrive`. An earlier version of this line dropped that
-segment, and the name it gave matches no indexed project -- a call with it
-fails, which reads exactly like the graph being unavailable and sends the
-next session back to grepping.
+Why no literal name: the name is derived from the repo's absolute path, so
+it is DIFFERENT ON EACH MACHINE. YL's clone sits under OneDrive and MB's
+does not, so YL's name carries an `OneDrive` segment and MB's does not.
+Any single name written into this shared file is therefore correct on one
+machine and broken on the other -- and a call with the wrong name fails in
+a way that reads exactly like the graph being unavailable, which sends
+that session back to grepping. This line has now been wrong in both
+directions: it first dropped `OneDrive` (broken for YL), then hardcoded it
+(broken for MB). Do not write a third name here. Call `list_projects`.
 
 | Question | Call |
 |---|---|
