@@ -32,7 +32,6 @@ core law, and a corpus fetcher is not worth one.
 
 from __future__ import annotations
 
-import hashlib
 import io
 import sys
 import urllib.request
@@ -42,7 +41,30 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from change_detection import Fingerprint, compute_fingerprint  # noqa: E402
 from conversion import ConversionOutcome, convert_file  # noqa: E402
+
+# A page carrying fewer than this many characters is a picture of a page.
+#
+# The number exists because the ST-07 review found the exit gate passing a
+# scan. `config.conversion_min_text_chars` is 1, which is the right floor
+# for the PRODUCT -- F-16 binds V1 to skipping a scan, and one stray
+# character is enough to prove a text layer exists -- but it is far too low
+# for a CORPUS gate. Reproduced before this line was written: a three-page
+# PDF whose only text is the page numbers "1 2 3" converts cleanly at 12
+# characters and the gate said EXIT GATE MET.
+#
+# 200 is chosen from the corpus itself rather than from taste. The thinnest
+# real file here runs 1,783 characters per page (the labour code, which is
+# dense two-column legal text laid out with wide margins); the other two
+# PDFs are over 3,200. A footer-only scan lands at 4. 200 sits an order of
+# magnitude below the weakest real document and an order of magnitude above
+# a scan, so it discriminates without being tuned to these three files.
+_MIN_CHARS_PER_PAGE = 200
+
+# Same idea for files with no pages. The thinnest real manual is 20,074
+# characters; a stub or a truncated download is far below this.
+_MIN_CHARS_UNPAGED = 1_000
 
 CORPUS_ROOT = Path(__file__).resolve().parent.parent / "data" / "corpus"
 
@@ -60,14 +82,31 @@ _USER_AGENT = (
 class Document:
     """One corpus file and everything ST-07 must log about it.
 
-    `authority` is the field that does real work. PRD section 14 binds the
-    demo corpus to "public material (official legal texts, public manuals)",
-    so a document that is neither is not merely weaker, it is out of spec.
-    The first attempt at this corpus carried a private consulting firm's
-    2016 summary of Moroccan labour law, which reads authoritative and is
-    not: it is a secondary commentary, dated, and it would have been quoted
-    in a graded report as if it were law. It is gone, and this field is why
-    the next one cannot arrive unlabelled.
+    `authority` is the field that does real work, and it records an
+    EDITORIAL JUDGEMENT, not a rule from the signed pack. The distinction
+    was forced by the ST-07 review and it matters.
+
+    An earlier version of this docstring justified deleting a private
+    consulting firm's 2016 summary of Moroccan labour law by quoting PRD
+    section 14: "public material (official legal texts, public manuals)".
+    That is motivated reasoning. The sentence sits under **Compliance** and
+    its subject is personal data -- "if real personal data ever enters a
+    workspace..." -- so it is a privacy rule, not a source-authority rule.
+    Worse, read as an authority rule it would also exclude the CLEISS guide
+    that this corpus KEEPS, which is neither an official legal text nor a
+    manual. The real distinguisher used is the publisher, and no signed
+    document mentions publishers at all.
+
+    So: deleting a dated private commentary from a corpus that will be
+    quoted in a graded legal-domain report is good editorial judgement, and
+    it is claimed as nothing more. This field exists so the next document
+    cannot arrive with its standing unstated, and so a reader of the report
+    can see which claims rest on law and which rest on a summary.
+
+    This is the project's own recurring failure, third instance: quote the
+    clause before declaring something spec-bound. The citation escalation of
+    2026-08-23 was withdrawn for it, and the corpus "stand-in" blocker this
+    very story removed was another.
     """
 
     workspace: str
@@ -84,10 +123,19 @@ class Document:
 
 
 # --------------------------------------------------------------------------
-# Workspace 1: HR and Moroccan labour law. LD-02 makes this the flagship,
-# and PRD section 17 already did the source-finding work -- every entry here
-# is one of the four sources that section verified, or the regulator's own
-# copy of a text it names.
+# Workspace 1: HR and Moroccan labour law. LD-02 makes this the flagship.
+#
+# ONE of the three entries below is backed by PRD section 17, not all three,
+# and an earlier version of this comment claimed otherwise. Section 17's four
+# verified findings are ALL about the labour code: that it is publicly
+# downloadable as a consolidated French PDF, its article count, the ILO's
+# translation edition, and a bilingual edition. The consolidated text is
+# therefore section-17 backed, though even it arrives from a host section 17
+# does not name (adala.justice.gov.ma rather than the Casablanca investment
+# portal or Abhatoo) -- same document, same Direction de la Législation,
+# different mirror. The dahir 1-72-184 and the CLEISS guide appear nowhere in
+# section 17 and were chosen by this story. Their justification is the note
+# on each entry, not the signed pack.
 # --------------------------------------------------------------------------
 _HR = "https://adala.justice.gov.ma/api/uploads/2024/04/30/code%20du%20travail-1714463246806.pdf"
 
@@ -223,23 +271,33 @@ def _target(doc: Document) -> Path:
     return CORPUS_ROOT / doc.workspace / doc.file_name
 
 
-def _sha256(path: Path) -> str:
-    """First 16 hex characters of the file's sha256. Enough to SEE a change.
+def _fingerprint(path: Path) -> Fingerprint:
+    """The file's identity, from `change_detection`, NOT a second hasher.
 
-    NOT enforced, and that is deliberate. This was added because running
-    `fetch` twice on the same manifest produced `howto-sockets.txt` at
-    23,215 bytes on 2026-08-23 and 22,757 bytes on 2026-08-29: the French
-    Python documentation archive is rebuilt upstream, so the manuals
-    workspace is NOT byte-reproducible while the three HR PDFs are static
-    files that are. Nobody noticed, because nothing was looking.
+    This was a bare `hashlib.sha256(path.read_bytes())` until the ST-07
+    review pass, which was wrong twice over. It was a SECOND file hasher in
+    a repo that already had one -- the rule is two copies is fine and the
+    third gets abstracted, and `compute_fingerprint` has 21 callers -- and
+    it was the WORSE of the two: it pulled the whole 1.5 MB labour code
+    into memory where the real one reads in chunks precisely so a large PDF
+    never does, and it raised a bare OSError instead of the named
+    `UnreadableFileError` the rest of the project catches.
 
-    Pinning a hash and failing on a mismatch is the obvious next move and
-    it is NOT taken here, because ST-35 owns freezing the golden set and a
-    freeze that this script invents first would be the wrong shape. What is
-    owed is visibility: print the digest, record it in SOURCES.md, and let
-    the story that freezes the corpus decide what to do about it.
+    Using the real one also removes a `stat().st_size` call, because a
+    Fingerprint already carries `size_bytes` -- counted from the bytes
+    actually read rather than from a separate `stat()`, so the two halves
+    can never describe different versions of the same file.
+
+    WHY A DIGEST IS PRINTED AT ALL, and why it is not ENFORCED. Running
+    `fetch` twice produced `howto-sockets.txt` at 23,215 bytes on
+    2026-08-23 and 22,757 on 2026-08-29: docs.python.org rebuilds the
+    archive upstream, so the manuals workspace is not byte-reproducible
+    while the three HR PDFs are. Pinning a hash and failing on a mismatch
+    is the obvious next move and is deliberately NOT taken here: ST-35 owns
+    freezing the corpus, and a freeze invented by this script first would
+    be the wrong shape. What is owed today is visibility.
     """
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    return compute_fingerprint(path)
 
 
 def _download(url: str) -> bytes:
@@ -252,10 +310,18 @@ def fetch() -> int:
     """Download every manifest file that is not already on disk.
 
     Skips what is present rather than re-downloading, so it is safe to run
-    repeatedly and cheap to run before `verify`. It does NOT check that an
-    existing file matches the manifest -- `verify` is what does that, and
-    keeping the two apart means a fetch cannot quietly overwrite a file
-    someone put there on purpose.
+    repeatedly and cheap to run before `verify`.
+
+    IT DOES NOT CHECK THAT AN EXISTING FILE IS THE RIGHT ONE. A file with a
+    manifest name and the wrong contents survives `fetch` forever, because
+    presence is the only test. An earlier version of this docstring said
+    "`verify` is what does that", which was FALSE and was caught by the
+    ST-07 review -- `verify` proves a file is readable and dense enough to
+    be a real document, and it prints a digest so a swap is visible to a
+    human, but nothing compares that digest to a recorded value. Nothing
+    can, until ST-35 freezes the corpus and there is a recorded value to
+    compare against. Stated here rather than fixed, because inventing the
+    freeze in this script is exactly the wrong shape.
     """
     archives: dict[str, zipfile.ZipFile] = {}
     downloaded = 0
@@ -305,11 +371,52 @@ def verify() -> int:
         result = convert_file(target)
         pages = "-" if result.page_count is None else str(result.page_count)
         chars = len(result.markdown or "")
-        digest = _sha256(target)
+        digest = _fingerprint(target).hex_digest[:16]
         print(f"{doc.file_name:<45} {result.outcome:<10} {pages:>6} {chars:>9,}  {digest}")
 
         if result.outcome is not ConversionOutcome.CONVERTED:
             failures.append(f"{doc.workspace}/{doc.file_name}: {result.outcome} -- {result.reason}")
+            continue
+
+        # CONVERTED is necessary and not sufficient -- see _MIN_CHARS_PER_PAGE.
+        if result.page_count:
+            density = chars / result.page_count
+            if density < _MIN_CHARS_PER_PAGE:
+                failures.append(
+                    f"{doc.workspace}/{doc.file_name}: converted but only "
+                    f"{density:.0f} characters per page over {result.page_count} pages "
+                    f"(floor {_MIN_CHARS_PER_PAGE}). This reads as a scan with a thin "
+                    f"text layer, not a document Sanad can answer from."
+                )
+        elif chars < _MIN_CHARS_UNPAGED:
+            failures.append(
+                f"{doc.workspace}/{doc.file_name}: converted but only {chars:,} "
+                f"characters (floor {_MIN_CHARS_UNPAGED:,}). Truncated download?"
+            )
+
+    # A file on disk that the manifest does not know about is INVISIBLE to
+    # every check above and fully VISIBLE to `change_detection.scan_folder`,
+    # which walks the directory rather than this list. ST-18 would therefore
+    # index and time a file this gate never looked at.
+    #
+    # The concrete case that made this blocking rather than tidy: ST-07
+    # deleted two HR documents, and a deletion happens on ONE machine. The
+    # other teammate runs `fetch`, gets the three new files, and keeps the
+    # two deleted ones sitting beside them -- a five-file HR workspace
+    # including the superseded 2004 labour code this story removed for
+    # competing with the consolidated one. The gate would have said MET.
+    expected = {(d.workspace, d.file_name) for d in MANIFEST}
+    for workspace in sorted({d.workspace for d in MANIFEST}):
+        folder = CORPUS_ROOT / workspace
+        if not folder.is_dir():
+            continue
+        for stray in sorted(folder.iterdir()):
+            if stray.is_file() and (workspace, stray.name) not in expected:
+                failures.append(
+                    f"{workspace}/{stray.name}: ON DISK BUT NOT IN THE MANIFEST. "
+                    f"Sync indexes the folder, not this list, so ST-18 would "
+                    f"measure it. Delete it, or add it to MANIFEST."
+                )
 
     print("-" * 89)
     for workspace in ("hr", "manuals"):
@@ -358,9 +465,11 @@ def sources() -> int:
             ]
             target = _target(doc)
             if target.exists():
+                fingerprint = _fingerprint(target)
                 lines.append(
-                    f"- **On disk:** {target.stat().st_size:,} bytes, "
-                    f"sha256 `{_sha256(target)}` (not pinned -- see `_sha256`)"
+                    f"- **On disk:** {fingerprint.size_bytes:,} bytes, "
+                    f"sha256 `{fingerprint.hex_digest[:16]}` "
+                    f"(recorded, NOT pinned -- see `_fingerprint`)"
                 )
             if doc.zip_member:
                 lines.append(f"- **Archive member:** `{doc.zip_member}`")

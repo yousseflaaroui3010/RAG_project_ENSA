@@ -1333,10 +1333,19 @@ REVIEW PASS AT ALL. CORRECTION, and it is a
      near-identical editions compete for the same retrieval hit and would
      have made the ST-19 golden set score noise;
    - `resume-legislation-travail.pdf` was DELETED. A private consulting
-     firm's 2016 summary of Moroccan labour law. PRD section 14 binds the
-     demo corpus to "public material (official legal texts, public
-     manuals)", so it was not merely the weakest file, it was out of
-     spec, and it reads authoritative enough to be cited as law;
+     firm's 2016 summary of Moroccan labour law -- dated, secondary, and
+     authoritative-looking enough to be cited as law in a graded report.
+     CORRECTED AFTER THE RULE-5 REVIEW, which called the first version of
+     this bullet motivated reasoning and was right: it justified the
+     deletion by quoting PRD section 14 ("public material: official legal
+     texts, public manuals") as if that were a source-authority rule. It
+     is not. That sentence sits under **Compliance** and its subject is
+     personal data. Read as an authority rule it would also have excluded
+     the CLEISS guide this corpus KEEPS. The deletion is EDITORIAL
+     JUDGEMENT and is now claimed as nothing more. Third instance of this
+     project's own recurring failure -- quote the clause before declaring
+     something spec-bound -- after the withdrawn citation escalation and
+     the invented "stand-in" blocker this same story removed;
    - the CNSS side is now the actual statute -- dahir 1-72-184, from
      ACAPS, the state regulator -- with the CLEISS guide kept and
      LABELLED SECONDARY, because a corpus of nothing but statute cannot
@@ -1364,11 +1373,50 @@ REVIEW PASS AT ALL. CORRECTION, and it is a
    product while both look green. What is proven is "Sanad reads every
    file", which is what ST-18 needs. No new dependency (stdlib urllib).
 
-   BOTH FAILURE BRANCHES PROVEN, because a check that has never failed is
-   untested: a moved file exits 1 as MISSING, and a blank image-only PDF
-   written over a real one exits 1 as `skipped` carrying PRD F-16's own
-   wording. Restored, exit 0. `fetch` proven by deleting one PDF and one
-   archive-member file and watching both come back.
+   THE RULE-5 REVIEW GRADED THE FIRST VERSION 6/10, DO NOT APPROVE, and
+   its two blocking findings are the entry worth reading in this whole
+   section, because BOTH mean the gate did not prove its own sentence:
+
+   (a) THE GATE PASSED A SCAN. It asserted only `outcome is CONVERTED`,
+       and `config.conversion_min_text_chars` is 1 -- correct for the
+       PRODUCT, since F-16 only needs to know a text layer exists, and far
+       too low for a CORPUS. Reproduced rather than argued: a three-page
+       PDF whose only text is the page numbers "1 2 3" converts cleanly at
+       12 characters and the gate said EXIT GATE MET. The original
+       "proof" used a BLANK PDF, which is the easy case. This is the
+       fourth time on this project that a fixture was too small for the
+       property under test (ST-14's round-trip, ST-16's batching, ST-16's
+       first isolation corpus, now this). Fixed with a floor of 200
+       characters per page, chosen from the corpus rather than from
+       taste: the thinnest real file runs 1,783 per page, a footer-only
+       scan lands at 4.
+   (b) THE GATE ONLY LOOKED AT THE MANIFEST, and `scan_folder` walks the
+       DIRECTORY. A file on disk that the manifest does not list was
+       invisible to the gate and fully visible to Sync, so ST-18 would
+       have measured a file nothing checked. The concrete case is this
+       story's own: a deletion happens on ONE machine. YL runs `fetch`,
+       receives the three new files, and keeps the two deleted ones -- a
+       five-file HR workspace containing the superseded 2004 labour code
+       this story removed for competing with the consolidated one. The
+       gate would have said MET. Now fails on any unlisted file.
+
+   Two more the review caught, both fixed: `_sha256` was a SECOND file
+   hasher beside `change_detection.compute_fingerprint` (21 callers) and
+   the worse of the two -- it read the whole 1.5 MB labour code into
+   memory where the real one chunks, and raised a bare OSError instead of
+   `UnreadableFileError`; and `fetch`'s docstring claimed "`verify` is
+   what does that" about matching an existing file to the manifest, which
+   `verify` does not do and cannot until ST-35 records a value to compare
+   against. Said plainly in the docstring now instead of falsely.
+   Corroboration that the hasher swap was behaviour-neutral: every
+   digest printed after the change is identical to the one before.
+
+   ALL FOUR FAILURE BRANCHES PROVEN, because a check that has never failed
+   is untested: a moved file exits 1 as MISSING; a blank image-only PDF
+   exits 1 as `skipped`; a page-numbers-only scan exits 1 naming "4
+   characters per page over 3 pages (floor 200)"; an unlisted file exits 1
+   naming it. Restored to exit 0 after each. `fetch` proven by deleting
+   one PDF and one archive-member file and watching both come back.
 
    KNOWN AND NOT FIXED, owner ST-35: the manuals workspace is NOT
    byte-reproducible. `howto-sockets.txt` was 23,215 bytes on 2026-08-23
