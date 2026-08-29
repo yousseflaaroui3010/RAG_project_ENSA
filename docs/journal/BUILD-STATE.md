@@ -1316,13 +1316,143 @@ REVIEW PASS AT ALL. CORRECTION, and it is a
    `reword` (F-04, and `retrieve` is where `vector_store.search` and the
    parent fetch land). The seams and their contracts are already written
    down in agent/ports.py -- read that file first, not this one.
-2. ST-07 corpus v1 (MB). THE ONLY THING BLOCKING ST-18, and it needs no
-   code: the labour-code PDF, two HR/CNSS guides, and the manuals
-   workspace files, with source and date logged per file, French text
-   selectable rather than scanned. Until these exist on disk, ST-18
-   cannot produce a G4/G5 number that means anything. `data/` currently
-   holds one stray `parents/` test artifact and nothing else.
-2. ST-18 SPIKE, the moment ST-07 lands: index the real corpus, measure
+2. ST-07 corpus v1 (MB). **DONE 2026-08-29 on `feat/S1-ST-07-corpus-v1`.
+   ST-18 IS NO LONGER BLOCKED.** 13 files, hr 3 + manuals 10, every one
+   CONVERTED by Sanad's own conversion ladder. Exit gate is a command,
+   not a claim: `uv run python scripts/corpus.py verify`, exit 0.
+
+   WHAT CHANGED FROM THE STAND-IN, because two files were DELETED and a
+   graded report would otherwise have quoted them:
+   - the labour code is now the MINISTRY OF JUSTICE CONSOLIDATED edition
+     (loi 65-99 as at 2011-10-26, 201 pages, adala.justice.gov.ma), not
+     the ILO's 2004 first-promulgation text. Both are named as verified
+     sources in PRD section 17; the 2004 one is the code BEFORE its
+     amendments, and an HR generalist answering a 2026 question from
+     unamended 2004 wording is the exact failure this product exists to
+     prevent. The ILO copy was deleted rather than kept alongside: two
+     near-identical editions compete for the same retrieval hit and would
+     have made the ST-19 golden set score noise;
+   - `resume-legislation-travail.pdf` was DELETED. A private consulting
+     firm's 2016 summary of Moroccan labour law -- dated, secondary, and
+     authoritative-looking enough to be cited as law in a graded report.
+     CORRECTED AFTER THE RULE-5 REVIEW, which called the first version of
+     this bullet motivated reasoning and was right: it justified the
+     deletion by quoting PRD section 14 ("public material: official legal
+     texts, public manuals") as if that were a source-authority rule. It
+     is not. That sentence sits under **Compliance** and its subject is
+     personal data. Read as an authority rule it would also have excluded
+     the CLEISS guide this corpus KEEPS. The deletion is EDITORIAL
+     JUDGEMENT and is now claimed as nothing more. Third instance of this
+     project's own recurring failure -- quote the clause before declaring
+     something spec-bound -- after the withdrawn citation escalation and
+     the invented "stand-in" blocker this same story removed;
+   - the CNSS side is now the actual statute -- dahir 1-72-184, from
+     ACAPS, the state regulator -- with the CLEISS guide kept and
+     LABELLED SECONDARY, because a corpus of nothing but statute cannot
+     answer "how does this work in practice".
+
+   A CORRECTION THIS STORY OWED ITSELF, and it is why the manuals
+   workspace needed no work at all: `data/corpus/SOURCES.md` called that
+   workspace "a stand-in ... French software documentation, not anyone's
+   manuals", and the Next queue repeated it for six days as a blocker.
+   THAT STANDARD WAS INVENTED, not signed. LD-02 says only "workspace 2 =
+   technical manuals"; PRD section 14 says "public manuals"; persona P2 is
+   a junior developer who "lives inside long technical manuals". The
+   French Python documentation is precisely that. Six days of ST-18 were
+   blocked on a requirement no signed document contains -- the same shape
+   as the withdrawn citation escalation of 2026-08-23: quote the clause
+   before declaring something non-compliant.
+
+   THE DELIVERY MECHANISM IS THE STORY. `data/` is git-ignored (LD-06), so
+   a corpus can NEVER reach the other machine through git, and the last one
+   did not: it sat on one laptop for six days. `scripts/corpus.py` is the
+   tracked half -- manifest, `fetch`, `verify`, `sources` -- and rebuilds
+   the corpus from nothing on any machine with one command. `verify` calls
+   `conversion.convert_file`, the same call sync makes, rather than doing
+   its own pymupdf inspection: a second opinion can disagree with the
+   product while both look green. What is proven is "Sanad reads every
+   file", which is what ST-18 needs. No new dependency (stdlib urllib).
+
+   THE RULE-5 REVIEW GRADED THE FIRST VERSION 6/10, DO NOT APPROVE, and
+   its two blocking findings are the entry worth reading in this whole
+   section, because BOTH mean the gate did not prove its own sentence:
+
+   (a) THE GATE PASSED A SCAN. It asserted only `outcome is CONVERTED`,
+       and `config.conversion_min_text_chars` is 1 -- correct for the
+       PRODUCT, since F-16 only needs to know a text layer exists, and far
+       too low for a CORPUS. Reproduced rather than argued: a three-page
+       PDF whose only text is the page numbers "1 2 3" converts cleanly at
+       12 characters and the gate said EXIT GATE MET. The original
+       "proof" used a BLANK PDF, which is the easy case. This is the
+       fourth time on this project that a fixture was too small for the
+       property under test (ST-14's round-trip, ST-16's batching, ST-16's
+       first isolation corpus, now this). Fixed with a floor of 200
+       characters per page, chosen from the corpus rather than from
+       taste: the thinnest real file runs 1,783 per page, a footer-only
+       scan lands at 4.
+   (b) THE GATE ONLY LOOKED AT THE MANIFEST, and `scan_folder` walks the
+       DIRECTORY. A file on disk that the manifest does not list was
+       invisible to the gate and fully visible to Sync, so ST-18 would
+       have measured a file nothing checked. The concrete case is this
+       story's own: a deletion happens on ONE machine. YL runs `fetch`,
+       receives the three new files, and keeps the two deleted ones -- a
+       five-file HR workspace containing the superseded 2004 labour code
+       this story removed for competing with the consolidated one. The
+       gate would have said MET. Now fails on any unlisted file.
+
+   Two more the review caught, both fixed: `_sha256` was a SECOND file
+   hasher beside `change_detection.compute_fingerprint` (21 callers) and
+   the worse of the two -- it read the whole 1.5 MB labour code into
+   memory where the real one chunks, and raised a bare OSError instead of
+   `UnreadableFileError`; and `fetch`'s docstring claimed "`verify` is
+   what does that" about matching an existing file to the manifest, which
+   `verify` does not do and cannot until ST-35 records a value to compare
+   against. Said plainly in the docstring now instead of falsely.
+   Corroboration that the hasher swap was behaviour-neutral: every
+   digest printed after the change is identical to the one before.
+
+   ALL FOUR FAILURE BRANCHES PROVEN, because a check that has never failed
+   is untested: a moved file exits 1 as MISSING; a blank image-only PDF
+   exits 1 as `skipped`; a page-numbers-only scan exits 1 naming "4
+   characters per page over 3 pages (floor 200)"; an unlisted file exits 1
+   naming it. Restored to exit 0 after each. `fetch` proven by deleting
+   one PDF and one archive-member file and watching both come back.
+
+   RE-REVIEW: 9/10, APPROVE, with two further defects it found by running
+   the new checks rather than reading them. BOTH FAIL CLOSED -- they cause
+   a false RED, never a false green, which is why they did not block:
+   - the stray sweep flagged ANY file, and `scan_folder` only ever indexes
+     a SUPPORTED extension. A `Thumbs.db` that Windows drops into any
+     folder someone opens would have turned the gate red for a file sync
+     could never touch, which is how a team learns to ignore a red gate.
+     Now filtered through `is_supported`, the same predicate sync uses, so
+     the two cannot drift about what a corpus file is.
+   - CASE. Windows filesystems are case-insensitive and Linux ones are
+     not, and comparing raw names in a set mixes the two. Reproduced: a
+     file renamed `CNSS-....PDF` satisfied `Path.exists()`, so it CONVERTED
+     and passed, and the same run also reported it as an unlisted stray --
+     one file, present and missing at once. Linux fails the other way
+     round (MISSING plus stray). Both sides of every comparison are
+     case-folded now.
+
+   ONE LIMIT OF THE 200-CHARACTER FLOOR, stated because it will otherwise
+   be discovered by someone quoting a number: the density is a PER-DOCUMENT
+   AVERAGE. Append 100 scanned pages to the 201-page labour code and the
+   average is still about 1,190, so it passes. The gate catches a scanned
+   DOCUMENT, not a scanned SECTION inside a good one. Worth knowing before
+   ST-18 quotes a coverage figure. The floor is also not tuned to these
+   three files: the thinnest real one runs 1,783 characters per page, so
+   200 sits nearly nine times below it rather than just under it.
+
+   KNOWN AND NOT FIXED, owner ST-35: the manuals workspace is NOT
+   byte-reproducible. `howto-sockets.txt` was 23,215 bytes on 2026-08-23
+   and 22,757 today -- docs.python.org rebuilds the archive upstream. The
+   three HR PDFs are static files and are reproducible. `verify` and
+   SOURCES.md now print a sha256 per file so the drift is VISIBLE;
+   pinning and failing on a mismatch is deliberately left to the story
+   that freezes the golden set, because a freeze invented here would be
+   the wrong shape.
+2. ST-18 SPIKE, NOW UNBLOCKED: index the real corpus, measure
    G4/G5 and 20-question latency, give the OR-1 verdict. FOUR things are
    already known to be unmeasured, so the spike does not have to
    rediscover them: the per-file registry commit cost; the cost of
@@ -1339,9 +1469,15 @@ REVIEW PASS AT ALL. CORRECTION, and it is a
    real questions, cross-workspace isolation, parent resolution, a
    second sync, and the double-sync guard. It lives in the session
    scratchpad, not in the repo -- promoting it to `scripts/` is most of
-   ST-18's plumbing done. Query latency on that corpus was 0.17-0.22s
-   and indexing was dominated by CPU embedding; NEITHER is a G4/G5
-   number, because the corpus is a stand-in (data/corpus/SOURCES.md).
+   ST-18's plumbing done, and `scripts/` now EXISTS (ST-07 created it),
+   so that promotion has somewhere to land. Query latency on that corpus
+   was 0.17-0.22s and indexing was dominated by CPU embedding; NEITHER
+   was a G4/G5 number, because it ran against the stand-in. ST-07 has
+   since replaced the stand-in, so a re-run of that harness against
+   `data/corpus/` IS a G4/G5 measurement -- with one caveat to state in
+   the report rather than discover: the labour code grew from 119 pages
+   to 201 when the consolidated edition replaced the 2004 one, so every
+   earlier timing on this corpus is a floor, not a comparison.
 3. Post-hoc reviewer pass owed on ONE story now, not two. ST-17
    (0210408) is DONE -- see the review-pass section above; it found one
    data-deleting defect, fixed on PR #40, plus three findings recorded
