@@ -906,7 +906,123 @@ here because the second bullet is what the story turned out to be about:
 
 ## Numbers (this project had none until 2026-08-09)
 The rubric row is "a number with no threshold is trivia, a threshold with
-no owner is a wish". One number exists so far; the rest arrive with ST-18.
+no owner is a wish".
+
+ST-18 PART ONE MEASURED 2026-08-29 on Corpus v1, MB's laptop, CPU only.
+`scripts/spike_st18.py index` and `... retrieve`. NO model calls in any
+number below -- these are the free half of the spike. G4 is NOT here yet.
+
+```
+Name:       G5, cold Sync of a 200-page workspace
+Measures:   Wall time from pressing Sync to the workspace being questionable
+Rule:       Whole `sync_workspace` call on an EMPTY store, encoder load
+            included, normalised to 200 pages. Cold on purpose: a user on a
+            fresh install waits for the model whether or not that is fair
+Population: HR workspace, Corpus v1, 3 files / 225 pages / 1,121 children
+Window:     Point measurement, re-run per release
+Good:       Under 600s per 200 pages (PRD G5: 10 minutes)
+Act at:     Over 600s, or under 120s of headroom
+Owner:      YL (ST-37 owns the tuning if it moves)
+Measured:   552.4s for 225 pages -> 491.0s per 200 pages. PASS.
+```
+READ THIS ONE HONESTLY, because "PASS" is doing a lot of work: it clears
+the budget by 18%. That is not comfortable, it is close. The whole cost is
+embedding -- the same workspace re-syncs in 0.23s when nothing changed, so
+scanning, hashing and the registry are 0.04% of it. Two consequences
+nobody has written down before:
+- at 2.45 seconds per page, the V1 capacity PRD section 11 advertises
+  (1,500 pages per workspace) would take about SIXTY-ONE MINUTES to sync.
+  That is not a G5 failure, because G5 only promises 200 pages -- but the
+  capacity line and the speed line have never been read against each other,
+  and a jury can multiply.
+- the headroom is a CPU-and-machine number. A slower laptop fails G5 on
+  the same corpus, and "reference machine" (PRD G4/G5) has never been
+  named. ST-37 needs to name it.
+
+```
+Name:       Retrieval quality against a word-counting baseline
+Measures:   Share of questions whose TOP hit comes from the right file
+Rule:       15 hand-written questions phrased as a user would ask, never
+            in the corpus's own words. Hybrid = `vector_store.search`.
+            Baseline = count shared words 4+ chars over every parent
+Population: Corpus v1, both workspaces
+Window:     Point measurement, re-run when retrieval changes
+Good:       Hybrid must beat the baseline, or hybrid is not earning itself
+Act at:     Hybrid <= baseline -> OR-1 change-request
+Owner:      YL
+Measured:   hybrid 12/15, counting words 6/15. Hybrid earns itself.
+```
+```
+Name:       Right ARTICLE, not just the right file
+Measures:   Share of legal questions whose top 3 hits contain the article
+            that actually answers them
+Rule:       6 of the 15 above name a specific article of the labour code
+Population: HR workspace, Corpus v1
+Window:     Point measurement
+Good:       Not yet set. See below -- setting it is ST-19's job
+Act at:     Not yet set
+Owner:      YL, and it is the most important open number on this project
+Measured:   3/6.
+```
+**THIS IS THE FINDING OF THE SPIKE, and it is not a speed problem.**
+Retrieval finds the right DOCUMENT 12 times in 15 and the right ARTICLE
+half the time. For this product that gap is close to the whole point: F-03
+puts file name AND section label in every citation, and the user story is
+an HR generalist forwarding "Article 231" to settle a dispute. A citation
+that says "the right 201-page PDF, somewhere" does not survive that
+forwarding. It is the same defect family as the citation-label escalation
+of 2026-08-23, which was fixed for LABELLING and is now showing up in
+RANKING.
+Two honest caveats, because this number will be quoted:
+- 15 questions is a small sample and 6 is smaller. Treat 3/6 as "about
+  half", never as 50.0%.
+- I WROTE BOTH THE QUESTIONS AND THE EXPECTED ANSWERS, so this is
+  self-graded. Two of the three whole-file misses are arguable rather than
+  wrong -- "comment attraper une erreur" returned the FAQ instead of the
+  errors tutorial, and "a quel age part-on a la retraite" returned the
+  pension articles of the dahir instead of the CLEISS guide, and both are
+  defensible answers. An independently written golden set is exactly what
+  ST-19 is for, which is the argument for writing it AFTER this run rather
+  than before.
+
+```
+Name:       Warm retrieval latency
+Measures:   One `vector_store.search` call, no model, no answer written
+Rule:       Median and 95th of 14 warm calls; the FIRST call is held out
+Population: Corpus v1, both workspaces, MB's laptop
+Window:     Point measurement
+Good:       Must be a small fraction of G4's 20s median budget
+Act at:     Over 2s
+Owner:      YL
+Measured:   median 0.213s, p95 0.243s. First call 34.3s (encoder load).
+```
+The held-out first call is not tidying. On the previous run it was 160.07s
+against a warm median of 0.233s -- one sample 690x the middle. Left in the
+pool it barely moves the median, lands JUST outside a 15-sample p95 by
+luck, and would land inside it at a different sample size. A number that
+changes character with how many questions you happened to ask is not a
+measurement. Both are reported; G4 will be judged warm with the cold
+figure stated beside it.
+
+TWO JOURNAL ITEMS CLOSED BY THIS RUN, both smaller than feared:
+- the per-file registry commit cost (open since ST-17): 0.23s for a
+  3-file workspace and 0.32s for a 10-file one when nothing changed, so
+  32-77 ms per file. Invisible next to embedding.
+- ST-17 self-review finding 1, the per-file workspace-wide parent scan:
+  re-ingesting ONE changed file took 33.2s and the deletion path read all
+  128 of the workspace's parent JSONs to find that file's own. At this
+  size it is noise inside a 33s embed. The extrapolation in that finding
+  (~75,000 reads for a G5-sized workspace) still stands as arithmetic and
+  is still unmeasured at that size.
+
+ONE ITEM STILL OPEN and it cannot be closed with this corpus: the cost of
+RE-ATTEMPTING a failed or skipped file on every sync. Corpus v1 contains
+no scanned or corrupt file -- the ST-07 gate refuses one on purpose -- so
+there is nothing here that exercises the path. It needs a deliberate bad
+fixture, which is a different job from measuring the real corpus.
+
+The pre-ST-18 number below is kept because it is still true and it is now
+in context: chunking was never the G5 factor, embedding always was.
 
 ```
 Name:       Chunking time for the G5 corpus
@@ -1600,6 +1716,46 @@ their own `chore/` branch, now together with 8.
    closes it, and it is a good candidate to fold in with 1, 2 and 6.
 
 ## Blockers / waiting on human
+
+- **G4 CANNOT BE MEASURED ON MB's MACHINE. Raised 2026-08-29 by ST-18.**
+  Owner: a human, and only a human -- both halves live in `.env`, which is
+  git-ignored and holds a secret, so no agent can fix either.
+  Fallback: if still open on 2026-09-05, G4 is measured on YL's machine
+  instead and the report says which machine produced it. ST-18's other
+  numbers (G5, retrieval, the baseline) are DONE and do not depend on this.
+
+  `scripts/spike_st18.py answer` ran all 15 questions and all 15 failed
+  before reaching the model. Nothing was spent: every call was rejected at
+  the door. TWO SEPARATE FAULTS, and the second is the interesting one:
+
+  1. `CLOUD_API_KEY` is invalid. Google answers
+     `400 INVALID_ARGUMENT ... API_KEY_INVALID: API key not valid`. A key
+     IS present (56 characters), so this is a wrong or revoked key, not a
+     missing one -- which is why nothing here reads as "unconfigured".
+  2. `CHAT_MODEL_CLOUD` on this machine is still `gemini-2.0-flash`, THE
+     MODEL GOOGLE RETIRED ON 2026-08-27. `config.py:61` says
+     `gemini-3.6-flash` and `.env.example:8` says `gemini-3.6-flash` --
+     both were corrected by PRs #55 and #58. The local `.env` was not,
+     because `.env` is git-ignored and a merge cannot reach it.
+     Confirmed by RUNNING it rather than by reading: `get_settings()`
+     resolves `chat_model_cloud` to `gemini-2.0-flash` on this machine.
+
+  THIS IS THE THIRD INSTANCE TODAY of one pattern, and it is worth naming
+  rather than fixing three times: a correction lands in a tracked file and
+  the machine keeps the old value. CLAUDE.md's graph project name was the
+  first, the deleted corpus files were the second (fixed by making the
+  gate fail on an unlisted file), and this is the third. The common shape
+  is a value that lives in TWO places, one of which git cannot reach.
+  There is no gate on `.env` at all: nothing compares it to
+  `.env.example`, so any setting corrected in the tracked template stays
+  wrong locally until something fails at runtime. A drift check between
+  the two is the durable fix and NO STORY OWNS IT. It is not improvised
+  here, because `config.py` is ST-02's and a new gate step is ST-03's.
+
+  Note for whoever fixes the key: the invalid key masked the retired model
+  entirely. A 400 on authentication happens before any model lookup, so
+  fixing only the key would have produced a 404 on the model name as the
+  NEXT failure, one run later. Fix both at once.
 
 - HALF CLOSED 2026-08-27, and closing it found a defect nothing else
   could have. A Gemini key now exists in a local `.env` and CLOUD MODE
