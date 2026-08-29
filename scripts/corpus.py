@@ -41,8 +41,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from change_detection import Fingerprint, compute_fingerprint  # noqa: E402
+from change_detection import compute_fingerprint, is_supported  # noqa: E402
 from conversion import ConversionOutcome, convert_file  # noqa: E402
+
+# WHY A DIGEST IS PRINTED AT ALL, and why nothing enforces it.
+#
+# Running `fetch` twice produced `howto-sockets.txt` at 23,215 bytes on
+# 2026-08-23 and 22,757 on 2026-08-29: docs.python.org rebuilds the archive
+# upstream, so the manuals workspace is not byte-reproducible while the
+# three HR PDFs are. Pinning a hash and failing on a mismatch is the obvious
+# next move and is deliberately NOT taken here -- ST-35 owns freezing the
+# corpus, and a freeze invented by this script first would be the wrong
+# shape. What is owed today is visibility, so `compute_fingerprint` is
+# called directly at both sites. It is the project's ONE file hasher: an
+# earlier version of this file hand-rolled a second one that pulled the
+# whole 1.5 MB labour code into memory and raised a bare OSError, which the
+# ST-07 review removed.
 
 # A page carrying fewer than this many characters is a picture of a page.
 #
@@ -271,33 +285,20 @@ def _target(doc: Document) -> Path:
     return CORPUS_ROOT / doc.workspace / doc.file_name
 
 
-def _fingerprint(path: Path) -> Fingerprint:
-    """The file's identity, from `change_detection`, NOT a second hasher.
+def _listed(workspace: str, file_name: str) -> tuple[str, str]:
+    """Manifest key, case-folded on BOTH sides of every comparison.
 
-    This was a bare `hashlib.sha256(path.read_bytes())` until the ST-07
-    review pass, which was wrong twice over. It was a SECOND file hasher in
-    a repo that already had one -- the rule is two copies is fine and the
-    third gets abstracted, and `compute_fingerprint` has 21 callers -- and
-    it was the WORSE of the two: it pulled the whole 1.5 MB labour code
-    into memory where the real one reads in chunks precisely so a large PDF
-    never does, and it raised a bare OSError instead of the named
-    `UnreadableFileError` the rest of the project catches.
-
-    Using the real one also removes a `stat().st_size` call, because a
-    Fingerprint already carries `size_bytes` -- counted from the bytes
-    actually read rather than from a separate `stat()`, so the two halves
-    can never describe different versions of the same file.
-
-    WHY A DIGEST IS PRINTED AT ALL, and why it is not ENFORCED. Running
-    `fetch` twice produced `howto-sockets.txt` at 23,215 bytes on
-    2026-08-23 and 22,757 on 2026-08-29: docs.python.org rebuilds the
-    archive upstream, so the manuals workspace is not byte-reproducible
-    while the three HR PDFs are. Pinning a hash and failing on a mismatch
-    is the obvious next move and is deliberately NOT taken here: ST-35 owns
-    freezing the corpus, and a freeze invented by this script first would
-    be the wrong shape. What is owed today is visibility.
+    Windows filesystems are case-insensitive and Linux ones are not, and
+    the ST-07 re-review proved that mixing the two produces a file that is
+    present and missing at the same time. A corpus file stored as
+    `CNSS-....PDF` satisfies `Path.exists()` on Windows -- so it converts
+    and passes -- while the stray sweep compares raw names in a set, does
+    not find it, and reports the SAME file as unlisted in the SAME run. On
+    Linux the halves fail the other way: MISSING plus stray. One disk, two
+    different wrong answers, neither of them wrong in a way that points at
+    the cause.
     """
-    return compute_fingerprint(path)
+    return (workspace.casefold(), file_name.casefold())
 
 
 def _download(url: str) -> bytes:
@@ -371,7 +372,7 @@ def verify() -> int:
         result = convert_file(target)
         pages = "-" if result.page_count is None else str(result.page_count)
         chars = len(result.markdown or "")
-        digest = _fingerprint(target).hex_digest[:16]
+        digest = compute_fingerprint(target).hex_digest[:16]
         print(f"{doc.file_name:<45} {result.outcome:<10} {pages:>6} {chars:>9,}  {digest}")
 
         if result.outcome is not ConversionOutcome.CONVERTED:
@@ -405,13 +406,22 @@ def verify() -> int:
     # two deleted ones sitting beside them -- a five-file HR workspace
     # including the superseded 2004 labour code this story removed for
     # competing with the consolidated one. The gate would have said MET.
-    expected = {(d.workspace, d.file_name) for d in MANIFEST}
+    # `is_supported` is the filter, and it is not politeness: the sweep must
+    # flag exactly what SYNC WOULD INDEX, no more. `scan_folder` skips an
+    # unsupported extension, so a `Thumbs.db` or a `.DS_Store` cannot reach
+    # ST-18's numbers -- and failing the gate red for an OS artifact that
+    # Windows drops into any folder someone opens would train the next
+    # person to ignore a red gate. Using the same predicate as sync also
+    # means the two cannot drift apart about what a corpus file is.
+    expected = {_listed(d.workspace, d.file_name) for d in MANIFEST}
     for workspace in sorted({d.workspace for d in MANIFEST}):
         folder = CORPUS_ROOT / workspace
         if not folder.is_dir():
             continue
         for stray in sorted(folder.iterdir()):
-            if stray.is_file() and (workspace, stray.name) not in expected:
+            if not stray.is_file() or not is_supported(stray):
+                continue
+            if _listed(workspace, stray.name) not in expected:
                 failures.append(
                     f"{workspace}/{stray.name}: ON DISK BUT NOT IN THE MANIFEST. "
                     f"Sync indexes the folder, not this list, so ST-18 would "
@@ -465,11 +475,12 @@ def sources() -> int:
             ]
             target = _target(doc)
             if target.exists():
-                fingerprint = _fingerprint(target)
+                fingerprint = compute_fingerprint(target)
                 lines.append(
                     f"- **On disk:** {fingerprint.size_bytes:,} bytes, "
                     f"sha256 `{fingerprint.hex_digest[:16]}` "
-                    f"(recorded, NOT pinned -- see `_fingerprint`)"
+                    f"(recorded, NOT pinned -- see the note at the top of "
+                    f"`scripts/corpus.py`)"
                 )
             if doc.zip_member:
                 lines.append(f"- **Archive member:** `{doc.zip_member}`")

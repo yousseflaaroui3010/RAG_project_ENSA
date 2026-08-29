@@ -1418,6 +1418,32 @@ REVIEW PASS AT ALL. CORRECTION, and it is a
    naming it. Restored to exit 0 after each. `fetch` proven by deleting
    one PDF and one archive-member file and watching both come back.
 
+   RE-REVIEW: 9/10, APPROVE, with two further defects it found by running
+   the new checks rather than reading them. BOTH FAIL CLOSED -- they cause
+   a false RED, never a false green, which is why they did not block:
+   - the stray sweep flagged ANY file, and `scan_folder` only ever indexes
+     a SUPPORTED extension. A `Thumbs.db` that Windows drops into any
+     folder someone opens would have turned the gate red for a file sync
+     could never touch, which is how a team learns to ignore a red gate.
+     Now filtered through `is_supported`, the same predicate sync uses, so
+     the two cannot drift about what a corpus file is.
+   - CASE. Windows filesystems are case-insensitive and Linux ones are
+     not, and comparing raw names in a set mixes the two. Reproduced: a
+     file renamed `CNSS-....PDF` satisfied `Path.exists()`, so it CONVERTED
+     and passed, and the same run also reported it as an unlisted stray --
+     one file, present and missing at once. Linux fails the other way
+     round (MISSING plus stray). Both sides of every comparison are
+     case-folded now.
+
+   ONE LIMIT OF THE 200-CHARACTER FLOOR, stated because it will otherwise
+   be discovered by someone quoting a number: the density is a PER-DOCUMENT
+   AVERAGE. Append 100 scanned pages to the 201-page labour code and the
+   average is still about 1,190, so it passes. The gate catches a scanned
+   DOCUMENT, not a scanned SECTION inside a good one. Worth knowing before
+   ST-18 quotes a coverage figure. The floor is also not tuned to these
+   three files: the thinnest real one runs 1,783 characters per page, so
+   200 sits nearly nine times below it rather than just under it.
+
    KNOWN AND NOT FIXED, owner ST-35: the manuals workspace is NOT
    byte-reproducible. `howto-sockets.txt` was 23,215 bytes on 2026-08-23
    and 22,757 today -- docs.python.org rebuilds the archive upstream. The
