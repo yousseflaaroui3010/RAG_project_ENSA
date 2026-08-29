@@ -1367,20 +1367,37 @@ therefore NOT a confirm-and-close; whoever takes it should diff the
 story's exit criteria against the four steps that actually exist. The
 duplication rule in the working rules is currently enforced by nothing.
 
-PARKED, found by the ST-21 session and NOT fixed here because CLAUDE.md
-was not otherwise being edited and the scoped boy-scout rule keeps
-drive-bys out of a story diff. It is two wrong lines in the file every
-session loads, so it is worth its own one-minute `docs/` branch:
-- CLAUDE.md gives the codebase-memory project name as
-  `C-Users-lenovo-Documents-Projects-RAG_project_ENSA`. The real name has
-  `OneDrive` in it: `C-Users-lenovo-OneDrive-Documents-Projects-RAG_
-  project_ENSA`, confirmed by `list_projects`. An agent copying the
-  documented name gets an error and may conclude the graph is unavailable.
-- The same section says 892 nodes / 3,228 edges; `index_status` now
-  reports 1,029 / 3,923 (index generated 2026-08-25, 0 skipped files,
-  one parse_partial line at DECISIONS.md:59 -- which is a real NUL byte
-  inside a table row describing a uuid5 separator, and is why grep calls
-  that file binary).
+CLOSED 2026-08-29 on `docs/fix-graph-project-name`, and the CORRECTION is
+the part worth keeping. This item was parked by the ST-21 session as "two
+wrong lines, a one-minute docs branch". Its first bullet was itself wrong,
+and fixing it as written is what broke the other machine.
+
+WHAT IT SAID: "CLAUDE.md gives the project name as
+`C-Users-lenovo-Documents-Projects-RAG_project_ENSA`. The real name has
+`OneDrive` in it, confirmed by `list_projects`."
+
+WHY THAT WAS WRONG: there is no "the real name". The codebase-memory
+project name is derived from the repo's ABSOLUTE PATH, so it differs per
+machine. YL's clone sits under OneDrive and MB's does not. `list_projects`
+confirmed the OneDrive name on the machine it was run on and said nothing
+about the other. The parked item was acted on, the OneDrive name was
+written into CLAUDE.md -- and that broke MB's machine, where
+`index_status` with the documented name returns "project not found",
+which reads exactly like the graph being unavailable. The line has now
+been wrong in BOTH directions, one machine at a time.
+
+THE FIX, and it is not a third name: CLAUDE.md no longer names a project
+at all. It says to call `list_projects` and take the entry whose
+`root_path` is this repo. A machine-specific value in a file both machines
+share cannot be repaired by writing the other machine's value.
+
+The second bullet needs no action: the node/edge counts it complained
+about are already gone from CLAUDE.md, replaced by "no node count is
+written here on purpose" -- and this session earned that rule again.
+`index_status` returned **5,922 edges and then 5,917 edges roughly ten
+minutes apart** on an unchanged working tree, because the index re-watches
+in the background. A number that moves while nobody edits anything is not
+a fact to write down. Run the call.
 
 PARKED for ST-28, found while reading the UX spec for this story and not
 fixed here because it is that story's decision: UX spec 7.2's file table
@@ -1678,12 +1695,18 @@ their own `chore/` branch, now together with 8.
   `C:\Program Files\GitHub CLI\gh.exe`. Do not conclude gh is missing and do
   not hand over a compare URL -- that is what stranded three branches for
   three days in July.
-- MACHINE-SPECIFIC, not a project blocker: the codebase-memory graph is
-  indexed and working on YL's machine (357 nodes / 365 edges at 40e4ac0) but
-  the MCP server is not installed on MB's machine, so MB's agents run the
-  absence protocol on grep and find alone. An earlier journal line stating
-  flatly "the repo is NOT indexed" was true only of that machine. Installing
-  it there is optional; the earlier refusal to install from an untrusted
+- STALE, corrected 2026-08-29 in the same pass that closed the project-name
+  item above, because it is the same subject and leaving it would send the
+  next session to grep on a machine where the graph answers. It said: "the
+  MCP server is not installed on MB's machine, so MB's agents run the
+  absence protocol on grep and find alone." IT IS INSTALLED AND ANSWERING
+  THERE. `list_projects`, `index_status` and `get_architecture` were all
+  called from MB's machine this session and all returned; the repo is
+  indexed with 0 skipped files. Both machines now have the graph. The rest
+  of the original entry, kept because its history still stands: the graph
+  was first indexed on YL's machine (357 nodes / 365 edges at 40e4ac0), and
+  an earlier journal line stating flatly "the repo is NOT indexed" was true
+  only of the other machine. The earlier refusal to install from an untrusted
   source that carried apparent prompt-injection text was the right call and
   still stands.
 
