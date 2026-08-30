@@ -137,13 +137,27 @@
     keeps a screen reader from restarting mid-answer -- the <noscript>
     path has to reload and accepts that cost.
   */
-  var area = document.querySelector("[data-conversation]");
-  if (!area || !document.querySelector("[data-stage]")) {
+  var label = document.querySelector("[data-stage] .stage__label");
+  if (!label) {
     return;
   }
 
   var POLL_MS = 700;
 
+  /*
+    ONLY THE LABEL'S TEXT IS UPDATED, and the element itself is never
+    replaced. That is an accessibility requirement, not a micro-
+    optimisation: `[data-stage]` carries role="status" aria-live="polite",
+    and a live region only announces changes to a node the screen reader
+    was already watching. Swapping the whole conversation area (which an
+    earlier draft of this file did) destroys and recreates that node every
+    tick, so UX spec 6.4's "stage changes during loading are announced"
+    silently stops being true.
+
+    Nothing else on the page can change while a run is in flight -- no
+    message is appended until it settles -- so there is nothing else to
+    swap in anyway.
+  */
   function tick() {
     fetch("/chat/messages", { headers: { "X-Requested-With": "fetch" } })
       .then(function (response) {
@@ -155,26 +169,20 @@
           return;
         }
         var parsed = new DOMParser().parseFromString(html, "text/html");
-        var fresh = parsed.querySelector("[data-conversation]");
+        var fresh = parsed.querySelector("[data-stage] .stage__label");
         if (!fresh) {
-          window.setTimeout(tick, POLL_MS);
+          // No stage block in the fresh render: the run has settled.
+          // Reload, so the composer is re-enabled and the new source
+          // cards get their dialogs and their listeners.
+          window.location.reload();
           return;
         }
-        // ONE request per tick, and the stage label inside it is the
-        // server's -- rendered from the port the agent is actually in.
-        // Asking a separate status endpoint and then patching the label
-        // would put a second copy of the stage on the page, which is the
-        // shape where the label says one thing and the panel another.
-        area.replaceWith(fresh);
-        area = fresh;
-        if (fresh.querySelector("[data-stage]")) {
-          window.setTimeout(tick, POLL_MS);
-          return;
+        // The server's label, rendered from the port the agent is
+        // actually inside. Never computed here.
+        if (fresh.textContent.trim() !== label.textContent.trim()) {
+          label.textContent = fresh.textContent.trim();
         }
-        // The run has settled. Reload rather than stop here, so the
-        // composer is re-enabled and the new source cards get their
-        // dialogs and their listeners.
-        window.location.reload();
+        window.setTimeout(tick, POLL_MS);
       })
       .catch(function () {
         /* A failed poll is not a failed answer: the run continues on the

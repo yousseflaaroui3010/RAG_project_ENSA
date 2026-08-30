@@ -159,11 +159,6 @@ def _context(runtime: Runtime, request: Request) -> dict:
             if state is screen.ScreenState.NO_DOCUMENTS
             else ""
         ),
-        # The rail shows the sources of the most recent ANSWER. An error
-        # panel or a refusal leaves it empty rather than stale: cards
-        # belonging to two questions ago, sitting beside a refusal, read
-        # as that refusal's evidence.
-        "rail_sources": _rail_sources(conversation.messages if conversation else []),
     }
 
 
@@ -186,13 +181,6 @@ async def _form(request: Request) -> dict[str, str]:
     what `base.html` declares and what a browser therefore encodes in."""
     body = (await request.body()).decode("utf-8", errors="replace")
     return dict(parse_qsl(body, keep_blank_values=True, encoding="utf-8"))
-
-
-def _rail_sources(messages: list[Message]) -> tuple:
-    last = messages[-1] if messages else None
-    if last is None or last.kind is not MessageKind.ANSWER:
-        return ()
-    return last.sources
 
 
 def create_app(runtime: Runtime | None = None) -> FastAPI:

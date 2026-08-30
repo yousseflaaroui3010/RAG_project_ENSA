@@ -1506,8 +1506,8 @@ state the screen is in, plus `ui/templates/` and `ui/static/`. Jinja and
 hand-written CSS per CR-02; ADR-10 intact, nothing vendored, no npm.
 
 MEASURED, in gate.yml order, on the branch: `uv sync --frozen` clean (170
-packages), `uv run ruff check .` exit 0, `uv run pytest` **597 passed / 2
-skipped** in 811s. Secret scan: `gitleaks detect --no-git` over the 20
+packages), `uv run ruff check .` exit 0, `uv run pytest` **598 passed / 2
+skipped**, exit code 0. Secret scan: `gitleaks detect --no-git` over the 20
 files this branch touches, **"no leaks found", exit 0** -- SCOPE STATED,
 that is this branch's files, not the whole history; a full-history
 `gitleaks detect` timed out twice at nine minutes on this machine.
@@ -1551,6 +1551,59 @@ found: on a machine with no `data/sanad.db`, `GET /` raised
 while seeding the demo workspace, not by a test. `app.py` now calls
 `repo.ensure_schema` in its lifespan, and the test that pins it
 deliberately does NOT create the database first.
+
+## THE LIVE RUN, 2026-08-30 -- real corpus, real model, real browser route
+
+The exit gate says "demonstrated live", so it was, against the REAL
+things rather than fixtures. A workspace was created over
+`data/corpus/hr` with the legal flag set, and Sanad's own Sync indexed
+it: **2 documents active, 217 pages (201 + 16), 118 parent sections,
+1,255 seconds.** The server was `uv run python app.py` on 127.0.0.1:8000
+and every figure below was read off an HTTP response from it.
+
+| S1 state | How it was demonstrated |
+|---|---|
+| Empty, with documents | LIVE. Sample questions naming both real files, plus the sources line |
+| Loading, three stage hints | LIVE, sampled once a second: t=1 "Searching the workspace", t=3 "Checking the answer", t=4 "Writing" |
+| Error | LIVE. Server restarted with `MODEL_MODE=banana`; the panel named the exact failing value |
+| User variant | LIVE |
+| Answer variant | LIVE. 5 source cards, disclaimer line present (legal workspace) |
+| Refusal variant | LIVE. 7 searches disclosed, 0 source cards, no disclaimer |
+| Clarification variant | TEST ONLY -- ST-22's stub means the running app cannot produce one |
+| Source cards + passage viewer | LIVE. Article 14's whole section, 3,811 chars, with the 512-char retrieved chunk marked |
+| Interrupted (cancel) | LIVE. "Incomplete -- not an answer", no sources, input re-enabled |
+| No workspace / no documents | TEST ONLY -- the live machine has both |
+
+THE ANSWER IT ACTUALLY GAVE, because a screenshot of a state is not the
+same as a correct product. Asked "Quelle est la duree de la periode
+d'essai pour un cadre ?", `gemini-3.6-flash` answered from **Article 14**
+-- three months for cadres, renewable once, with the fixed-term rules
+beside it -- and cited Articles 14, 13, 80-82 and 502-503 of the
+consolidated code. The retry marker read 0 for that one. The refusal run
+("Comment cuisiner un tajine aux pruneaux ?") disclosed 7 searches and
+its marker read "Reworded 2 time(s)", which is exactly
+`config.retry_ceiling = 2`: the number shown IS the number the loop ran.
+
+ENCODING CHECKED RATHER THAN ASSUMED, because a French corpus in a
+Windows terminal is where mojibake hides: the served page decodes as
+UTF-8 with **zero replacement characters**, and the accented bytes are
+real codepoints (0xe9 for é, 0xe0 for à). The console this was read in
+cannot display them; the page is fine.
+
+**A COLD PROCESS IS UNRESPONSIVE ON ITS FIRST SEARCH, and it is parked,
+not fixed.** The first `retrieve` in a fresh server loads the real
+encoders (sentence-transformers + the fastembed BM25 model), and while
+that happens the server served no other request for minutes -- the stage
+hint sat on "Searching the workspace" and even `GET /chat/messages`
+never reached the log. OBSERVED, and the GIL is the likely cause rather
+than a proven one; nobody has profiled it. It is a warm-up cost, not a
+defect in the screen: the second question in the same process answered in
+seconds. Two things follow. For the defense, ASK ONE QUESTION BEFORE THE
+JURY WALKS IN (ST-30's demo script should say so). For a future story,
+the fix is a startup warm-up in `app.py`, which trades a slow boot for a
+fast first question -- deliberately NOT improvised here, because it makes
+`uv run python app.py` take half a minute before it serves anything and
+that is a call for whoever owns the demo.
 
 WHAT THE SCREEN CANNOT DO YET, and none of it is hidden:
 - **The clarification variant cannot appear live.** `ui/ports.py` stubs
@@ -1762,7 +1815,7 @@ shipped code. Fix them in the design, or accept each one in writing.
 ## Next (ordered queue, top 3 only)
 
 0. **MERGE ST-27** (`feat/S2-ST-27-chat-screen`). Green on the branch, gate
-   run by hand in gate.yml order (597 passed / 2 skipped, ruff 0, gitleaks
+   run by hand in gate.yml order (598 passed / 2 skipped, ruff 0, gitleaks
    clean over the branch's files). STILL OWED BEFORE MERGE, per rule 5 and
    this project's six-stories-running record: a cold verifier read AND the
    reviewer pass. Do not merge on the green.
