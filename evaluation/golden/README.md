@@ -8,8 +8,15 @@ Built in three batches, because the plan builds it in three batches:
 | Batch | Story | In scope | Out of scope | Running total |
 |---|---|---|---|---|
 | `batch1.jsonl` | ST-19 | 15 | 8 | 15 + 8 |
-| batch 2 | ST-29 | +15 | +7 | 30 + 15 |
+| `batch2.jsonl` | ST-29 | +15 | +7 | 30 + 15 |
 | batch 3 | ST-35 | +10 | +5 | **40 + 20, frozen** |
+
+The counts live in one table in `tests/unit/test_golden_set.py`
+(`EXPECTED_COUNTS`), not in a test per batch. **ST-35 adds one row to that
+table.** A second test refuses any `.jsonl` in this folder that the table does
+not list, because a table that ignores what it does not know about is not a
+check — batch 3 could otherwise arrive uncounted and every count test would
+go on passing.
 
 The 40 + 20 target is PRD F-08 and architecture section 14. G2 is graded on the
 out-of-scope half and demands **20 of 20** refusals, so an out-of-scope question
@@ -75,6 +82,49 @@ Eight out-of-scope questions, every one verified absent by the checker above. Th
 are deliberately near-misses rather than nonsense. Asking a labour-law corpus about
 football scores proves nothing; asking it about **rupture conventionnelle** — when
 it holds long passages on ending a contract — is where a model actually invents.
+
+## What batch 2 adds
+
+Fifteen more in-scope questions, deliberately rebalanced toward the two CNSS
+documents: **8 labour code, 4 CNSS dahir, 3 CLEISS guide**, where batch 1 was
+12/2/1. Over the 30 in-scope questions so far that is 20/6/4, which is roughly
+how the three documents compare in size. A test holds the three-document rule
+**per batch**, not over the whole set, so a later batch cannot drift entirely
+onto the labour code on the strength of an earlier one.
+
+Several rows are paired with a batch-1 row on purpose, because the pair is
+harder than either question alone:
+
+| Batch 2 | Pairs with | Why the pair is the test |
+|---|---|---|
+| `g-in-018` employer's gross misconduct (art. 40) | `g-in-004` employee's (art. 39) | consecutive articles, opposite parties — answering one with the other is a clean miss |
+| `g-in-019` who qualifies for severance (art. 52) | `g-in-006` the severance scale (art. 53) | consecutive articles; the scale alone is an incomplete answer |
+| `g-in-027` pension amount (dahir art. 55) | `g-in-013` pension conditions (dahir art. 53) | one says who qualifies, the other says how much |
+| `g-in-025` maternity benefit, **14 weeks** (dahir art. 37) | `g-in-009` maternity leave, **14 weeks** (code art. 152) | same number, different documents, different meaning — citing the wrong file is wrong even with the right figure |
+| `g-in-029` early retirement at 55 (CLEISS) | `g-in-013` normal pension at 60 (dahir) | two ages that must not merge |
+
+**Two article-number collisions are now in the set and both are deliberate:**
+labour code article 53 vs CNSS dahir article 53 (severance vs old-age
+pension), and labour code article 33 vs dahir article 33 (early CDD
+termination vs the 30-day sick-leave notice). A citation that gets the number
+right and the document wrong is still a wrong citation, and F-03 makes the
+source line the product's contract with the user.
+
+Seven more out-of-scope questions, every one verified absent: French labour
+court, personal-data obligations, health emergency rules, sabbatical leave,
+non-compete clauses, the thirteenth-month bonus, and profit sharing.
+
+### One question that was dropped, and why it is worth knowing
+
+"How many months of notice must a manager give?" is the perfect out-of-scope
+question — article 43 states the obligation and hands the **duration** to a
+decree the corpus does not contain, so the corpus names the topic and cannot
+answer it. It is not in the set, because the schema requires an out-of-scope
+row to name a term that is absent from every document, and there is no such
+term here: `préavis` appears 40 times and the decree number appears in a
+footnote. Rather than bend the rule that makes the out-of-scope half
+falsifiable, the question was left out. `g-in-005`'s note carries the same
+trap from the in-scope side instead.
 
 ## Two honest caveats, recorded rather than smoothed over
 

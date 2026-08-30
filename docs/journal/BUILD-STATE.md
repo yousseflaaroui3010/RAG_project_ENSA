@@ -202,6 +202,71 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
+**ST-29 GOLDEN SET BATCH 2 IS BUILT, on branch
+`feat/S2-ST-29-golden-set-batch-2`, NOT MERGED and NOT REVIEWED.** +15
+in-scope and +7 out-of-scope, **running total 30 + 15**, which is ST-29's
+exit gate exactly. `uv run python scripts/golden_grounding.py` -> "OK: 45
+rows grounded (30 in scope, 15 out)". 6 new mutations, all 6 killed. Full
+gate below.
+
+**READ THIS BEFORE TOUCHING THE BRANCH: it was cut from ST-19's branch, NOT
+from main.** ST-19 is still open as PR #67, and batch 2 needs the schema and
+the tests that only exist there. This is a deviation from CLAUDE.md rule 2,
+which says branches are cut from latest main, and it is recorded rather than
+absorbed. The consequence is concrete: **if YL sends #67 back, this branch is
+rebuilt, not patched.** Merge #67 first, then this.
+
+WHAT BATCH 2 IS FOR, beyond the count. Batch 1 was 12 labour code / 2 dahir /
+1 CLEISS, which would have left both CNSS documents nearly ungraded. Batch 2
+is 8 / 4 / 3, putting the 30 in-scope rows at 20 / 6 / 4 -- roughly how the
+three documents compare in size. The three-document rule is now held PER
+BATCH rather than over the whole set, because a total would let batch 3 drift
+entirely onto the labour code on the strength of batch 1.
+
+FIVE ROWS ARE PAIRED WITH A BATCH-1 ROW, and the pair is the test: employer's
+gross misconduct (art. 40) against the employee's (art. 39), consecutive
+articles and opposite parties; the severance SCALE (art. 53) against WHO
+QUALIFIES for it (art. 52); the pension AMOUNT (dahir 55) against the pension
+CONDITIONS (dahir 53); and the two different fourteen-week rules -- code art.
+152 is the LENGTH OF LEAVE, dahir art. 37 is the LENGTH OF PAYMENT, same
+number, different documents.
+
+TWO ARTICLE-NUMBER COLLISIONS ARE NOW DELIBERATE: code art. 53 vs dahir art.
+53, and code art. 33 vs dahir art. 33. A citation that gets the number right
+and the document wrong is still wrong, and F-03 makes the source line the
+product's contract with the user.
+
+ONE QUESTION WAS DROPPED AND THE REASON IS WORTH KEEPING. "How many months of
+notice must a manager give?" is the ideal out-of-scope question -- article 43
+states the obligation and hands the DURATION to a decree the corpus does not
+hold, so the corpus names the topic and cannot answer it. It is not in the
+set, because an out-of-scope row must name a term absent from every document
+and there is none here: `préavis` appears 40 times. Bending that rule would
+cost the out-of-scope half the only thing that makes it falsifiable. Recorded
+in the README instead.
+
+THE COUNT CHECK IS NOW A TABLE, NOT A TEST PER BATCH, plus a companion test
+that refuses any golden file the table does not list. **ST-35 adds one row.**
+The companion is the half that matters and it was written by asking what the
+table cannot see: without it, batch 3 could arrive unlisted and every count
+test would go on passing while grading a set nobody counted. There is also a
+cap at 40 + 20 -- G2 grades "20 refusals out of 20", so a 21st out-of-scope
+question makes the gate's own denominator a lie.
+
+**THE FRENCH-LANGUAGE CHECK HAS NOW FAILED TWICE, ON TWO DESIGNS, AND WAS
+RIGHT BOTH TIMES.** Version 1 was a hand-written list of accented letters and
+missed "À partir de quel âge" (ST-19). Version 2 was "does NFKD decomposition
+change the string" and rejected `g-out-009`, "Comment saisir le conseil de
+prud'hommes contre mon employeur ?" -- flawless French with not one accented
+character in it. Version 3 is an accent OR two distinct French function
+words, failing only when both miss. The lesson is not about accents: both
+earlier versions were PROXIES that held on the rows written so far and broke
+the moment a row arrived that was correct in a way the proxy had not
+imagined. The marker list deliberately excludes English look-alikes, because
+a marker an English sentence can contain makes the check weaker rather than
+more generous.
+
+Previous, and still the state of PR #67:
 **ST-19 GOLDEN SET BATCH 1 IS BUILT, on branch
 `feat/S1-ST-19-golden-set-batch-1`, NOT MERGED and NOT REVIEWED.** 15
 in-scope + 8 out-of-scope French questions in `evaluation/golden/batch1.jsonl`.
