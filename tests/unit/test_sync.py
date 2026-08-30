@@ -1062,3 +1062,97 @@ def test_change_detection_agrees_with_sync_about_document_statuses():
     known = {s.value for s in DocumentStatus}
     assert change_detection._STATUS_WITHOUT_DERIVED_DATA <= known
     assert change_detection._STATUS_ALREADY_REPORTED_REMOVED <= known
+
+
+def test_a_file_that_becomes_unsupported_stops_answering(
+    folder, run_sync, store, workspace, db_path, monkeypatch
+):
+    """The defect the ST-12 review pass found, and it is a lie not a crash.
+
+    An operator narrows `supported_document_extensions`. A file already
+    ingested under the old list now falls outside it. PR #40 stopped that
+    file being reported Removed as well as Skipped; it did not stop the
+    file ANSWERING. So the per-file report said Skipped while the product
+    kept citing its passages -- the report lying about the product, which
+    F-02's whole contract forbids.
+
+    Asserted as a real round trip through the store, not as a status
+    string: search before, search after, and the row's own status.
+    """
+    _write(folder, "handbook.md", HR_TEXT)
+    first = run_sync()
+    assert _results(first) == {"handbook.md": sync.SyncResult.ADDED}
+    assert _search(store, workspace.id, "conges payes"), (
+        "the file must really be answering before the test means anything"
+    )
+
+    # Narrow the supported list, exactly as an operator editing .env would.
+    narrowed = get_settings().model_copy(
+        update={"supported_document_extensions": ("pdf",)}
+    )
+    monkeypatch.setattr(change_detection, "get_settings", lambda: narrowed)
+
+    second = run_sync()
+
+    assert _results(second) == {"handbook.md": sync.SyncResult.SKIPPED}
+    assert not _search(store, workspace.id, "conges payes"), (
+        "a file the report calls Skipped must not still be answering"
+    )
+    conn = repo.get_connection(db_path)
+    try:
+        rows = repo.list_documents(conn, workspace.id)
+    finally:
+        conn.close()
+    assert [r["status"] for r in rows] == ["skipped"]
+
+
+def test_the_skipped_row_carries_its_document_id(
+    folder, run_sync, workspace, db_path, monkeypatch
+):
+    """The report row must point at the document it is about.
+
+    The old code recorded every unsupported file with `document_id=None`,
+    on a comment claiming an unsupported file never has a document row.
+    A file narrowed out of the supported list has one, so the report row
+    for the only case that matters pointed at nothing.
+    """
+    _write(folder, "handbook.md", HR_TEXT)
+    run_sync()
+    narrowed = get_settings().model_copy(
+        update={"supported_document_extensions": ("pdf",)}
+    )
+    monkeypatch.setattr(change_detection, "get_settings", lambda: narrowed)
+
+    report = run_sync()
+
+    conn = repo.get_connection(db_path)
+    try:
+        items = repo.list_sync_items(conn, report.sync_run_id)
+        documents = repo.list_documents(conn, workspace.id)
+    finally:
+        conn.close()
+    assert len(items) == 1
+    assert items[0]["document_id"] == documents[0]["id"]
+
+
+def test_a_never_ingested_unsupported_file_still_reports_with_no_document(
+    folder, run_sync, workspace, db_path
+):
+    """The common case must not have changed: no row, nothing to delete.
+
+    Written because the fix above added a deletion call to this branch,
+    and a deletion for a file that was never ingested would be a new way
+    to fail on the most ordinary input there is.
+    """
+    _write(folder, "deck.pptx", "x")
+
+    report = run_sync()
+
+    assert _results(report) == {"deck.pptx": sync.SyncResult.SKIPPED}
+    conn = repo.get_connection(db_path)
+    try:
+        items = repo.list_sync_items(conn, report.sync_run_id)
+        assert repo.list_documents(conn, workspace.id) == []
+    finally:
+        conn.close()
+    assert items[0]["document_id"] is None

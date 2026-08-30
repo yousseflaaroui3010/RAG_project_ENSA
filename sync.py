@@ -390,18 +390,41 @@ def _run(
     # nothing (PRD section 11: nothing partially ingested).
     vector_store.ensure_collection(client, workspace_id=workspace_id)
 
-    # An unsupported file never gets a document row (it has no fingerprint
-    # and nothing was ingested), so its report row carries no document_id.
+    rows_by_name = _document_rows(workspace_id=workspace_id, db_path=db_path)
+
     # PRD section 11: "Skipped, listed in the sync report with the reason".
+    #
+    # THE COMMENT THAT USED TO BE HERE SAID "an unsupported file never gets
+    # a document row (it has no fingerprint and nothing was ingested)", and
+    # PR #40's own scenario disproves it: a file that was ingested as a
+    # supported type and LATER fell outside `supported_document_extensions`
+    # -- because an operator narrowed the list -- has a document row, live
+    # vectors and parent files. PR #40 stopped that file being reported
+    # Removed as well as Skipped. It did not stop the file still answering.
+    #
+    # So the report said Skipped while the product kept citing it. That is
+    # the report lying about the product, which is worse than either state
+    # on its own, and F-02's whole contract is that the per-file report is
+    # what actually happened.
+    #
+    # `skipped` is the right document status AND it obliges the deletion,
+    # rather than merely permitting it: ST-17 put `skipped` inside
+    # `change_detection._STATUS_WITHOUT_DERIVED_DATA`, so a `skipped` row
+    # asserts there is no derived data. Marking the row without deleting
+    # would make that assertion false and leave orphan vectors no later
+    # sync could find. The two go together or neither is correct.
     for unsupported in report.unsupported:
+        row = rows_by_name.get(unsupported.file_name)
         items.append(
-            _record(
-                db_path,
-                sync_run_id=sync_run_id,
+            _skip_unsupported(
+                client,
                 workspace_id=workspace_id,
                 file_name=unsupported.file_name,
-                result=SyncResult.SKIPPED,
                 reason=unsupported.reason,
+                row=row,
+                sync_run_id=sync_run_id,
+                db_path=db_path,
+                parent_base_path=parent_base_path,
             )
         )
 
@@ -410,7 +433,11 @@ def _run(
     # last run's chunks are wrong, so its existing passages keep answering
     # questions. Marking it `failed` would delete nothing but would tell
     # `change_detection` there is no derived data, which is false.
-    rows_by_name = _document_rows(workspace_id=workspace_id, db_path=db_path)
+    #
+    # The contrast with the unsupported branch above is the point, and it
+    # is not an inconsistency. "We could not read it this run" is a fact
+    # about US and says nothing about the file; "this type is no longer
+    # processed" is a decision about the FILE that the operator made.
     for unreadable in report.unreadable:
         row = rows_by_name.get(unreadable.file_name)
         items.append(
@@ -567,6 +594,78 @@ def _remove(
         reason=reason,
         document_id=change.document_id,
         document=document,
+    )
+
+
+def _skip_unsupported(
+    client: Any,
+    *,
+    workspace_id: str,
+    file_name: str,
+    reason: str,
+    row: Any | None,
+    sync_run_id: str,
+    db_path: str | Path | None,
+    parent_base_path: str | Path | None,
+) -> SyncItemReport:
+    """Report one unsupported file, and stop it answering if it ever did.
+
+    The common case is a file that was never ingested: no row, nothing
+    derived, one Skipped report line and nothing else to do. `row` is None
+    and this is a single `_record` call.
+
+    The case that had a bug in it is a file that WAS ingested and later
+    fell outside `supported_document_extensions`, because an operator
+    narrowed the list. That file has a document row, live vectors and
+    parent files, so before this function existed the report said Skipped
+    while answers kept citing it.
+
+    Deletion happens first and the row is written second, mirroring
+    `_remove` and for the same reason: both orders can fail halfway, and
+    only this one fails safely. Vectors gone with the row still `active`
+    is a file that answers nothing and will be re-examined next sync;
+    the row `skipped` with vectors still live is the exact lie this
+    function exists to end, made permanent -- no later sync would look at
+    a `skipped` row again.
+    """
+    if row is None:
+        return _record(
+            db_path,
+            sync_run_id=sync_run_id,
+            workspace_id=workspace_id,
+            file_name=file_name,
+            result=SyncResult.SKIPPED,
+            reason=reason,
+        )
+
+    deletion = vector_store.delete_document(
+        client,
+        workspace_id=workspace_id,
+        source_file=file_name,
+        parent_base_path=parent_base_path,
+    )
+    full_reason = reason
+    if deletion.unreadable_parent_files:
+        full_reason += UNREADABLE_PARENTS_NOTE.format(
+            count=len(deletion.unreadable_parent_files)
+        )
+    return _record(
+        db_path,
+        sync_run_id=sync_run_id,
+        workspace_id=workspace_id,
+        file_name=file_name,
+        result=SyncResult.SKIPPED,
+        reason=full_reason,
+        document_id=row["id"],
+        document=_DocumentWrite(
+            # Fingerprint carried over unchanged, as `_remove` does: it
+            # describes the file as it last was, which is still true.
+            file_type=row["file_type"],
+            content_hash=row["content_hash"],
+            status=DocumentStatus.SKIPPED,
+            page_count=row["page_count"],
+            last_synced_at=repo.utc_now(),
+        ),
     )
 
 
