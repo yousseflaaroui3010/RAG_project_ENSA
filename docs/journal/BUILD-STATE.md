@@ -1,14 +1,31 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: **2ebb74d on main**, 2026-08-28. Three PRs landed
-since the previous header and all three are merged: #58 (the dead model
-name in `.env.example`), #57 (ST-24) and #59 (the decline parser's case
-rule).
+Last verified commit: **f4cf208 on main**, 2026-08-30. Five PRs landed
+since the previous header and all five are merged: #61 (the graph project
+name), #62 (ST-07 Corpus v1), #63 (the ST-18 spike), #65 (the ST-12
+review pass) and #64 (`.env.example` drift now an actual check).
 
-MEASURED ON MAIN AT 2ebb74d, all four gate.yml steps by hand, after the
-merges rather than before: `uv sync --frozen` clean (170 packages),
-`uv run ruff check .` exit 0, `uv run pytest` **522 passed / 2 skipped**
-in 190s, `gitleaks detect` exit 0 "no leaks found" (3.26 MB scanned).
+MEASURED ON MAIN AT f4cf208, by hand, in gate.yml order, AFTER both of
+today's merges rather than before: `uv sync --frozen` clean (170
+packages), `uv run ruff check .` exit 0, `uv run pytest` **529 passed /
+2 skipped** in 59.31s.
+
+THE FOURTH GATE STEP WAS NOT RUN LOCALLY AND THIS HEADER WILL NOT PRETEND
+IT WAS. `gitleaks` is NOT INSTALLED on MB's machine -- `where gitleaks`
+and `gitleaks version` both come back empty, 2026-08-30. Previous headers
+quoted a local `gitleaks detect` exit 0; whatever produced those, this
+machine cannot produce one today. What IS verified: the `verify` job on
+GitHub runs `gitleaks/gitleaks-action@v2` and passed on BOTH merged PRs
+(#65 in 1m23s, #64 in 1m29s on the re-run against the updated main). So
+the secret scan is green ON CI and UNVERIFIED LOCALLY. Whoever installs
+gitleaks here closes the gap; until then, do not write "all four steps".
+
+WHY THIS HEADER MOVED AT ALL, since it is the failure the header exists to
+catch: it sat at `2ebb74d` / 522 passed while FIVE commits had landed above
+it. Its own rule says the only commit allowed above the stamped one is the
+journal commit recording the measurement. Five were not that. Caught by
+asking "is everything journaled" rather than by any check -- there is no
+gate on this file's freshness, and that remains true after this edit.
 
 **SANAD NOW ANSWERS A REAL QUESTION END TO END, WITH SOURCES.** ST-24
 closed the last seam on the critical path. Five of the eight ports in
@@ -185,6 +202,40 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
+**THE ST-12 REVIEW DEBT IS PAID. MERGED as `1ae78c1` (PR #65, squash),
+2026-08-30**, and `f4cf208` (PR #64) landed on top of it the same morning.
+Both branches were deleted on merge. Gate re-run on main after BOTH:
+`uv run ruff check .` exit 0, `uv run pytest` **529 passed / 2 skipped**.
+PR #64 was rebuilt on the new main and re-verified BEFORE it merged rather
+than trusting a green earned against an older base -- its CI ran a second
+time (1m29s) on the updated branch.
+
+WHAT PR #65 ACTUALLY FIXED, because the title understates it: **the report
+was lying about the product.** An operator narrows
+`supported_document_extensions`; a file already ingested under the old list
+falls outside it but keeps its document row, its live vectors and its
+parent files. Sync wrote a `Skipped` report row and did nothing else -- so
+answers kept citing a file the report called Skipped. PR #40 had stopped
+that file being reported Removed *as well as* Skipped; it never stopped it
+ANSWERING. The new `_skip_unsupported` deletes both derived stores and
+writes the row, deletion first, mirroring `_remove` for the same reason.
+
+WHAT PR #64 CLOSED: ST-02's own exit criterion, "every config var
+documented in `.env.example`", which nothing had ever enforced because
+`.env.example` is a text file no code reads. It had drifted to TEN
+undocumented settings. Three checks now hold it in BOTH directions, and
+the second direction is the one that rots quietly -- pydantic-settings
+IGNORES an unknown environment variable, so a stale key is something you
+can fill in, restart, and watch do nothing with no error anywhere. A
+fourth check refuses a byte-order mark in the template, which was already
+on main and harmless only by luck.
+
+WHAT NEITHER OF THEM TOUCHED, so it is not quietly assumed closed: the
+`.env` blocker below. Both PRs fix the TRACKED end. A `.env` is git-ignored
+and holds a secret, so no merge can reach it, and MB's machine still holds
+an invalid key and a retired model name.
+
+Previous, and still the state of the product:
 ST-24 ANSWER NODE + SOURCE CONTRACT + HONEST REFUSAL **MERGED as c511bc8**
 (PR #57, squash), 2026-08-28, followed by `2ebb74d` (PR #59, the decline
 parser's case rule). The whole gate was run by hand in gate.yml order on
@@ -197,7 +248,9 @@ at a time, all 31 killed.
 IT HAD BOTH REVIEW PASSES BEFORE MERGE, which no story on this project had
 managed before: a COLD verifier read and the RULE-5 pass. The rule-5 pass
 said DO NOT APPROVE, its blocking finding was fixed, and it then approved
-on re-review. ST-12, ST-21 and ST-23 are still owed theirs.
+on re-review. ST-21 and ST-23 are still owed theirs. **ST-12's was PAID on
+2026-08-30 (PR #65)** and it found three real defects, so the debt was not
+bookkeeping -- see the top of this section.
 
 TWO REVIEW PASSES RAN, and the second one is the entry worth keeping.
 
@@ -512,7 +565,7 @@ verifier pass whose blocking finding was fixed, and one human read that
 found the two structural gaps. What it did NOT have is the partner's
 eyes. On this project a post-green pass has found a real defect on five
 stories running, so the debt is real even when the evidence looks strong.
-ST-12's review is still owed too; that makes two. This is the first module of the answering half: everything before
+ST-12's review is still owed too; that makes two. [SUPERSEDED 2026-08-30: ST-12's was paid, PR #65.] This is the first module of the answering half: everything before
 it put documents INTO the stores, and nothing has ever taken a question.
 
 WHAT IT IS, and just as importantly what it is not. Architecture 5.2 is
@@ -1406,9 +1459,12 @@ THE FIVE THINGS MOST LIKELY TO WASTE A NEW SESSION'S TIME:
    `chunking.py`, `parent_store.py`, `vector_store.py`, `sync.py` and
    `embeddings.py` are MB's. Read and call them; do not change them.
 
-REVIEW DEBT, still owed on three stories: ST-12 (1862a58, oldest), ST-21
-(24479ba) and ST-23 (af14c4e) all merged without the rule-5 partner
-review. ST-24 is NOT on this list -- it is the first story on this project
+REVIEW DEBT, now owed on TWO stories, not three: ST-21 (24479ba) and
+ST-23 (af14c4e) merged without the rule-5 partner review. **ST-12
+(1862a58) was the oldest and is PAID -- PR #65, merged 2026-08-30.** It
+graded 6/10 DO NOT APPROVE and found three real defects in a module two
+earlier reviews had already corrected twice, which is the argument for
+paying the other two rather than writing them off. ST-24 is NOT on this list -- it is the first story on this project
 to get both passes before merging, and that is exactly why the debt is
 worth paying: its rule-5 pass said DO NOT APPROVE and its blocking finding
 was a defect that discarded correct answers, invisible to a green suite
@@ -1515,11 +1571,12 @@ shipped code. Fix them in the design, or accept each one in writing.
    UI DESIGN REVIEW section above FIRST -- it lists five drifts from the
    signed UX spec, one of which is a measured contrast failure. And read
    `agent/ports.py` before assuming what the UI can call.
-2. THE TWO OWED REVIEW PASSES, now both recorded rather than one: ST-12
-   (1862a58, owner MB by agreement 2026-07-28) and ST-21 (24479ba,
-   merged without the rule-5 partner review at the human's instruction).
-   ST-12's is the older debt and is the module ST-17's review changed
-   twice.
+2. THE OWED REVIEW PASSES. **ST-12's is DONE -- PR #65, merged
+   2026-08-30**, six weeks after it was agreed on 2026-07-28. What is
+   still owed is ST-21 (24479ba, merged without the rule-5 partner review
+   at the human's instruction) and ST-23 (af14c4e). ST-21 is now the
+   oldest unpaid one and it has had NO agent review of any kind -- see
+   the HISTORY note below, which is a correction of this file.
 
 HISTORY, kept because the correction is the point: ST-21 HAS HAD NO AGENT
 REVIEW PASS AT ALL. CORRECTION, and it is a
@@ -1857,6 +1914,29 @@ their own `chore/` branch, now together with 8.
    Stripped, and a fourth test now refuses it, proven by watching it fail
    on the committed bytes first. CLAUDE.md's Windows write trap named this
    exact hazard; it is enforced somewhere now instead of remembered.
+
+10. OPEN, PARKED NOT FIXED, found 2026-08-30 while adding a row to
+    `DECISIONS.md`. **That file contains one raw NUL byte (`0x00`), at
+    byte 36320, line 59.** It is inside the ST-16 row describing the
+    child-point id: `uuid5(namespace, "<parent_id>\0<index>")`. Somebody
+    wrote the separator as an actual NUL instead of escaping it, so the
+    record now CONTAINS the byte it is describing.
+
+    WHY IT MATTERS AND WHY IT IS NOT COSMETIC. Two tools already treat the
+    file as unreadable because of it: `grep` reports "Binary file
+    docs/journal/DECISIONS.md matches" and prints NO line, so every search
+    of the decision log silently returns nothing usable; and the code
+    index reports `parse_partial` on exactly line 59. The file is still
+    valid UTF-8 (checked) and renders fine on GitHub -- which is why it
+    went unnoticed. The damage is to SEARCH, and a decision log nobody can
+    grep is a decision log nobody will read.
+
+    NOT FIXED HERE ON PURPOSE. The fix is one character (`\0` written as
+    the four literal characters `\x00`), but it edits an existing signed
+    decision row, and this branch's job is a journal catch-up, not a
+    record amendment. Whoever takes it: change the byte, not the meaning,
+    and prove it by running `grep -c "" docs/journal/DECISIONS.md` before
+    and after -- it should stop saying "Binary file".
 
 ## Blockers / waiting on human
 
