@@ -1816,16 +1816,47 @@ their own `chore/` branch, now together with 8.
    was being ignored entirely. It now asserts a ceiling as well. Generalize
    the lesson: when a mutation restores a DEFAULT rather than removing
    behaviour, a one-sided bound cannot see it.
-8. OPEN, new from ST-13, and NOT a data-layer item -- filed here so it is
-   not lost. `.env.example` has drifted from `config.py`: it documents the
-   model, embedding, agent, chunking, store-path and server settings but
-   NOT `supported_document_extensions`, `hash_read_chunk_bytes`,
-   `sqlite_busy_timeout_seconds`, or the four ST-11 workspace-validation
-   limits. ST-13 added its own two (`CONVERSION_MIN_TEXT_CHARS`,
-   `TEXT_FILE_ENCODING`) and deliberately did NOT backfill the others:
-   that is an unrelated drive-by in a diff a reviewer is grading against
-   one story's exit gate (scoped boy-scout rule). One `chore/` branch
-   closes it, and it is a good candidate to fold in with 1, 2 and 6.
+8. CLOSED 2026-08-29 on `chore/env-example-drift-check`, and it is closed
+   BY A CHECK rather than by a backfill, which is the difference that
+   matters. Raised by ST-13 on 2026-08-09: `.env.example` had drifted from
+   `config.py`. It had drifted further by the time anyone looked -- TEN
+   settings were undocumented, not the six originally listed
+   (`question_min_length`, `question_max_length`, `max_sub_queries`,
+   `parent_citation_marker_pattern`, `supported_document_extensions`,
+   `hash_read_chunk_bytes`, `sqlite_busy_timeout_seconds` and the three
+   workspace-validation limits). All ten are documented now, each with a
+   comment saying what it is FOR rather than restating its name.
+
+   WHY IT STOPPED BEING A TIDY-UP. "Every config var documented in
+   `.env.example`" is ST-02's own exit criterion and nothing ever enforced
+   it, because `.env.example` is a text file no code reads. Three
+   `tests/unit/test_config.py` checks now hold it in both directions: a
+   setting in `config.py` and not in the template fails; a variable in the
+   template that `config.py` does not define fails too. That second
+   direction is the one that rots quietly -- pydantic-settings IGNORES an
+   unknown environment variable, so a stale key is something you can fill
+   in, restart, and watch do nothing, with no error anywhere.
+
+   Each check was proven by watching it fail first: the drift check named
+   all ten missing settings before they were added.
+
+   WHAT THIS CANNOT DO, stated so nobody trusts it too far: it holds the
+   TRACKED end only. A `.env` on someone's machine is git-ignored and holds
+   a secret, so nothing can compare it to anything -- which is exactly how
+   ST-18 lost its G4 measurement to a `.env` still naming a retired model
+   two days after the tracked files were corrected. The template can no
+   longer be silently incomplete; a machine can still be silently stale.
+
+9. FOUND WHILE DOING 8, and it was already on main: `.env.example` began
+   with a UTF-8 byte-order mark (EF BB BF). Harmless today by luck only --
+   line 1 is a comment, so the three bytes are swallowed by a `#`. Move a
+   setting to the top and the first variable becomes `﻿MODEL_MODE`,
+   which pydantic-settings does not recognise and does not complain about.
+   It matters more in this file than in most because line 1 says "copy to
+   .env": the mark travels into the file that configures the product.
+   Stripped, and a fourth test now refuses it, proven by watching it fail
+   on the committed bytes first. CLAUDE.md's Windows write trap named this
+   exact hazard; it is enforced somewhere now instead of remembered.
 
 ## Blockers / waiting on human
 
