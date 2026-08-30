@@ -1524,6 +1524,78 @@ defect could be seen by reading the code -- both lived in the interaction
 between the parser and a sentence the prompt itself asks the model to
 write. If a future story has a model reply to interpret, budget for this.
 
+## REVIEW OF MB's SIX PRs, 2026-08-30 (YL), and three findings left OPEN
+
+WHAT WAS REVIEWED: #61 (the graph project name), #62 (ST-07 Corpus v1 and
+its fetcher), #63 (the ST-18 spike), #64 (the config-documentation drift
+check), #65 (the ST-12 fix), #66 (a re-stamp). 2,425 insertions.
+
+MEASURED, not judged by reading:
+- the whole gate re-run on her main: `uv sync --frozen` clean, ruff exit
+  0, **529 passed / 2 skipped**, `gitleaks detect` "no leaks found" --
+  which also closes the one gap she declared, since gitleaks is not
+  installed on her machine and is on YL's.
+- THREE FAULTS INJECTED into her fixes, all three caught by exactly the
+  tests she named. Her "proven in both directions" claim is therefore
+  reproduced independently, not accepted.
+- her spec citations checked 4/4 against the signed pack: G5, the
+  1,500-page capacity line, F-02 criterion 3, section 11's Skipped row.
+  Zero fabricated.
+- her published arithmetic recomputed 3/3 exact (18.2% margin, 2.455 s
+  per page, 61.4 minutes).
+- HER `pathlib` CLAIM VERIFIED AGAINST THE INSTALLED SOURCE:
+  `_IGNORED_ERRNOS` really is (ENOENT, ENOTDIR, EBADF, ELOOP) and EACCES
+  really is absent, so her correction of the review's own diagnosis was
+  right and the review was wrong.
+- `_skip_unsupported` wiring confirmed through the code graph: it does
+  reach both derived stores and the registry row.
+
+Assessed at **89%**. The weighting is a judgement and is stated so it can
+be re-weighed; the measurements under it are not. 40% product-code
+correctness (full marks), 25% verification depth (24 -- she could not run
+gitleaks and said so), 20% truthfulness of claims (full marks), 15% new
+code under test (5 -- see below).
+
+**THREE BLOCKING FINDINGS FROM THE COLD READ ARE STILL OPEN.** A fourth
+and fifth were fixed in PR #68. These three were NOT, because they are
+ST-18/ST-07's own design decisions and the corpus is not on YL's machine
+to test a fix against. Owner MB, fallback 2026-09-13:
+
+1. **A PAID RUN CAN LEAVE NOTHING BEHIND.** `answer()`'s docstring calls
+   `traces.json` "the real output" and "the raw material ST-19's golden
+   set gets written FROM", but the write sits AFTER the `if failed:
+   return 1`. So a run where even one of the twenty questions errors pays
+   for every provider call and writes no file. The PR #63 message quotes
+   a traces.json holding 15 errors and no answers -- under the code as it
+   now stands that file could not have been produced, so the artifact
+   came from a path that no longer exists.
+2. **RE-RUNNING `index` DESTROYS THAT PAID EVIDENCE.** `_fresh_run_dir()`
+   calls `shutil.rmtree(RUN_DIR)` with no check and no warning, and
+   `RUN_DIR` is where `traces.json` lives. Anyone who runs `answer --yes`
+   (up to 141 provider calls) and then re-checks a speed number with
+   `index` silently deletes it.
+3. **`verify` NEVER CHECKS THE TEXT IS FRENCH.** ST-07's signed exit gate
+   (BUILD-PLAN line 49) is "files open, French text selectable (not
+   scanned), source+date logged per file". Nothing checks the language,
+   and `fetch` skips any file that already exists without inspecting it.
+   PRD section 17 names an ENGLISH translation of the same labour code,
+   so a teammate holding that PDF under the manifest's file name gets
+   "have" from `fetch`, "EXIT GATE MET" from `verify`, and every
+   retrieval number thereafter measured against a corpus that breaks the
+   French premise. A gate that cannot fail on the thing it names is not
+   a gate.
+
+WHY ALL OF THIS GOT THROUGH, and it is a config line rather than a habit:
+`pyproject.toml:58` sets `testpaths = ["tests"]`, so `scripts/` is
+outside every check. MB has every skill and both agents -- all eight
+files under `.claude/` are tracked, `settings.json` and its two hooks
+included -- and she used them, running two rule-5 reviews on her own
+branches and mutation-proving her product code in both directions. The
+tools were not missing. They were all pointed at the product, and the bug
+was in the RULER: measurement code that is wrong does not crash and does
+not fail a gate, it reports a better number than the truth. Every tool
+she has depends on a test existing, and there were none.
+
 ## WHAT A PLAN SURVEY FOUND, 2026-08-28 (three things nobody had flagged)
 Done by reading BUILD-PLAN against the repo rather than against this file,
 after ST-24 merged. All three are facts about the repo, checked, not
