@@ -202,6 +202,91 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
+**ST-19 GOLDEN SET BATCH 1 IS BUILT, on branch
+`feat/S1-ST-19-golden-set-batch-1`, NOT MERGED and NOT REVIEWED.** 15
+in-scope + 8 out-of-scope French questions in `evaluation/golden/batch1.jsonl`.
+Gate steps 1-3 run by hand on the branch in gate.yml order: `uv sync
+--frozen` clean (170 packages), `uv run ruff check .` exit 0, `uv run
+pytest` **539 passed / 2 skipped** in 150.80s, up from 529 on main. Step 4,
+gitleaks, NOT RUN -- still not installed on this machine, re-checked today
+against PATH and the WinGet Links folder, both empty. CI remains the only
+place that step executes. Do not write "all four steps".
+
+THIS IS THE FIRST ARTIFACT OF THE EVALUATION HALF. Nothing in
+`evaluation/` existed before it. The only golden-set-shaped file in the
+repo was `docs/evals/golden.jsonl`, which holds ONE placeholder row reading
+`<representative user input>` -- it is the prompt-registry skill's seed
+file, nothing references it, and it is NOT this. Left alone; a story that
+owns it can decide.
+
+WHAT MAKES THE 15 IN-SCOPE ROWS WORTH ANYTHING: every reference answer was
+written from the article text pulled out of the real PDF through the
+product's OWN `conversion.convert_file`, not from memory and not from a
+second PDF reader. Using a different reader here would let the check pass
+on text the product never sees. Twelve rows on the labour code (articles
+14, 39, 43, 53, 72, 143, 152, 184, 201, 205, 231, 232), two on the CNSS
+dahir (35, 53), one on the CLEISS guide. A test asserts all three HR
+documents are cited, because fifteen questions all drawn from the labour
+code would leave both CNSS documents ungraded and retrieval could be broken
+for both without one golden question noticing -- the fixture-too-small-for-
+its-own-property shape, now on its sixth appearance in this project.
+
+**THE ONE TO READ IF YOU READ NOTHING ELSE: A BYTE-WISE GREP CALLED A WORD
+ABSENT THAT APPEARS FORTY TIMES.** The first sweep for out-of-scope topics
+ran `grep -E "pr.avis"`. Outside a UTF-8 locale `.` matches one BYTE and
+`é` is two, so the pattern cannot match `préavis`, and grep reported ZERO
+in a 358 KB document containing FORTY. Four of the eight out-of-scope
+questions were being drafted on that zero. Caught because the number looked
+wrong, not by any check.
+
+THE FIX IS NOT BETTER GREP FLAGS. `scripts/golden_grounding.py` now refuses
+to report ANY absence until a control probe it knows is present comes back
+found -- proven by pointing the control at a string in no document and
+watching all three files report "the matcher is blind; every absent result
+below is meaningless". This project's absence protocol says a blocked route
+is UNVERIFIED, never a negative finding; a route that cannot SEE returns
+exactly what a true absence returns, and that case was not covered. All 8
+out-of-scope terms were then re-verified through the folding route, which
+also folds the three DIFFERENT apostrophes the three PDFs use (U+02BC in
+the dahir, U+2019 in the CLEISS guide, plain in the labour code).
+
+TWO CHECKS, SPLIT ON PURPOSE, and the split is about `data/` being
+git-ignored:
+- `tests/unit/test_golden_set.py` checks the SHAPE (10 tests, no corpus,
+  runs in the gate). A corpus-reading pytest would pass here, SKIP on CI
+  and prove nothing anywhere, and a check that skips itself is untested.
+- `scripts/golden_grounding.py` checks whether the claims are TRUE, run by
+  hand: **"OK: 23 rows grounded (15 in scope, 8 out)"**, 2026-08-30.
+
+14 MUTATIONS INJECTED ONE AT A TIME, ALL 14 KILLED, on a committed green
+checkpoint first -- the rule ST-21 wrote down and ST-24 then repeated
+anyway. Sharpest three: an out-of-scope row given a source file (the
+assertion that protects G2); an out-of-scope probe pointed at `préavis`,
+which failed with "IS in the corpus (...=40)" and is the exact defect the
+byte-grep hid; and the control probe itself made blind.
+
+ONE TEST FAILED ON ITS FIRST RUN AND WAS RIGHT TO. The French-language
+check listed accented letters `éèêàùôûçîï`; `g-in-008` opens "À partir de
+quel âge" and carries neither. Replaced with "does NFKD decomposition
+change the string", which needs no list to maintain.
+
+TWO THINGS RECORDED RATHER THAN SMOOTHED OVER, both in
+`evaluation/golden/README.md` beside the rows they affect:
+- `g-in-015` cites the CLEISS guide's 692,30 DH birth-leave ceiling. The
+  guide is undated and its contribution table is headed 1 January 2014. The
+  reference answer is what the CORPUS says, which is correct for what F-08
+  measures -- RAGAS faithfulness scores an answer against the passages it
+  was given -- but nobody may quote that figure in the report as current
+  Moroccan practice.
+- `g-out-005` ("does the 35-hour week apply?") is the arguable one: the
+  corpus has A legal working week, 44 hours, just not the one asked about.
+  Flagged now so that if it scores badly at ST-36 the argument is about the
+  question, not about retrieval.
+
+STILL OWED before merge, and this story has no exemption: the rule-5 review
+pass. Re-stamp this file's header at merge time, not now.
+
+Previous, and still the state of main:
 **THE ST-12 REVIEW DEBT IS PAID. MERGED as `1ae78c1` (PR #65, squash),
 2026-08-30**, and `f4cf208` (PR #64) landed on top of it the same morning.
 Both branches were deleted on merge. Gate re-run on main after BOTH:
@@ -1668,6 +1753,34 @@ NONE of this blocks ST-27/ST-28 -- they are fixes to a reference, not to
 shipped code. Fix them in the design, or accept each one in writing.
 
 ## Next (ordered queue, top 3 only)
+
+REWRITTEN 2026-08-30 after ST-19, because the queue below had grown five
+entries numbered 0,1,2,2,1,2 and three of them were already done. The
+three that matter now:
+
+A. **ST-19 REVIEW + MERGE (MB owns the story, YL owns the review).** The
+   branch is green and unreviewed. Project plan ST-19's exit gate names
+   the review explicitly: "Files in `evaluation/golden/`, schema respected,
+   PR reviewed by YL". The first two are machine-checked; the third is not
+   done.
+B. **ST-32 EVALUATION RUNNER (YL).** Now genuinely unblocked -- it needed
+   ST-24 (merged) and a golden set to run on (built). This is the critical
+   path to a V1.0 gate: ST-32 -> ST-33 -> ST-36 -> ST-41, and NONE of the
+   four has started. It reads `evaluation/golden/*.jsonl`; the field list
+   is in `evaluation/golden/README.md` and `tests/unit/test_golden_set.py`
+   is the executable copy of it.
+C. **ST-29 GOLDEN SET BATCH 2 (MB).** +15 in-scope, +7 out-of-scope, to a
+   running total of 30 + 15. Same schema, same two checks, same review
+   path. It does not block ST-32 -- a runner that works on 23 questions
+   works on 45 -- so it runs in parallel rather than ahead.
+
+A NOTE FOR WHOEVER WRITES BATCH 2, so the lesson is not re-paid: read
+`evaluation/golden/README.md` before drafting a single out-of-scope
+question, and run `uv run python scripts/golden_grounding.py` before
+believing any of them is absent. See the byte-grep entry in Now.
+
+SUPERSEDED QUEUE, kept below because the ST-21 correction inside it is
+still worth reading:
 0. ST-22 CLARIFICATION + REWRITE-AND-SPLIT (YL). The last two model seams,
    `clarify` and `rewrite`, and the graph already routes to both -- so it
    is two registry prompts plus one module, the same shape as ST-23 and
