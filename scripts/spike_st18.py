@@ -369,6 +369,35 @@ _WORD = re.compile(r"\w{3,}", re.UNICODE)
 _PARENT_CACHE: dict[str, list] = {}
 
 
+def marker_found(marker: str, text: str) -> bool:
+    """Does `text` actually cite the article `marker` names?
+
+    A PLAIN SUBSTRING TEST WAS WRONG HERE, and it was wrong in the
+    direction that flatters the result. `"14" in text` is true of "Article
+    143", of "2014", of "1-72-184"; `"39" in text` is true of "article
+    139". Worse, `1-72-184` is the NAME OF ANOTHER DOCUMENT in the same
+    workspace (`dahir-1-72-184-securite-sociale-acaps.pdf`), so the `72`
+    and `184` probes could both be satisfied by retrieving the wrong file
+    entirely -- the exact failure the marker exists to detect. Four of the
+    eight markers in `PROBES` are collidable that way, so the published
+    right-article figure was an upper bound rather than a measurement.
+
+    Found by a cold review of this file and reproduced before fixing.
+
+    The rule now is the one a CITATION uses: the number must be preceded
+    by the word "article" and must end where the number ends, so 143 never
+    answers for 14. Accents and case are folded first because the corpus is
+    real French and the probes are typed in ASCII -- the same asymmetry
+    that had already rigged the keyword baseline once."""
+    wanted = marker.strip()
+    if not wanted:
+        return False
+    pattern = re.compile(
+        rf"\barticles?\s+(?:\d+\s*(?:,|et|and|-|to|a)\s*)*{re.escape(wanted)}\b"
+    )
+    return bool(pattern.search(_fold(text)))
+
+
 def _fold(text: str) -> str:
     """Lower-case AND strip accents, so `conges` matches `congés`.
 
@@ -491,7 +520,7 @@ def retrieve() -> int:
                 # which improves the ratio by failing harder.
                 marker_total += 1
                 joined = " ".join(h.chunk_text for h in hits[:3])
-                marker_ok = probe.expect_marker in joined
+                marker_ok = marker_found(probe.expect_marker, joined)
                 marker_hits += marker_ok
 
             flag = "hit " if hybrid_ok else "MISS"
@@ -689,18 +718,32 @@ def answer(confirmed: bool = False) -> int:
                 is_refusal = result.refusal
                 sourced += not is_refusal
                 refused += is_refusal
-                files = sorted({source.file_name for source in result.sources})
-                labels = [source.section_label for source in result.sources]
+                # KEEP THE PAIRS TOGETHER. An earlier version built
+                # `files` as a sorted SET and `labels` as the original
+                # LIST, then zipped them: different lengths, different
+                # order, so a file was printed beside another file's
+                # article and `strict=False` dropped the remainder in
+                # silence. That is a citation-provenance error inside the
+                # measurement OF citation provenance, and it went into
+                # traces.json -- the file ST-19's golden set is written
+                # from. De-duplicate the PAIR or not at all.
+                cited = list(
+                    dict.fromkeys(
+                        (source.file_name, source.section_label)
+                        for source in result.sources
+                    )
+                )
+                files = [name for name, _label in cited]
+                labels = [label for _name, label in cited]
                 marker_ok = (
-                    probe.expect_marker in (result.text or "")
+                    marker_found(probe.expect_marker, result.text or "")
                     if probe.expect_marker else None
                 )
                 print(f"  {elapsed:6.1f}s  {'REFUSED' if is_refusal else 'sourced':<8}"
                       f"  {probe.question[:52]}", flush=True)
                 if files:
                     shown = ", ".join(
-                        f"{name} / {(label or '-')[:34]}"
-                        for name, label in zip(files, labels, strict=False)
+                        f"{name} / {(label or '-')[:34]}" for name, label in cited
                     )
                     print(f"           {shown}", flush=True)
                 rows.append({
