@@ -994,20 +994,50 @@ Name:       Right ARTICLE, not just the right file
 Measures:   Share of legal questions whose top 3 hits contain the article
             that actually answers them
 Rule:       8 of the 20 above name a specific article of the labour code.
-            The article numbers were CHECKED against the PDF by the
-            rule-5 review, not assumed: 231 conge annuel, 39 fautes
-            graves, 184 44h/semaine, 14 periode d'essai, 152 quatorze
-            semaines, 143 quinze ans, 217 repos, 72 certificat de travail
+            WHO CHECKED WHICH, because the first version of this row
+            claimed a verification that had not happened:
+              - 231 conge annuel, 39 fautes graves, 184 44h/semaine,
+                14 periode d'essai, 152 quatorze semaines, 143 quinze ans
+                -- all six read out of the PDF by the rule-5 review;
+              - 72 certificat de travail, 205 repos hebdomadaire -- both
+                read out of the PDF in the fix round, text quoted in
+                CHANGELOG-AI. These two did not exist when the review ran.
 Population: HR workspace, Corpus v1
 Window:     Point measurement
 Good:       Not yet set. See below -- setting it is ST-19's job
 Act at:     Not yet set
 Owner:      YL, and it is the most important open number on this project
-Measured:   4/8. Held at about half when the sample grew from 6 to 8.
+Measured:   5/8, after the bad probe was replaced. It was 4/8 WITH the
+            bad probe, so my wrong label had been scoring against the
+            system: a mislabelled probe does not merely waste a slot, it
+            manufactures a failure. Earlier readings on smaller sets were
+            3/6 and 4/8; the honest trend is "about three in five", not
+            "about half".
 ```
+**A FALSE VERIFICATION WAS WRITTEN INTO THIS FILE AND THE RE-REVIEW CAUGHT
+IT.** The row above used to say all eight article numbers "were CHECKED
+against the PDF by the rule-5 review, not assumed". The review checked
+SIX. The other two probes did not exist when it ran -- they were added in
+response to it. And one of those two was WRONG: Article 217 is "il est
+interdit aux employeurs d'occuper les salaries pendant les jours de fetes
+payes", public holidays, not rest between working days.
+
+That is the exact failure this journal exists to prevent, committed in the
+journal itself: an unverified claim wearing someone else's authority. It
+is worse than an unchecked number, because "the reviewer checked it" is
+the sentence that stops the next reader checking.
+
+THE BAD PROBE IS GONE, and replacing it taught something: the question
+"combien de temps de repos entre deux journees de travail" has NO clean
+answer in this code. Daily rest is regulated only for NIGHT work and only
+for women and minors (Article 174, eleven consecutive hours). So it was
+scored as a RETRIEVAL MISS when the fault was entirely the label -- a bad
+probe does not just waste a slot, it makes the system look wrong. It is
+replaced by "combien de temps de repos par semaine", which Article 205
+answers plainly, verified by reading the PDF rather than by remembering.
 **THIS IS THE FINDING OF THE SPIKE, and it is not a speed problem.**
-Retrieval finds the right DOCUMENT 12 times in 15 and the right ARTICLE
-half the time. For this product that gap is close to the whole point: F-03
+Retrieval finds the right DOCUMENT 16 times in 20 and the right ARTICLE
+5 times in 8. For this product that gap is close to the whole point: F-03
 puts file name AND section label in every citation, and the user story is
 an HR generalist forwarding "Article 231" to settle a dispute. A citation
 that says "the right 201-page PDF, somewhere" does not survive that
@@ -1015,9 +1045,10 @@ forwarding. It is the same defect family as the citation-label escalation
 of 2026-08-23, which was fixed for LABELLING and is now showing up in
 RANKING.
 Two honest caveats, because this number will be quoted:
-- 20 questions is a small sample and 8 is smaller. Treat 4/8 as "about
-  half", never as 50.0%. It was 3/6 before the sample grew, so the
-  proportion has now held across two different question sets.
+- 20 questions is a small sample and 8 is smaller. Treat 5/8 as "about
+  three in five", never as 62.5%. It read 3/6 and then 4/8 on earlier
+  question sets, and the 4/8 included a probe whose expected article was
+  simply wrong.
 - I WROTE BOTH THE QUESTIONS AND THE EXPECTED ANSWERS, so this is
   self-graded. ALL FOUR whole-file misses are arguable rather than plainly
   wrong: "comment attraper une erreur" and "comment trier une liste"
@@ -1042,7 +1073,10 @@ Window:     Point measurement
 Good:       Must be a small fraction of G4's 20s median budget
 Act at:     Over 2s
 Owner:      YL
-Measured:   median 0.207s, p95 0.236s over 20. Cold start 37.6s.
+Measured:   median 0.240s, p95 0.298s over 20. Cold start 31.2s.
+            Two runs of the same 20 questions gave medians of 0.207s and
+            0.240s and cold starts of 37.6s and 31.2s. Machine load, not
+            code -- quote the shape (a fifth of a second), not the digits.
 ```
 TWO CORRECTIONS HERE, both from the rule-5 review, both about not letting
 a statistic be an accident:
@@ -1069,7 +1103,8 @@ PROVISIONAL on G4, which is blocked (see Blockers).
 
 Not on-track, because two things are already outside where they should be:
 G5 clears its budget but trips its own act-at threshold (109s of headroom
-against a 120s trigger), and the right-article rate is about half.
+against a 120s trigger), and the right-article rate is about three in
+five, on a product whose citations name a section.
 Not change-request, because nothing signed is wrong. ADR-05's hybrid
 retrieval earns itself against a fair baseline (16/20 vs 11/20), the
 conversion ladder handled every real document, and no PRD criterion has

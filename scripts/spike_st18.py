@@ -132,8 +132,20 @@ PROBES: tuple[Probe, ...] = (
     # contract; quietly measuring 15 and reporting it against a target
     # written for 20 is the kind of silent narrowing that is invisible in a
     # journal entry.
-    Probe("hr", "Combien de temps de repos entre deux journees de travail ?",
-          "code-travail-consolide-2011-justice.pdf", "217"),
+    # WAS "combien de temps de repos entre deux journees de travail ?"
+    # expecting Article 217, and BOTH halves were wrong. 217 is "il est
+    # interdit aux employeurs d'occuper les salaries pendant les jours de
+    # fetes payes" -- public holidays. And the question itself has no clean
+    # answer in this code: daily rest is regulated only for NIGHT work and
+    # only for women and minors (Article 174, eleven consecutive hours), so
+    # a general daily-rest question is closer to out-of-scope than in. It
+    # was scored as a retrieval miss when the fault was the label, which is
+    # the worst kind of bad probe: it makes the system look wrong.
+    # Replaced with a question the code answers plainly, verified by
+    # reading the PDF: Article 205, "un repos hebdomadaire d'au moins
+    # vingt-quatre heures allant de minuit a minuit".
+    Probe("hr", "Combien de temps de repos par semaine ?",
+          "code-travail-consolide-2011-justice.pdf", "205"),
     Probe("hr", "Le salarie a-t-il droit a un certificat de travail ?",
           "code-travail-consolide-2011-justice.pdf", "72"),
     Probe("hr", "Que se passe-t-il si l'employeur ne declare pas un salarie ?",
@@ -612,6 +624,24 @@ def answer(confirmed: bool = False) -> int:
             write_answer=build_write_answer(model),
         )
 
+        # ONE UNTIMED WARM-UP, for the same reason `retrieve` has one and
+        # then some. The first fix added the warm-up to `retrieve` ONLY,
+        # which left this function with no warm-up AND no holdout -- so the
+        # ~35 second encoder load moved from "held out of the sample" to
+        # "inside question one, in the pool", against a 20 second median
+        # budget. A fix that improves one call site and silently degrades
+        # its sibling is worse than the thing it replaced, and the rule-5
+        # re-review caught it because nobody had ever run this branch.
+        warm_start = time.perf_counter()
+        try:
+            vector_store.search(
+                client, workspace_id=lookup["hr"], query_text="question de rodage"
+            )
+        finally:
+            timing.cold_start = time.perf_counter() - warm_start
+        print(f"  warm-up (untimed, encoder load): "
+              f"{timing.cold_start:.1f}s\n", flush=True)
+
         for probe in PROBES:
             start = time.perf_counter()
             try:
@@ -696,8 +726,14 @@ def answer(confirmed: bool = False) -> int:
               f"{G4_MEDIAN_SECONDS:.0f}s)  {'PASS' if median_ok else 'FAIL'}")
         print(f"  p95    {summary['p95']:6.1f}s  (budget "
               f"{G4_P95_SECONDS:.0f}s)  {'PASS' if p95_ok else 'FAIL'}")
-        print(f"  n={summary['n']}, cold start {summary['cold_start']:.1f}s "
-              f"measured separately on an untimed warm-up")
+        # `or 0.0` because a missing cold start must not crash a run that
+        # has already spent the money. `f"{None:.1f}"` raises TypeError,
+        # and it did: this whole block only executes on a fully successful
+        # G4 run, which had never happened, so the crash sat in the one
+        # branch whose failure costs the most.
+        print(f"  n={summary['n']}, cold start "
+              f"{summary['cold_start'] or 0.0:.1f}s measured separately on "
+              f"an untimed warm-up")
         print(f"  NOTE: the p95 of {summary['n']} samples is one value near "
               f"the top of the list, not a stable statistic.")
     print(f"\n  sourced answers : {sourced}/{len(PROBES)}")
