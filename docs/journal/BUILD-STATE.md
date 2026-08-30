@@ -912,6 +912,18 @@ ST-18 PART ONE MEASURED 2026-08-29 on Corpus v1, MB's laptop, CPU only.
 `scripts/spike_st18.py index` and `... retrieve`. NO model calls in any
 number below -- these are the free half of the spike. G4 is NOT here yet.
 
+OWNERSHIP DEVIATION, recorded rather than absorbed, same shape as the
+ST-17 row of 2026-08-23: BUILD-PLAN line 66 assigns ST-18 to YL, and this
+machine commits as `meriem-mb` (MB). The plan row is left as signed; a
+human decides. Flagged by the rule-5 review, which noticed the ST-17
+deviation had been recorded and this one had not.
+
+REFERENCE MACHINE IS STILL UNNAMED, and every number below inherits that.
+PRD G4 and G5 both say "on the reference machine" and no document names
+one. These were taken on MB's laptop, CPU only, no GPU. A different
+machine moves all of them, and G5's 109 seconds of headroom is not enough
+to absorb much. ST-37 owns naming it.
+
 ```
 Name:       G5, cold Sync of a 200-page workspace
 Measures:   Wall time from pressing Sync to the workspace being questionable
@@ -923,10 +935,20 @@ Window:     Point measurement, re-run per release
 Good:       Under 600s per 200 pages (PRD G5: 10 minutes)
 Act at:     Over 600s, or under 120s of headroom
 Owner:      YL (ST-37 owns the tuning if it moves)
-Measured:   552.4s for 225 pages -> 491.0s per 200 pages. PASS.
+Measured:   552.4s for 225 pages -> 491.0s per 200 pages.
+            PASS ON BUDGET, ACT-AT TRIPPED. Headroom is 109.0s and this
+            row's own trigger is 120s. Routed to ST-37.
 ```
-READ THIS ONE HONESTLY, because "PASS" is doing a lot of work: it clears
-the budget by 18%. That is not comfortable, it is close. The whole cost is
+CORRECTED BY THE RULE-5 REVIEW, and the correction is the point: the first
+version of this row wrote "PASS" and left it there, while the row's OWN
+act-at threshold had fired. 600 - 491 = 109, and the trigger is 120. That
+is the "do not silence the alarm" rule failing in the quietest possible
+way -- not by moving a threshold, but by writing a threshold, watching it
+trip, and reporting the other number. A row that judges itself is worth
+nothing if the verdict line ignores it.
+
+READ THIS ONE HONESTLY: it clears the budget by 18%. That is not
+comfortable, it is close. The whole cost is
 embedding -- the same workspace re-syncs in 0.23s when nothing changed, so
 scanning, hashing and the registry are 0.04% of it. Two consequences
 nobody has written down before:
@@ -942,27 +964,46 @@ nobody has written down before:
 ```
 Name:       Retrieval quality against a word-counting baseline
 Measures:   Share of questions whose TOP hit comes from the right file
-Rule:       15 hand-written questions phrased as a user would ask, never
+Rule:       20 hand-written questions phrased as a user would ask, never
             in the corpus's own words. Hybrid = `vector_store.search`.
-            Baseline = count shared words 4+ chars over every parent
+            Baseline = count shared words 3+ chars, ACCENT-FOLDED, over
+            every parent
 Population: Corpus v1, both workspaces
 Window:     Point measurement, re-run when retrieval changes
 Good:       Hybrid must beat the baseline, or hybrid is not earning itself
 Act at:     Hybrid <= baseline -> OR-1 change-request
 Owner:      YL
-Measured:   hybrid 12/15, counting words 6/15. Hybrid earns itself.
+Measured:   hybrid 16/20, counting words 11/20. Hybrid earns itself.
 ```
+**THE FIRST VERSION OF THIS ROW REPORTED A RIGGED COMPARISON** and it is
+the most useful mistake in the spike. It said hybrid 12/15 against a
+baseline of 6/15 -- apparently double. The rule-5 review found why: every
+question here is typed in unaccented ASCII ("conges") and the corpus is
+properly accented French ("congés"), and `casefold()` folds case but NOT
+accents. The word-counting baseline therefore could not match a large
+share of its own vocabulary, while the dense encoder is untroubled by the
+difference. Fixed by folding accents and lowering the word floor from 4
+characters to 3, and re-run: 16/20 against 11/20.
+The verdict SURVIVES -- hybrid still wins, so ADR-05 needs no change
+request -- but the margin was roughly double the real one, and the margin
+is what a reader remembers. A baseline exists to be the number the real
+system must beat, so anything that quietly weakens it flatters the thing
+under test. Build the baseline as if you wanted it to win.
 ```
 Name:       Right ARTICLE, not just the right file
 Measures:   Share of legal questions whose top 3 hits contain the article
             that actually answers them
-Rule:       6 of the 15 above name a specific article of the labour code
+Rule:       8 of the 20 above name a specific article of the labour code.
+            The article numbers were CHECKED against the PDF by the
+            rule-5 review, not assumed: 231 conge annuel, 39 fautes
+            graves, 184 44h/semaine, 14 periode d'essai, 152 quatorze
+            semaines, 143 quinze ans, 217 repos, 72 certificat de travail
 Population: HR workspace, Corpus v1
 Window:     Point measurement
 Good:       Not yet set. See below -- setting it is ST-19's job
 Act at:     Not yet set
 Owner:      YL, and it is the most important open number on this project
-Measured:   3/6.
+Measured:   4/8. Held at about half when the sample grew from 6 to 8.
 ```
 **THIS IS THE FINDING OF THE SPIKE, and it is not a speed problem.**
 Retrieval finds the right DOCUMENT 12 times in 15 and the right ARTICLE
@@ -974,35 +1015,71 @@ forwarding. It is the same defect family as the citation-label escalation
 of 2026-08-23, which was fixed for LABELLING and is now showing up in
 RANKING.
 Two honest caveats, because this number will be quoted:
-- 15 questions is a small sample and 6 is smaller. Treat 3/6 as "about
-  half", never as 50.0%.
+- 20 questions is a small sample and 8 is smaller. Treat 4/8 as "about
+  half", never as 50.0%. It was 3/6 before the sample grew, so the
+  proportion has now held across two different question sets.
 - I WROTE BOTH THE QUESTIONS AND THE EXPECTED ANSWERS, so this is
-  self-graded. Two of the three whole-file misses are arguable rather than
-  wrong -- "comment attraper une erreur" returned the FAQ instead of the
-  errors tutorial, and "a quel age part-on a la retraite" returned the
-  pension articles of the dahir instead of the CLEISS guide, and both are
-  defensible answers. An independently written golden set is exactly what
-  ST-19 is for, which is the argument for writing it AFTER this run rather
-  than before.
+  self-graded. ALL FOUR whole-file misses are arguable rather than plainly
+  wrong: "comment attraper une erreur" and "comment trier une liste"
+  returned the FAQ instead of the tutorials, "a quel age part-on a la
+  retraite" returned the dahir's pension articles instead of the CLEISS
+  guide, and "comment sont calculees les cotisations" returned CLEISS
+  instead of the dahir -- and those last two are the same pair of
+  documents disagreeing about which of them owns contributions, which
+  both plainly cover. An earlier version of this paragraph said "two of
+  the three", which understated it. An independently written golden set is
+  exactly what ST-19 is for, and that is the argument for writing it AFTER
+  this run rather than before.
 
 ```
 Name:       Warm retrieval latency
 Measures:   One `vector_store.search` call, no model, no answer written
-Rule:       Median and 95th of 14 warm calls; the FIRST call is held out
+Rule:       Median and 95th (nearest-rank) of all 20 calls. The cold start
+            is measured on a SEPARATE untimed warm-up query, not held out
+            of the sample
 Population: Corpus v1, both workspaces, MB's laptop
 Window:     Point measurement
 Good:       Must be a small fraction of G4's 20s median budget
 Act at:     Over 2s
 Owner:      YL
-Measured:   median 0.213s, p95 0.243s. First call 34.3s (encoder load).
+Measured:   median 0.207s, p95 0.236s over 20. Cold start 37.6s.
 ```
-The held-out first call is not tidying. On the previous run it was 160.07s
-against a warm median of 0.233s -- one sample 690x the middle. Left in the
-pool it barely moves the median, lands JUST outside a 15-sample p95 by
-luck, and would land inside it at a different sample size. A number that
-changes character with how many questions you happened to ask is not a
-measurement. Both are reported; G4 will be judged warm with the cold
-figure stated beside it.
+TWO CORRECTIONS HERE, both from the rule-5 review, both about not letting
+a statistic be an accident:
+- the cold start used to be `seconds[0]`, held out of the pool. That is
+  POSITIONAL, not causal: it throws away a good sample when the process is
+  already warm, would miss a cold load that happened at position two, and
+  with one sample it reported the cold figure as an n=1 warm median. There
+  is now one untimed warm-up query before the loop, so every timed sample
+  is a real question and nothing is discarded.
+- the p95 used `round(0.95 * n) - 1`, which for n=14 returned the 13th of
+  14 with TWO samples above it. That is not a 95th percentile. It is
+  nearest-rank now, `ceil(0.95 * n) - 1`. Immaterial at 0.2s and decisive
+  for G4, where the same function judges an answer against 60 seconds and
+  dropping the top sample flips PASS to FAIL.
+The cold start is still reported, because a user asking their first
+question of the day really does wait for the encoder. It is a different
+number from "what a question costs", not a corrupt version of it.
+
+## ST-18 VERDICT: **TUNE**
+BUILD-PLAN line 66 requires one of three words -- on-track, tune, or
+change-request -- and the first version of this section gave numbers and
+no verdict, which is the exit gate unmet. The word is **TUNE**, and it is
+PROVISIONAL on G4, which is blocked (see Blockers).
+
+Not on-track, because two things are already outside where they should be:
+G5 clears its budget but trips its own act-at threshold (109s of headroom
+against a 120s trigger), and the right-article rate is about half.
+Not change-request, because nothing signed is wrong. ADR-05's hybrid
+retrieval earns itself against a fair baseline (16/20 vs 11/20), the
+conversion ladder handled every real document, and no PRD criterion has
+been shown to be unachievable. What is needed is tuning inside the design
+that exists -- which is ST-23's retrieval and ST-37's latency work -- not
+a change to the design.
+The one thing that could still turn this into a change-request is G4. If a
+real answer takes longer than 60 seconds at the 95th percentile on this
+corpus, that is a product-shape problem and not a tuning problem, and
+nobody knows yet.
 
 TWO JOURNAL ITEMS CLOSED BY THIS RUN, both smaller than feared:
 - the per-file registry commit cost (open since ST-17): 0.23s for a

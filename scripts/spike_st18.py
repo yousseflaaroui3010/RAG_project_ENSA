@@ -35,11 +35,13 @@ This is the first chance to find out.
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import statistics
 import sys
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -50,6 +52,7 @@ import parent_store  # noqa: E402
 import sync  # noqa: E402
 import vector_store  # noqa: E402
 import workspaces as ws  # noqa: E402
+from change_detection import compute_fingerprint  # noqa: E402
 from db import repo  # noqa: E402
 
 CORPUS = REPO_ROOT / "data" / "corpus"
@@ -124,6 +127,21 @@ PROBES: tuple[Probe, ...] = (
           "howto-logging.txt", ""),
     Probe("manuals", "Comment faire communiquer deux machines ?",
           "howto-sockets.txt", ""),
+    # Five added after the rule-5 review pointed out that BUILD-PLAN line
+    # 66 says "20-q latency" and this file had 15. The plan's number is the
+    # contract; quietly measuring 15 and reporting it against a target
+    # written for 20 is the kind of silent narrowing that is invisible in a
+    # journal entry.
+    Probe("hr", "Combien de temps de repos entre deux journees de travail ?",
+          "code-travail-consolide-2011-justice.pdf", "217"),
+    Probe("hr", "Le salarie a-t-il droit a un certificat de travail ?",
+          "code-travail-consolide-2011-justice.pdf", "72"),
+    Probe("hr", "Que se passe-t-il si l'employeur ne declare pas un salarie ?",
+          "dahir-1-72-184-securite-sociale-acaps.pdf", ""),
+    Probe("manuals", "Comment organiser mon code en plusieurs fichiers ?",
+          "tutorial-modules.txt", ""),
+    Probe("manuals", "Comment trier une liste ?",
+          "tutorial-datastructures.txt", ""),
 )
 
 
@@ -135,43 +153,45 @@ class Timing:
     def add(self, value: float) -> None:
         self.seconds.append(value)
 
+    cold_start: float | None = None
+
     def summary(self) -> dict[str, float]:
-        """Warm numbers, with the FIRST measurement held out and reported
-        separately.
+        """Every measured sample, plus the cold start reported beside them.
 
-        This is not tidying. The first query of a process pays for loading
-        multilingual-e5-base, and the first run of this spike measured
-        160.07s for it against a warm median of 0.233s -- a single sample
-        690 times the middle of the distribution. Left in the pool it
-        poisons every statistic in a different way: it barely moves the
-        median, it lands just outside a 15-sample p95 BY LUCK (the p95 is
-        the 14th of 15, the outlier is the 15th), and it would land inside
-        it at a different sample size. A number that changes character
-        depending on how many questions you happened to ask is not a
-        measurement.
+        THE COLD START IS NO LONGER TAKEN FROM THE SAMPLE POOL. The first
+        version held out `seconds[0]`, which the rule-5 review correctly
+        called positional rather than causal: it discards a perfectly good
+        sample when the process is already warm, it would miss a cold load
+        that happened at position two, and with one sample it reported the
+        cold figure as an n=1 warm median. Now the caller issues ONE
+        UNTIMED WARM-UP query, records it in `cold_start`, and every timed
+        sample after it is a real question. Nothing is discarded, and the
+        sample count matches the number of probes.
 
-        So both are reported. `cold` is what the first user of a freshly
-        started process actually waits; the rest is what every question
-        after it costs. G4 is judged on the warm numbers and the cold one
-        is stated beside them, because PRD G4 measures a session of twenty
-        questions, not twenty separate program starts.
+        Why it is reported at all rather than ignored: the first query of a
+        process pays for loading multilingual-e5-base, and that has
+        measured 34.3s and 160.07s on two runs against a warm median near
+        0.2s. A user asking their first question of the day really does
+        wait for it. It is a different number from "what a question costs",
+        not a corrupt version of the same one.
         """
         if not self.seconds:
             return {}
-        cold = self.seconds[0]
-        warm = sorted(self.seconds[1:]) or [cold]
-        # An ORDER STATISTIC, not an average, the way quality-metrics
-        # insists. With ~20 samples the p95 is the 19th value, which is a
-        # thin basis for a percentile and is labelled as such rather than
-        # quoted as though it were solid.
-        index = max(0, min(len(warm) - 1, round(0.95 * len(warm)) - 1))
+        ordered = sorted(self.seconds)
+        # NEAREST-RANK, the standard definition: ceil(0.95 * n). The first
+        # version used round(), which for n=14 returned the 13th of 14 with
+        # TWO samples above it -- not a 95th percentile at all. Immaterial
+        # at 0.24s, and decisive for G4, where this same function judges an
+        # answer against a 60-second budget and dropping the top sample
+        # flips PASS to FAIL.
+        index = max(0, min(len(ordered) - 1, math.ceil(0.95 * len(ordered)) - 1))
         return {
-            "n_warm": len(warm),
-            "cold_first_call": cold,
-            "min": warm[0],
-            "median": statistics.median(warm),
-            "p95": warm[index],
-            "max": warm[-1],
+            "n": len(ordered),
+            "cold_start": self.cold_start,
+            "min": ordered[0],
+            "median": statistics.median(ordered),
+            "p95": ordered[index],
+            "max": ordered[-1],
         }
 
 
@@ -278,8 +298,15 @@ def index() -> int:
         # workspace to filter by source_file. Cost is files x parents. The
         # second sync above never hits it, because nothing changed -- so it
         # is forced here by touching one file's timestamp and content.
-        target = next((CORPUS / "hr").glob("*.pdf"))
+        # NAMED, not globbed. `next(glob("*.pdf"))` picked whichever file
+        # the filesystem happened to return first -- a different document
+        # on another machine, so a different number -- missed `.PDF` on a
+        # case-sensitive filesystem, and raised StopIteration on an empty
+        # folder. It is the same case bug ST-07's re-review had just fixed
+        # one file away, re-introduced by reflex.
+        target = CORPUS / "hr" / "dahir-1-72-184-securite-sociale-acaps.pdf"
         original = target.read_bytes()
+        before = compute_fingerprint(target)
         try:
             target.write_bytes(original + b"\n%% st18 probe\n")
             start = time.perf_counter()
@@ -296,7 +323,23 @@ def index() -> int:
                   f"one file's own", flush=True)
             measured["reingest_one_file_seconds"] = elapsed
         finally:
+            # This function DELIBERATELY EDITS A CORPUS FILE, and the
+            # corpus is the thing every ST-18 number is measured against.
+            # Restoring the bytes is not enough on its own -- "I wrote the
+            # old bytes back" is an intention. The fingerprint is checked,
+            # and a mismatch shouts, because a silently corrupted corpus
+            # would poison every later run with no symptom.
             target.write_bytes(original)
+            after = compute_fingerprint(target)
+            if after.hex_digest != before.hex_digest:
+                raise RuntimeError(
+                    f"RESTORE FAILED for {target.name}. The corpus is now "
+                    f"different from what it was before this probe: "
+                    f"{before.hex_digest[:16]} -> {after.hex_digest[:16]}. "
+                    f"Run `python scripts/corpus.py fetch` after deleting it."
+                )
+            print(f"  restored, fingerprint unchanged "
+                  f"({after.hex_digest[:16]})", flush=True)
 
     measured["notes"].append(
         "The cost of RE-ATTEMPTING a failed or skipped file on every sync is "
@@ -310,8 +353,32 @@ def index() -> int:
     return 0
 
 
-_WORD = re.compile(r"\w{4,}", re.UNICODE)
+_WORD = re.compile(r"\w{3,}", re.UNICODE)
 _PARENT_CACHE: dict[str, list] = {}
+
+
+def _fold(text: str) -> str:
+    """Lower-case AND strip accents, so `conges` matches `congés`.
+
+    THE BASELINE WAS RIGGED WITHOUT THIS AND I DID NOT NOTICE. The probes
+    below are written in unaccented ASCII, the way someone types quickly;
+    the corpus is properly accented French. `casefold()` folds case and
+    does NOT fold accents, so the word-counting baseline could not match
+    `conges` to `congés` at all, while the dense encoder is unaffected by
+    the difference. The first published comparison was therefore hybrid
+    12/15 against a baseline that had been handicapped before it started.
+    The rule-5 review measured the damage: folding accents alone lifts the
+    baseline from 6 to 8, and dropping the word floor from 4 to 3
+    characters lifts it to 9. Hybrid still wins, so the verdict survives --
+    but the MARGIN was about double the real one, and a margin is what a
+    reader takes away.
+
+    The lesson is not about accents. A baseline exists to be the number the
+    real system must beat, so anything that quietly weakens it flatters the
+    thing under test. Build the baseline as if you wanted it to win.
+    """
+    decomposed = unicodedata.normalize("NFD", text.casefold())
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
 def _all_parents(workspace_id: str) -> list:
@@ -342,14 +409,15 @@ def _keyword_rank(question: str, parents: list) -> object | None:
     """The stupidest thing that could work: count shared words.
 
     No embeddings, no index, no model. This is the number hybrid retrieval
-    has to beat to justify existing, per the AI-feature discipline. Words
-    under four characters are dropped so French stop-words ("de", "la",
-    "un") do not decide the ranking by themselves.
+    has to beat to justify existing, per the AI-feature discipline, so it
+    is built to be as strong as three lines can make it: accents folded
+    (see `_fold`) and a 3-character floor, which keeps "age" and "jour"
+    while still dropping "de", "la" and "un".
     """
-    terms = set(_WORD.findall(question.casefold()))
+    terms = set(_WORD.findall(_fold(question)))
     best, best_score = None, 0
     for parent in parents:
-        score = len(terms & set(_WORD.findall(parent.text.casefold())))
+        score = len(terms & set(_WORD.findall(_fold(parent.text))))
         if score > best_score:
             best, best_score = parent, score
     return best
@@ -377,6 +445,15 @@ def retrieve() -> int:
 
     with vector_store.open_store(QDRANT) as client:
         banner("RETRIEVAL: hybrid (the product) vs counting words (the baseline)")
+        # One UNTIMED warm-up so the encoder load lands here instead of
+        # inside question one. Timed separately, reported separately, and
+        # never mixed into the sample -- see `Timing.summary`.
+        warm_start = time.perf_counter()
+        vector_store.search(
+            client, workspace_id=lookup["hr"], query_text="question de rodage"
+        )
+        timing.cold_start = time.perf_counter() - warm_start
+
         for probe in PROBES:
             workspace_id = lookup[probe.workspace]
             start = time.perf_counter()
@@ -394,7 +471,12 @@ def retrieve() -> int:
             keyword_hits += keyword_ok
 
             marker_ok = None
-            if probe.expect_marker and top:
+            if probe.expect_marker:
+                # The denominator counts every probe that NAMES an article,
+                # whether or not anything came back. Gating it on `top` --
+                # as the first version did -- meant a probe that retrieved
+                # nothing SHRANK the denominator instead of scoring a miss,
+                # which improves the ratio by failing harder.
                 marker_total += 1
                 joined = " ".join(h.chunk_text for h in hits[:3])
                 marker_ok = probe.expect_marker in joined
@@ -426,9 +508,9 @@ def retrieve() -> int:
               f"(a right-file hit can still be the wrong article)")
     summary = timing.summary()
     print(f"  retrieval time   : median {summary['median']:.3f}s  "
-          f"p95 {summary['p95']:.3f}s  (n={summary['n_warm']} warm, no model calls)")
-    print(f"  FIRST query      : {summary['cold_first_call']:.1f}s -- the encoder "
-          f"loading, paid once per process, not per question")
+          f"p95 {summary['p95']:.3f}s  (n={summary['n']}, no model calls)")
+    print(f"  cold start       : {summary['cold_start']:.1f}s on an untimed "
+          f"warm-up query -- the encoder loading, paid once per process")
     if hybrid_hits <= keyword_hits:
         print("\n  HYBRID DOES NOT BEAT WORD-COUNTING ON THIS CORPUS.")
         print("  That is an OR-1 finding, not a bug to hide. Record it.")
@@ -444,15 +526,22 @@ def retrieve() -> int:
     return 0
 
 
-def answer() -> int:
+def answer(confirmed: bool = False) -> int:
     """G4, end to end through the real model. THIS ONE SPENDS.
 
     Every question costs at least one grade call and one answer call, and
     each retry adds a grade and a reword, so the ceiling is
-    `1 + (retry_ceiling + 1) * 2` provider calls per question. The count is
-    printed and confirmed before anything is sent, because the core law
-    says stop before spending and a script named `spike` is exactly where
-    a spend would otherwise hide.
+    `1 + (retry_ceiling + 1) * 2` provider calls per question.
+
+    THE GUARD IS `--yes` AND IT IS REAL. The first version of this
+    docstring said the count was "printed and confirmed", and nothing in
+    the file ever asked for confirmation -- a money guard that existed only
+    in its own description, which the rule-5 review caught. Printing is not
+    asking. `input()` would have been the obvious fix and it is the wrong
+    one here: this script runs under an agent with no terminal, where a
+    prompt either hangs forever or reads EOF and sails straight through,
+    which is a guard that fails OPEN. An explicit flag cannot be supplied
+    by accident and behaves identically with or without a human present.
 
     It also writes every answer, refusal, trace and timing to `traces.json`.
     That file is the real output. G4 is two numbers; the traces are the raw
@@ -486,6 +575,11 @@ def answer() -> int:
     print(f"  worst case : {len(PROBES) * per_question} provider calls "
           f"({per_question} per question at retry ceiling "
           f"{settings.retry_ceiling})", flush=True)
+    if not confirmed:
+        print("\n  NOTHING WAS SENT. Re-run with --yes to authorise the calls "
+              "above:\n    uv run python scripts/spike_st18.py answer --yes",
+              flush=True)
+        return 2
 
     conn = repo.get_connection(DB)
     try:
@@ -588,17 +682,24 @@ def answer() -> int:
 
     summary = timing.summary()
     banner("G4 VERDICT")
-    if summary:
+    # A PARTIAL RUN GETS NO VERDICT. The first version printed the PASS/FAIL
+    # block whenever ANY question succeeded, and then printed "no G4 number
+    # was produced" underneath it -- the same lie the all-error path had
+    # already been fixed for, surviving one branch over because only the
+    # all-error path was ever executed. A median over the questions that
+    # happened to work is a measurement of the easy ones: whatever made the
+    # others fail is exactly what a latency budget is meant to catch.
+    if summary and not failed:
         median_ok = summary["median"] <= G4_MEDIAN_SECONDS
         p95_ok = summary["p95"] <= G4_P95_SECONDS
         print(f"  median {summary['median']:6.1f}s  (budget "
               f"{G4_MEDIAN_SECONDS:.0f}s)  {'PASS' if median_ok else 'FAIL'}")
         print(f"  p95    {summary['p95']:6.1f}s  (budget "
               f"{G4_P95_SECONDS:.0f}s)  {'PASS' if p95_ok else 'FAIL'}")
-        print(f"  n={summary['n_warm']} warm, first call "
-              f"{summary['cold_first_call']:.1f}s held out")
-        print(f"  NOTE: the p95 of {summary['n_warm']} samples is one value "
-              f"near the top of the list, not a stable statistic.")
+        print(f"  n={summary['n']}, cold start {summary['cold_start']:.1f}s "
+              f"measured separately on an untimed warm-up")
+        print(f"  NOTE: the p95 of {summary['n']} samples is one value near "
+              f"the top of the list, not a stable statistic.")
     print(f"\n  sourced answers : {sourced}/{len(PROBES)}")
     print(f"  refusals        : {refused}/{len(PROBES)}")
     print(f"  errors          : {failed}/{len(PROBES)}")
@@ -616,8 +717,11 @@ def answer() -> int:
         print(f"\n  {failed} of {len(PROBES)} questions never reached the model.")
         print("  NO G4 NUMBER WAS PRODUCED. This is not a slow result, it is "
               "an absent one.")
-        if not summary:
-            return 1
+        if summary:
+            print(f"  ({summary['n']} questions did answer, median "
+                  f"{summary['median']:.1f}s -- NOT a G4 figure, because it "
+                  f"describes only the ones that worked.)")
+        return 1
 
     print("\n  G3 (100% of answers carry a source) is STRUCTURAL, not measured "
           "here:\n  `Answer.__post_init__` makes an ANSWER without sources "
@@ -636,10 +740,18 @@ _COMMANDS = {"index": index, "retrieve": retrieve, "answer": answer}
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2 or argv[1] not in _COMMANDS:
-        print(f"usage: python scripts/spike_st18.py {{{'|'.join(_COMMANDS)}}}")
+    args = argv[1:]
+    confirmed = "--yes" in args
+    positional = [a for a in args if a != "--yes"]
+    if len(positional) != 1 or positional[0] not in _COMMANDS:
+        print(f"usage: python scripts/spike_st18.py "
+              f"{{{'|'.join(_COMMANDS)}}} [--yes]")
+        print("  --yes authorises the provider calls that `answer` makes.")
         return 2
-    return _COMMANDS[argv[1]]()
+    command = positional[0]
+    if command == "answer":
+        return answer(confirmed=confirmed)
+    return _COMMANDS[command]()
 
 
 if __name__ == "__main__":
