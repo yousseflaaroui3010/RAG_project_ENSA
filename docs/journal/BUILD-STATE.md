@@ -202,19 +202,49 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
-**ST-29 GOLDEN SET BATCH 2 IS BUILT, on branch
-`feat/S2-ST-29-golden-set-batch-2`, NOT MERGED and NOT REVIEWED.** +15
-in-scope and +7 out-of-scope, **running total 30 + 15**, which is ST-29's
-exit gate exactly. `uv run python scripts/golden_grounding.py` -> "OK: 45
-rows grounded (30 in scope, 15 out)". 6 new mutations, all 6 killed. Full
-gate below.
+**ST-19 GOLDEN SET BATCH 1 IS MERGED as `7c28d6b` (PR #67, squash),
+2026-08-30, and ST-29 BATCH 2 is on `feat/S2-ST-29-golden-set-batch-2`,
+NOT MERGED.** Running total **30 in-scope + 15 out-of-scope**, which is
+ST-29's exit gate exactly. `uv run python scripts/golden_grounding.py` ->
+"OK: 45 rows grounded (30 in scope, 15 out)". 6 new mutations, all 6 killed.
 
-**READ THIS BEFORE TOUCHING THE BRANCH: it was cut from ST-19's branch, NOT
-from main.** ST-19 is still open as PR #67, and batch 2 needs the schema and
-the tests that only exist there. This is a deviation from CLAUDE.md rule 2,
-which says branches are cut from latest main, and it is recorded rather than
-absorbed. The consequence is concrete: **if YL sends #67 back, this branch is
-rebuilt, not patched.** Merge #67 first, then this.
+**MERGED WITHOUT THE RULE-5 PARTNER REVIEW, at the human's explicit
+instruction ("push all changes to github and merge them").** Same shape as
+the ST-17 deviation of 2026-08-23 and the ST-21 one of 2026-08-26, and it
+creates the same debt, so it is recorded here rather than absorbed. What
+#67 DID have before merging: gate steps 1-3 by hand on the branch and again
+after main was merged into it, CI `verify` green with all four steps
+including the secret scan this machine cannot run, 14 mutations all killed,
+and the grounding script re-run on the real corpus. What it did NOT have is
+YL's eyes on the eight out-of-scope questions, which are the rows that
+decide whether G2 measures anything. **ST-19 and ST-29 now join ST-21 and
+ST-23 on the unpaid-review list.**
+
+**THE BRANCH DEVIATION, recorded rather than absorbed:** ST-29's branch was
+cut from ST-19's branch, not from latest main, because batch 2 is meaningless
+without the schema and tests that existed only there. That breaks CLAUDE.md
+rule 2. It cost a three-file conflict when main moved underneath it (YL's
+#68 and #69 landed while #67 sat open), resolved by merging main INTO the
+branch per the 2026-07-28 decision, never by rebasing.
+
+**WHAT LANDED FROM YL WHILE THIS WORK WAS OPEN, and one line of it points
+straight at the golden set:** #68 fixed the ST-18 spike's article matcher,
+which was a bare substring test -- "14" hit "Article 143", and both "72" and
+"184" hit "dahir n 1-72-184", the NAME OF ANOTHER DOCUMENT. Its journal line
+calls `traces.json` "the file ST-19's golden set is meant to be built from".
+**It was not.** Every reference answer in batches 1 and 2 was written from
+the article text pulled out of the PDF through `conversion.convert_file`,
+and `scripts/golden_grounding.py` re-reads the documents rather than trusting
+any intermediate file. That was luck as much as design, and the safer route
+is now the recorded one.
+
+**AND YL'S ROOT-CAUSE FINDING APPLIES TO THIS WORK TOO, so it is repeated
+here rather than left in his section:** `testpaths = ["tests"]` in
+pyproject.toml puts `scripts/` outside every check. `scripts/golden_grounding.py`
+is 1 more file in that blind spot -- it has been RUN and its output quoted
+with a date, but nothing asserts it, so a change to it would break silently.
+Its control probe is the only thing standing in for a test. Owner MB,
+alongside the ST-07/ST-18 script findings.
 
 WHAT BATCH 2 IS FOR, beyond the count. Batch 1 was 12 labour code / 2 dahir /
 1 CLEISS, which would have left both CNSS documents nearly ungraded. Batch 2
@@ -266,9 +296,10 @@ imagined. The marker list deliberately excludes English look-alikes, because
 a marker an English sentence can contain makes the check weaker rather than
 more generous.
 
-Previous, and still the state of PR #67:
-**ST-19 GOLDEN SET BATCH 1 IS BUILT, on branch
-`feat/S1-ST-19-golden-set-batch-1`, NOT MERGED and NOT REVIEWED.** 15
+Previous, describing #67 while it was still open. Kept because its evidence
+is unchanged by the merge:
+**ST-19 GOLDEN SET BATCH 1 WAS BUILT on branch
+`feat/S1-ST-19-golden-set-batch-1`, then NOT MERGED and NOT REVIEWED.** 15
 in-scope + 8 out-of-scope French questions in `evaluation/golden/batch1.jsonl`.
 Gate steps 1-3 run by hand on the branch in gate.yml order: `uv sync
 --frozen` clean (170 packages), `uv run ruff check .` exit 0, `uv run
@@ -1210,13 +1241,51 @@ Window:     Point measurement
 Good:       Not yet set. See below -- setting it is ST-19's job
 Act at:     Not yet set
 Owner:      YL, and it is the most important open number on this project
-Measured:   5/8, after the bad probe was replaced. It was 4/8 WITH the
-            bad probe, so my wrong label had been scoring against the
-            system: a mislabelled probe does not merely waste a slot, it
-            manufactures a failure. Earlier readings on smaller sets were
-            3/6 and 4/8; the honest trend is "about three in five", not
-            "about half".
+Measured:   **WITHDRAWN 2026-08-30 -- DO NOT QUOTE THIS NUMBER.** It read
+            5/8, and the matcher that produced it was a plain substring
+            test, so 5 is an UPPER BOUND and not a measurement. See the
+            block below. The reading it replaced (4/8 with the bad probe,
+            and 3/6 earlier) is withdrawn for the same reason.
 ```
+**THE RIGHT-ARTICLE FIGURE IS WITHDRAWN, and the number it guarded was the
+one this file calls the most important open number on the project.**
+
+Found 2026-08-30 by a cold review of `scripts/spike_st18.py`, which no
+test had ever exercised, and reproduced before being fixed. The check was
+`probe.expect_marker in joined` -- a bare substring test against markers
+that are bare numbers (231, 39, 184, 14, 152, 143, 205, 72). So:
+
+    "14"  is satisfied by "Article 143 interdit d'employer des mineurs"
+    "39"  is satisfied by "l'article 139 du present code"
+    "205" is satisfied by "le decret 2-05-734"
+    "72" AND "184" are both satisfied by "dahir n 1-72-184"
+
+That last one is the one to understand: `1-72-184` is the NAME OF ANOTHER
+DOCUMENT in the same workspace. A probe expecting an article of the labour
+code could therefore score a hit by retrieving a completely different
+file, which is precisely the failure the marker was added to detect. Four
+of the eight markers collide that way.
+
+FIXED IN THE CODE, NOT IN THE NUMBER. `marker_found` now matches the way a
+citation does -- the number must follow the word "article" and end where
+the number ends -- and `tests/unit/test_spike_st18_marker.py` pins both
+directions, including a mutation back to the original substring test,
+which turns exactly the five collision rows red. But **the figure itself
+cannot be recomputed until the spike is re-run on a machine that has the
+corpus**: `data/` does not exist on YL's machine and `corpus.py fetch`
+fails there with CERTIFICATE_VERIFY_FAILED (TLS interception on that
+network), which is not something to disable to get a number.
+
+WHY THIS MATTERS BEYOND ONE FIGURE, and it is the lesson rather than the
+bug: measurement code that is wrong does not crash and does not fail a
+gate. It reports a BETTER number than the truth and the number gets
+quoted. Over 1,300 lines of `scripts/` had no tests at all, which is how
+this survived a rule-5 review, a re-review, and a green suite. The same
+review also found the answer path stapling each source file to another
+source's article label -- inside the measurement OF citation quality, and
+written into `traces.json`, which is the file ST-19's golden set is meant
+to be built from. Both are fixed; ST-19 must not be written from any
+traces file produced before this fix.
 **A FALSE VERIFICATION WAS WRITTEN INTO THIS FILE AND THE RE-REVIEW CAUGHT
 IT.** The row above used to say all eight article numbers "were CHECKED
 against the PDF by the rule-5 review, not assumed". The review checked
@@ -1240,7 +1309,16 @@ replaced by "combien de temps de repos par semaine", which Article 205
 answers plainly, verified by reading the PDF rather than by remembering.
 **THIS IS THE FINDING OF THE SPIKE, and it is not a speed problem.**
 Retrieval finds the right DOCUMENT 16 times in 20 and the right ARTICLE
-5 times in 8. For this product that gap is close to the whole point: F-03
+~~5 times in 8~~ **-- that second figure is WITHDRAWN as of 2026-08-30,
+see the withdrawal block above: the matcher counted digits appearing
+anywhere, not articles, so 5 is an upper bound. The DOCUMENT figure of
+16/20 is unaffected -- it compares file names, not numbers.**
+
+THE SHAPE OF THE FINDING SURVIVES THE WITHDRAWAL, and this is why the
+entry is amended rather than deleted: the gap between finding the right
+file and finding the right article can only be WIDER than was published,
+never narrower, because every collision scored a hit that was not one. So
+For this product that gap is close to the whole point: F-03
 puts file name AND section label in every citation, and the user story is
 an HR generalist forwarding "Article 231" to settle a dispute. A citation
 that says "the right 201-page PDF, somewhere" does not survive that
@@ -1626,6 +1704,78 @@ second pass found the first pass's defect only partly fixed. Neither
 defect could be seen by reading the code -- both lived in the interaction
 between the parser and a sentence the prompt itself asks the model to
 write. If a future story has a model reply to interpret, budget for this.
+
+## REVIEW OF MB's SIX PRs, 2026-08-30 (YL), and three findings left OPEN
+
+WHAT WAS REVIEWED: #61 (the graph project name), #62 (ST-07 Corpus v1 and
+its fetcher), #63 (the ST-18 spike), #64 (the config-documentation drift
+check), #65 (the ST-12 fix), #66 (a re-stamp). 2,425 insertions.
+
+MEASURED, not judged by reading:
+- the whole gate re-run on her main: `uv sync --frozen` clean, ruff exit
+  0, **529 passed / 2 skipped**, `gitleaks detect` "no leaks found" --
+  which also closes the one gap she declared, since gitleaks is not
+  installed on her machine and is on YL's.
+- THREE FAULTS INJECTED into her fixes, all three caught by exactly the
+  tests she named. Her "proven in both directions" claim is therefore
+  reproduced independently, not accepted.
+- her spec citations checked 4/4 against the signed pack: G5, the
+  1,500-page capacity line, F-02 criterion 3, section 11's Skipped row.
+  Zero fabricated.
+- her published arithmetic recomputed 3/3 exact (18.2% margin, 2.455 s
+  per page, 61.4 minutes).
+- HER `pathlib` CLAIM VERIFIED AGAINST THE INSTALLED SOURCE:
+  `_IGNORED_ERRNOS` really is (ENOENT, ENOTDIR, EBADF, ELOOP) and EACCES
+  really is absent, so her correction of the review's own diagnosis was
+  right and the review was wrong.
+- `_skip_unsupported` wiring confirmed through the code graph: it does
+  reach both derived stores and the registry row.
+
+Assessed at **89%**. The weighting is a judgement and is stated so it can
+be re-weighed; the measurements under it are not. 40% product-code
+correctness (full marks), 25% verification depth (24 -- she could not run
+gitleaks and said so), 20% truthfulness of claims (full marks), 15% new
+code under test (5 -- see below).
+
+**THREE BLOCKING FINDINGS FROM THE COLD READ ARE STILL OPEN.** A fourth
+and fifth were fixed in PR #68. These three were NOT, because they are
+ST-18/ST-07's own design decisions and the corpus is not on YL's machine
+to test a fix against. Owner MB, fallback 2026-09-13:
+
+1. **A PAID RUN CAN LEAVE NOTHING BEHIND.** `answer()`'s docstring calls
+   `traces.json` "the real output" and "the raw material ST-19's golden
+   set gets written FROM", but the write sits AFTER the `if failed:
+   return 1`. So a run where even one of the twenty questions errors pays
+   for every provider call and writes no file. The PR #63 message quotes
+   a traces.json holding 15 errors and no answers -- under the code as it
+   now stands that file could not have been produced, so the artifact
+   came from a path that no longer exists.
+2. **RE-RUNNING `index` DESTROYS THAT PAID EVIDENCE.** `_fresh_run_dir()`
+   calls `shutil.rmtree(RUN_DIR)` with no check and no warning, and
+   `RUN_DIR` is where `traces.json` lives. Anyone who runs `answer --yes`
+   (up to 141 provider calls) and then re-checks a speed number with
+   `index` silently deletes it.
+3. **`verify` NEVER CHECKS THE TEXT IS FRENCH.** ST-07's signed exit gate
+   (BUILD-PLAN line 49) is "files open, French text selectable (not
+   scanned), source+date logged per file". Nothing checks the language,
+   and `fetch` skips any file that already exists without inspecting it.
+   PRD section 17 names an ENGLISH translation of the same labour code,
+   so a teammate holding that PDF under the manifest's file name gets
+   "have" from `fetch`, "EXIT GATE MET" from `verify`, and every
+   retrieval number thereafter measured against a corpus that breaks the
+   French premise. A gate that cannot fail on the thing it names is not
+   a gate.
+
+WHY ALL OF THIS GOT THROUGH, and it is a config line rather than a habit:
+`pyproject.toml:58` sets `testpaths = ["tests"]`, so `scripts/` is
+outside every check. MB has every skill and both agents -- all eight
+files under `.claude/` are tracked, `settings.json` and its two hooks
+included -- and she used them, running two rule-5 reviews on her own
+branches and mutation-proving her product code in both directions. The
+tools were not missing. They were all pointed at the product, and the bug
+was in the RULER: measurement code that is wrong does not crash and does
+not fail a gate, it reports a better number than the truth. Every tool
+she has depends on a test existing, and there were none.
 
 ## WHAT A PLAN SURVEY FOUND, 2026-08-28 (three things nobody had flagged)
 Done by reading BUILD-PLAN against the repo rather than against this file,
