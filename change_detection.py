@@ -79,6 +79,14 @@ _STATUS_ALREADY_REPORTED_REMOVED = frozenset({_STATUS_REMOVED})
 # the user would see two different explanations for one situation.
 UNSUPPORTED_TYPE_REASON = "unsupported file type"
 
+# Plain language, and it names the consequence rather than the syscall,
+# per PRD section 11's message principle. The user does not need to know
+# what `stat` is; they need to know the file was left alone.
+UNREADABLE_STAT_REASON = (
+    "the file could not be inspected ({error}), so it was left untouched "
+    "and its existing passages still answer questions"
+)
+
 
 class ChangeDetectionError(Exception):
     """Base class for change-detection domain errors, so callers catch
@@ -336,7 +344,37 @@ def scan_folder(folder: str | Path) -> ScanResult:
     unsupported: list[UnsupportedFile] = []
     unreadable: list[UnreadableFile] = []
     for entry in sorted(resolved.iterdir()):
-        if not entry.is_file():
+        # `Path.is_file()` SWALLOWS ONLY SOME ERRORS, and the difference is
+        # the whole point. Read its source before changing this: it catches
+        # OSError, then RE-RAISES unless the errno is in
+        # `pathlib._IGNORED_ERRNOS` = (ENOENT, ENOTDIR, EBADF, ELOOP).
+        # EACCES is not in that tuple.
+        #
+        # So a permission-denied file does NOT quietly return False. It
+        # raises PermissionError straight out of `scan_folder`, and every
+        # other file in the workspace goes unindexed -- the exact outcome
+        # PRD F-02 criterion 3 forbids, "one broken file costs one row and
+        # the batch finishes". One locked file killed the whole sync.
+        #
+        # The errors it DOES swallow are the right ones to swallow: ENOENT
+        # means the file really was deleted between `iterdir` and here, and
+        # letting that fall through to the REMOVED sweep is correct, because
+        # it genuinely is removed.
+        #
+        # Found by the ST-12 review pass hunting for the shape PR #40 fixed
+        # elsewhere. "Removed" has one meaning in this module -- gone from
+        # disk -- and "we were not allowed to look" is never that.
+        try:
+            is_file = entry.is_file()
+        except OSError as exc:
+            unreadable.append(
+                UnreadableFile(
+                    file_name=entry.name,
+                    reason=UNREADABLE_STAT_REASON.format(error=exc.strerror or exc),
+                )
+            )
+            continue
+        if not is_file:
             continue
         if not is_supported(entry):
             unsupported.append(
