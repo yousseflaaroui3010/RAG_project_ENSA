@@ -1060,13 +1060,51 @@ Window:     Point measurement
 Good:       Not yet set. See below -- setting it is ST-19's job
 Act at:     Not yet set
 Owner:      YL, and it is the most important open number on this project
-Measured:   5/8, after the bad probe was replaced. It was 4/8 WITH the
-            bad probe, so my wrong label had been scoring against the
-            system: a mislabelled probe does not merely waste a slot, it
-            manufactures a failure. Earlier readings on smaller sets were
-            3/6 and 4/8; the honest trend is "about three in five", not
-            "about half".
+Measured:   **WITHDRAWN 2026-08-30 -- DO NOT QUOTE THIS NUMBER.** It read
+            5/8, and the matcher that produced it was a plain substring
+            test, so 5 is an UPPER BOUND and not a measurement. See the
+            block below. The reading it replaced (4/8 with the bad probe,
+            and 3/6 earlier) is withdrawn for the same reason.
 ```
+**THE RIGHT-ARTICLE FIGURE IS WITHDRAWN, and the number it guarded was the
+one this file calls the most important open number on the project.**
+
+Found 2026-08-30 by a cold review of `scripts/spike_st18.py`, which no
+test had ever exercised, and reproduced before being fixed. The check was
+`probe.expect_marker in joined` -- a bare substring test against markers
+that are bare numbers (231, 39, 184, 14, 152, 143, 205, 72). So:
+
+    "14"  is satisfied by "Article 143 interdit d'employer des mineurs"
+    "39"  is satisfied by "l'article 139 du present code"
+    "205" is satisfied by "le decret 2-05-734"
+    "72" AND "184" are both satisfied by "dahir n 1-72-184"
+
+That last one is the one to understand: `1-72-184` is the NAME OF ANOTHER
+DOCUMENT in the same workspace. A probe expecting an article of the labour
+code could therefore score a hit by retrieving a completely different
+file, which is precisely the failure the marker was added to detect. Four
+of the eight markers collide that way.
+
+FIXED IN THE CODE, NOT IN THE NUMBER. `marker_found` now matches the way a
+citation does -- the number must follow the word "article" and end where
+the number ends -- and `tests/unit/test_spike_st18_marker.py` pins both
+directions, including a mutation back to the original substring test,
+which turns exactly the five collision rows red. But **the figure itself
+cannot be recomputed until the spike is re-run on a machine that has the
+corpus**: `data/` does not exist on YL's machine and `corpus.py fetch`
+fails there with CERTIFICATE_VERIFY_FAILED (TLS interception on that
+network), which is not something to disable to get a number.
+
+WHY THIS MATTERS BEYOND ONE FIGURE, and it is the lesson rather than the
+bug: measurement code that is wrong does not crash and does not fail a
+gate. It reports a BETTER number than the truth and the number gets
+quoted. Over 1,300 lines of `scripts/` had no tests at all, which is how
+this survived a rule-5 review, a re-review, and a green suite. The same
+review also found the answer path stapling each source file to another
+source's article label -- inside the measurement OF citation quality, and
+written into `traces.json`, which is the file ST-19's golden set is meant
+to be built from. Both are fixed; ST-19 must not be written from any
+traces file produced before this fix.
 **A FALSE VERIFICATION WAS WRITTEN INTO THIS FILE AND THE RE-REVIEW CAUGHT
 IT.** The row above used to say all eight article numbers "were CHECKED
 against the PDF by the rule-5 review, not assumed". The review checked
@@ -1090,7 +1128,16 @@ replaced by "combien de temps de repos par semaine", which Article 205
 answers plainly, verified by reading the PDF rather than by remembering.
 **THIS IS THE FINDING OF THE SPIKE, and it is not a speed problem.**
 Retrieval finds the right DOCUMENT 16 times in 20 and the right ARTICLE
-5 times in 8. For this product that gap is close to the whole point: F-03
+~~5 times in 8~~ **-- that second figure is WITHDRAWN as of 2026-08-30,
+see the withdrawal block above: the matcher counted digits appearing
+anywhere, not articles, so 5 is an upper bound. The DOCUMENT figure of
+16/20 is unaffected -- it compares file names, not numbers.**
+
+THE SHAPE OF THE FINDING SURVIVES THE WITHDRAWAL, and this is why the
+entry is amended rather than deleted: the gap between finding the right
+file and finding the right article can only be WIDER than was published,
+never narrower, because every collision scored a hit that was not one. So
+For this product that gap is close to the whole point: F-03
 puts file name AND section label in every citation, and the user story is
 an HR generalist forwarding "Article 231" to settle a dispute. A citation
 that says "the right 201-page PDF, somewhere" does not survive that
