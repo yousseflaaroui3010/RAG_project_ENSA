@@ -521,8 +521,13 @@ def retrieve() -> int:
     summary = timing.summary()
     print(f"  retrieval time   : median {summary['median']:.3f}s  "
           f"p95 {summary['p95']:.3f}s  (n={summary['n']}, no model calls)")
-    print(f"  cold start       : {summary['cold_start']:.1f}s on an untimed "
-          f"warm-up query -- the encoder loading, paid once per process")
+    # Same `or 0.0` guard as the G4 block. Not reachable here today, since
+    # this function's warm-up always sets the field -- but the two printed
+    # the same value two different ways, and the unguarded one is the shape
+    # that crashed `answer` after it had spent the money.
+    print(f"  cold start       : {summary['cold_start'] or 0.0:.1f}s on an "
+          f"untimed warm-up query -- the encoder loading, paid once per "
+          f"process")
     if hybrid_hits <= keyword_hits:
         print("\n  HYBRID DOES NOT BEAT WORD-COUNTING ON THIS CORPUS.")
         print("  That is an OR-1 finding, not a bug to hide. Record it.")
@@ -584,9 +589,9 @@ def answer(confirmed: bool = False) -> int:
     banner("G4: END TO END THROUGH THE REAL MODEL -- THIS SPENDS")
     print(f"  provider   : {settings.model_mode} / {settings.chat_model_cloud}")
     print(f"  questions  : {len(PROBES)}")
-    print(f"  worst case : {len(PROBES) * per_question} provider calls "
+    print(f"  worst case : {len(PROBES) * per_question + 1} provider calls "
           f"({per_question} per question at retry ceiling "
-          f"{settings.retry_ceiling})", flush=True)
+          f"{settings.retry_ceiling}, plus 1 warm-up)", flush=True)
     if not confirmed:
         print("\n  NOTHING WAS SENT. Re-run with --yes to authorise the calls "
               "above:\n    uv run python scripts/spike_st18.py answer --yes",
@@ -638,9 +643,32 @@ def answer(confirmed: bool = False) -> int:
                 client, workspace_id=lookup["hr"], query_text="question de rodage"
             )
         finally:
-            timing.cold_start = time.perf_counter() - warm_start
-        print(f"  warm-up (untimed, encoder load): "
-              f"{timing.cold_start:.1f}s\n", flush=True)
+            encoder_warm = time.perf_counter() - warm_start
+
+        # AND ONE THROWAWAY PROVIDER CALL. Warming the encoder alone leaves
+        # the FIRST question paying for TLS setup, credential resolution and
+        # whatever metadata the client fetches on its first request -- inside
+        # the pool, against a 20 second median budget. Smaller than a 35
+        # second encoder load and not nothing, and the re-review flagged it
+        # as an undisclosed cost rather than a measured one. It is measured
+        # now. This is the 141st call, not the 141st question: the count
+        # printed above is worst-case questions, and this one extra is
+        # declared here rather than hidden.
+        provider_start = time.perf_counter()
+        try:
+            model.complete(system="Reponds exactement: OK", user="rodage")
+            provider_warm: float | None = time.perf_counter() - provider_start
+        except Exception as exc:  # noqa: BLE001
+            provider_warm = None
+            print(f"  warm-up provider call FAILED: {type(exc).__name__}: {exc}",
+                  flush=True)
+            print("  (the real loop below will report this per question)",
+                  flush=True)
+
+        timing.cold_start = encoder_warm + (provider_warm or 0.0)
+        shown = "failed" if provider_warm is None else f"{provider_warm:.1f}s"
+        print(f"  warm-up (untimed): encoder {encoder_warm:.1f}s, "
+              f"provider handshake {shown}\n", flush=True)
 
         for probe in PROBES:
             start = time.perf_counter()

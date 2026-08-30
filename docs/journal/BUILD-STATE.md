@@ -1869,6 +1869,25 @@ their own `chore/` branch, now together with 8.
   fixing only the key would have produced a 404 on the model name as the
   NEXT failure, one run later. Fix both at once.
 
+  UNVERIFIED, and it is the whole `answer` path: nothing in it has ever
+  run to completion, because the key has been invalid for every attempt.
+  What that means concretely, listed so the first successful run is
+  watched rather than trusted:
+  - the G4 verdict block has never executed. It crashed on a missing cold
+    start until 244eaf2 and the fix is proven only by construction (a
+    `Timing` with no cold start formats as 0.0s instead of raising), never
+    by a real run;
+  - `answer` now makes ONE throwaway provider call in its warm-up, so the
+    first real question does not pay for TLS setup, credential resolution
+    and the client's first metadata fetch. That cost was undisclosed until
+    the re-review named it. It is now measured and printed -- and the
+    measurement itself has never run, so nobody knows whether the handshake
+    is a tenth of a second or five. The declared worst case is 141 calls:
+    20 questions x 7 at retry ceiling 2, plus the warm-up;
+  - `traces.json` has been written exactly once, holding 15 errors and no
+    answers. ST-19 is waiting on a version of it that holds real answers.
+  Treat the first green `answer` run as a likely failure and watch it.
+
 - HALF CLOSED 2026-08-27, and closing it found a defect nothing else
   could have. A Gemini key now exists in a local `.env` and CLOUD MODE
   WORKS -- but only after a fix, because the first real call this project
