@@ -15,6 +15,8 @@ size that disagrees with its digest, a scan that walks into subfolders).
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
 import change_detection as cd
@@ -640,3 +642,48 @@ def test_a_genuinely_new_file_has_no_document_id(db_path, folder, workspace):
     report = cd.detect_changes(workspace_id=workspace.id, db_path=db_path)
 
     assert report.by_status(cd.ChangeStatus.NEW)[0].document_id is None
+
+
+def test_a_file_whose_stat_fails_is_unreadable_not_removed(tmp_path, monkeypatch):
+    """One unreadable file used to kill the whole scan.
+
+    Found by the ST-12 review pass hunting for the shape PR #40 fixed
+    elsewhere, and the mechanism is narrower than "is_file swallows
+    errors". It swallows only `pathlib._IGNORED_ERRNOS` -- ENOENT, ENOTDIR,
+    EBADF, ELOOP -- and RE-RAISES everything else. EACCES is not in that
+    tuple, so a permission-denied file raised PermissionError straight out
+    of `scan_folder` and no other file in the workspace was indexed at all.
+
+    That is PRD F-02 criterion 3 broken outright: one broken file must cost
+    one row and the batch must finish.
+
+    The errors it does swallow are the right ones. ENOENT means the file
+    really was deleted between `iterdir` and here, so letting it fall
+    through to the REMOVED sweep is correct -- it genuinely is removed.
+
+    PermissionError is raised rather than provoked with real ACLs because
+    the two behave identically here and real ACLs do not survive a Windows
+    and Linux CI matrix. What matters is the errno, and it is the real one.
+    """
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "locked.md").write_text("# Article 1\n\ntexte", encoding="utf-8")
+
+    real_is_file = pathlib.Path.is_file
+
+    def blinking_is_file(self):
+        if self.name == "locked.md":
+            raise PermissionError(13, "Permission denied")
+        return real_is_file(self)
+
+    monkeypatch.setattr(pathlib.Path, "is_file", blinking_is_file)
+
+    result = cd.scan_folder(folder)
+
+    assert result.fingerprints == {}
+    assert [f.file_name for f in result.unreadable] == ["locked.md"]
+    assert result.unsupported == []
+    assert "left untouched" in result.unreadable[0].reason, (
+        "the reason must tell the user their file was not harmed, not "
+        "name a syscall"
+    )
