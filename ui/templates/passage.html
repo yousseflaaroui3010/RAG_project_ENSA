@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% import "_passage.html" as viewer %}
+{% block title %}Passage — Sanad{% endblock %}
+
+{#
+  The passage viewer with scripting off (UX spec 5).
+
+  Same body as the overlay, on a page of its own. The card link points
+  here; sanad.js intercepts it and opens the <dialog> instead when it can.
+#}
+
+{% block main %}
+  {% if card %}
+    <article class="panel">
+      <h1 class="passage__heading">
+        <span class="mono">{{ card.file_name }}</span>
+        {% if card.section_label %}
+          — <span class="mono">{{ card.section_label }}</span>
+        {% endif %}
+      </h1>
+      {{ viewer.passage_body(card) }}
+      <p><a class="btn btn--quiet" href="/">Back to the conversation</a></p>
+    </article>
+  {% else %}
+    {#
+      UX spec 5's ErrorPanel rule applies here too: name the offending
+      value rather than saying "not found". The usual cause is a link
+      followed after a new conversation cleared the transcript.
+    #}
+    <section class="panel panel--error" role="alert">
+      <h1>That passage is no longer on screen</h1>
+      <p>The conversation it belonged to has been replaced or cleared, so
+         the section behind that citation is not loaded any more.</p>
+      <p class="error__hint">Ask the question again to get a fresh citation.</p>
+      <p><a class="btn btn--quiet" href="/">Back to the conversation</a></p>
+    </section>
+  {% endif %}
+{% endblock %}

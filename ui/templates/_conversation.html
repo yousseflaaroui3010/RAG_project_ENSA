@@ -1,0 +1,179 @@
+{#
+  The conversation area (UX spec 6.2, 6.3).
+
+  Rendered two ways from ONE file: inside chat.html for a full page, and
+  on its own at /chat/messages for the poll to swap in. One template means
+  a stage hint or a finished answer cannot look different depending on how
+  it arrived.
+
+  aria-live="polite" on the transcript is UX spec 6.4's "new messages are
+  announced through a polite live region", and on the stage block it is
+  "stage changes during loading are announced".
+#}
+{% import "_sources.html" as cards %}
+<section class="conversation" aria-label="Conversation" data-conversation>
+
+  {% if state == ScreenState.NO_DOCUMENTS %}
+    {#
+      UX spec 6.3: with no documents "the sample questions are replaced by
+      a pointer to S2 and the input is disabled with the reason shown
+      inline". Also section 11's "Empty workspace" row.
+    #}
+    <div class="panel panel--empty">
+      <h2>Nothing to answer from yet</h2>
+      <p>{{ active.name }} has no synced documents, so Sanad has nothing to
+         read. Point the workspace at a folder and run Sync.</p>
+      <p class="muted">Sync lives on the Workspaces screen (ST-28), which is
+         not built yet.</p>
+    </div>
+
+  {% elif state == ScreenState.EMPTY %}
+    <div class="panel panel--empty">
+      <h2>Ask a question about {{ active.name }}</h2>
+      {# The line UX spec 6.3 requires beside the sample questions. #}
+      <p>{{ sources_promise }}</p>
+      {% if samples %}
+        <ul class="samples">
+          {% for sample in samples %}
+            <li>
+              {#
+                A real form, so a sample question works with scripting off
+                (it asks). sanad.js upgrades it to fill the input instead,
+                which is what UX spec 6.3 describes; neither path leaves a
+                dead control on the page.
+              #}
+              <form method="post" action="/chat/ask">
+                <input type="hidden" name="question" value="{{ sample }}">
+                <button class="sample" type="submit" data-sample="{{ sample }}">
+                  {{ sample }}
+                </button>
+              </form>
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <ol class="transcript" aria-live="polite" aria-relevant="additions">
+    {% for message in messages %}
+      {% set m = loop.index0 %}
+      <li class="msg msg--{{ message.kind }}">
+
+        {% if message.kind == MessageKind.USER %}
+          <p class="bubble bubble--user">{{ message.text }}</p>
+
+        {% elif message.kind == MessageKind.ANSWER %}
+          <div class="bubble bubble--answer">
+            <p class="answer__text">{{ message.text }}</p>
+            {% if message.retries %}
+              {#
+                UX spec 6.2's "subtle inline marker ... showing the count on
+                hover and on focus". tabindex="0" so it is reachable by
+                keyboard, and the count is in the text too — a tooltip alone
+                would be hover-only meaning.
+              #}
+              <span class="retries" tabindex="0"
+                    title="Sanad reworded the search {{ message.retries }} time(s) before answering">
+                {{ message.retries }} retr{{ 'y' if message.retries == 1 else 'ies' }}
+              </span>
+            {% endif %}
+          </div>
+
+          {#
+            F-09. UX spec 6.2 puts this line "directly under the answer
+            body, above the source cards", and criterion 3 makes its
+            ABSENCE binding on an unflagged workspace.
+          #}
+          {% if message.disclaimer %}
+            <p class="disclaimer">
+              This answer summarises documents, not legal advice. Check the
+              cited text before relying on it.
+            </p>
+          {% endif %}
+
+          {% if message.sources %}
+            {{ cards.source_panel(message, m) }}
+          {% endif %}
+
+        {% elif message.kind == MessageKind.REFUSAL %}
+          {#
+            Design principle 2: a refusal is a first-class answer, bordered
+            in `notice` and never in `danger`. It states what was searched
+            (F-05) and suggests a next step.
+          #}
+          <div class="bubble bubble--refusal">
+            <p class="refusal__lead">{{ message.text }}</p>
+            {% if message.searched %}
+              <p class="refusal__label" id="searched-{{ m }}">What Sanad searched for:</p>
+              <ul class="searched mono" aria-labelledby="searched-{{ m }}">
+                {% for search in message.searched %}<li>{{ search }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+            {% if message.retries %}
+              <p class="muted">Reworded {{ message.retries }} time(s) before stopping.</p>
+            {% endif %}
+          </div>
+
+        {% elif message.kind == MessageKind.CLARIFICATION %}
+          <div class="bubble bubble--clarification">
+            <p>{{ message.text }}</p>
+            {% if message.choices %}
+              <ul class="choices">
+                {% for choice in message.choices %}
+                  <li>
+                    <form method="post" action="/chat/ask">
+                      <input type="hidden" name="question" value="{{ choice }}">
+                      <button class="sample" type="submit">{{ choice }}</button>
+                    </form>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+
+        {% elif message.kind == MessageKind.INTERRUPTED %}
+          {#
+            Section 11's "answer interrupted mid-generation" and criterion
+            8: whatever is here is visibly marked incomplete and no control
+            presents it as a finished answer. There is deliberately no copy
+            action and no source card.
+          #}
+          <div class="bubble bubble--interrupted">
+            <p class="incomplete-mark">Incomplete — not an answer</p>
+            <p>{{ message.text }}</p>
+          </div>
+
+        {% elif message.kind == MessageKind.ERROR %}
+          {#
+            UX spec 5's ErrorPanel: plain message, the exact failing value,
+            a fix hint, a retry action.
+          #}
+          <div class="panel panel--error" role="alert">
+            <p class="error__sentence">{{ message.error.sentence }}</p>
+            <p class="error__attempted mono">{{ message.error.attempted }}</p>
+            <p class="error__value mono">{{ message.error.value }}</p>
+            <p class="error__hint">{{ message.error.hint }}</p>
+          </div>
+        {% endif %}
+
+      </li>
+    {% endfor %}
+  </ol>
+
+  {% if busy %}
+    {#
+      UX spec 6.3. The label is the stage the agent is REALLY in, read off
+      the ports as they are entered (ui/runs.py). Design principle 3 bans
+      the alternative: "A spinner with no stage is banned."
+    #}
+    <div class="stage" role="status" aria-live="polite" data-stage>
+      <span class="stage__dot" aria-hidden="true"></span>
+      <span class="stage__label">{{ stage_label }}</span>
+      <form method="post" action="/chat/cancel">
+        <button class="btn btn--quiet" type="submit">Cancel</button>
+      </form>
+    </div>
+  {% endif %}
+
+</section>
