@@ -12,7 +12,7 @@
 
 {% import "_passage.html" as viewer %}
 
-{% macro source_panel(message, message_index) %}
+{% macro source_panel(message, message_index, workspace_id) %}
   {#
     UX spec 6.1 puts this on the right rail, and 3.1 moves it "from a side
     rail to a stacked section below the answer" under 1024px. That is one
@@ -34,7 +34,7 @@
             by keyboard.
           #}
           <a class="source__link"
-             href="/chat/passage/{{ message_index }}/{{ card.index }}"
+             href="/chat/passage/{{ workspace_id }}/{{ message_index }}/{{ card.index }}"
              data-passage="passage-{{ message_index }}-{{ card.index }}">
             <span class="source__file mono">{{ card.file_name }}</span>
             {% if card.section_label %}

@@ -125,9 +125,17 @@ def test_sample_questions_name_files_this_workspace_really_holds():
     workspace". DRAWN -- each names a real file. A hardcoded list of
     French labour-law questions (which is what the React reference ships)
     is wrong the moment the active workspace is the manuals one."""
-    questions = sample_questions(["code-du-travail.pdf", "guide-cnss.txt"])
+    files = ["code-du-travail.pdf", "guide-cnss.txt"]
+    questions = sample_questions(files)
+
+    # ONE QUESTION PER FILE, each naming ITS OWN file. Written as
+    # `all(a in q or b in q ...)` this passed when both questions named
+    # the same document -- a cold review caught it. That is the "keyed so
+    # duplicates collapse" shape: the assertion held while the feature
+    # was broken.
     assert len(questions) == 2
-    assert all("code-du-travail.pdf" in q or "guide-cnss.txt" in q for q in questions)
+    for name, question in zip(files, questions, strict=True):
+        assert name in question
 
 
 def test_three_is_the_ceiling_not_a_quota():

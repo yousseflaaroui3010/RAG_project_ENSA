@@ -89,16 +89,19 @@
   // same button asks the question instead, which is a reasonable second
   // best; here it does what the spec says.
   var input = document.getElementById("question");
-  document.querySelectorAll("[data-sample]").forEach(function (button) {
-    button.addEventListener("click", function (event) {
-      if (!input || input.disabled) {
-        return;
-      }
-      event.preventDefault();
-      input.value = button.getAttribute("data-sample");
-      input.focus();
+  function wireSamples(root) {
+    root.querySelectorAll("[data-sample]").forEach(function (button) {
+      button.addEventListener("click", function (event) {
+        if (!input || input.disabled) {
+          return;
+        }
+        event.preventDefault();
+        input.value = button.getAttribute("data-sample");
+        input.focus();
+      });
     });
-  });
+  }
+  wireSamples(document);
 
   /* ---- Passage viewer (UX spec 5, criterion 4) --------------------- */
 
@@ -107,23 +110,31 @@
     inside the dialog, closes on Escape, and returns focus to the element
     that was focused when it opened. Hand-rolled focus management is where
     accessibility goes to die, so none is written here.
+
+    A function rather than a one-off loop, because new source cards arrive
+    with an answer and are appended without a page load (see the poll
+    below). Anything wired only at first load would leave those cards as
+    plain links to the passage page -- still usable, but not the overlay.
   */
-  document.querySelectorAll("[data-passage]").forEach(function (link) {
-    var dialog = document.getElementById(link.getAttribute("data-passage"));
-    if (!dialog || typeof dialog.showModal !== "function") {
-      // No <dialog> support: the link still navigates to the passage page.
-      return;
-    }
-    link.addEventListener("click", function (event) {
-      event.preventDefault();
-      dialog.showModal();
-    });
-    dialog.querySelectorAll("[data-close-viewer]").forEach(function (close) {
-      close.addEventListener("click", function () {
-        dialog.close();
+  function wirePassages(root) {
+    root.querySelectorAll("[data-passage]").forEach(function (link) {
+      var dialog = document.getElementById(link.getAttribute("data-passage"));
+      if (!dialog || typeof dialog.showModal !== "function") {
+        // No <dialog> support: the link still navigates to the passage page.
+        return;
+      }
+      link.addEventListener("click", function (event) {
+        event.preventDefault();
+        dialog.showModal();
+      });
+      dialog.querySelectorAll("[data-close-viewer]").forEach(function (close) {
+        close.addEventListener("click", function () {
+          dialog.close();
+        });
       });
     });
-  });
+  }
+  wirePassages(document);
 
   /* ---- Loading: poll the real stage (UX spec 6.3) ------------------ */
 
@@ -132,32 +143,62 @@
     agent is actually inside; it does not run a timer. The React reference
     advances its own stage on setTimeout at 650ms and 1300ms, which is the
     faked progress design principle 3 bans in one sentence.
-
-    Swapping only the conversation area, rather than reloading, is what
-    keeps a screen reader from restarting mid-answer -- the <noscript>
-    path has to reload and accepts that cost.
   */
-  var label = document.querySelector("[data-stage] .stage__label");
-  if (!label) {
+  var stageBlock = document.querySelector("[data-stage]");
+  var transcript = document.querySelector("[data-transcript]");
+  if (!stageBlock || !transcript) {
     return;
   }
 
   var POLL_MS = 700;
 
   /*
-    ONLY THE LABEL'S TEXT IS UPDATED, and the element itself is never
-    replaced. That is an accessibility requirement, not a micro-
-    optimisation: `[data-stage]` carries role="status" aria-live="polite",
-    and a live region only announces changes to a node the screen reader
-    was already watching. Swapping the whole conversation area (which an
-    earlier draft of this file did) destroys and recreates that node every
-    tick, so UX spec 6.4's "stage changes during loading are announced"
-    silently stops being true.
+    WHY THE FINISHED ANSWER IS APPENDED RATHER THAN RELOADED, and it is an
+    accessibility requirement rather than a nicety. UX spec 6.4: "New
+    messages are announced through a polite live region." A live region
+    only announces content INSERTED into a node the screen reader is
+    already watching -- content that is simply present when a document
+    loads is never announced. So `location.reload()`, which is what this
+    file used to do when a run settled, left `aria-live` on the transcript
+    doing nothing at all: correct markup, zero announcements.
 
-    Nothing else on the page can change while a run is in flight -- no
-    message is appended until it settles -- so there is nothing else to
-    swap in anyway.
+    A cold review caught that the test could not tell the difference
+    either: `assert 'role="status"' in page` passes on an attribute that
+    never fires.
+
+    The <noscript> path still reloads and still cannot announce. That cost
+    is real, is accepted, and is written down in the build journal.
   */
+  function absorb(fresh) {
+    var freshList = fresh.querySelector("[data-transcript]");
+    if (!freshList) {
+      window.location.reload();
+      return;
+    }
+    // Append only what is new, into the LIVE list that already exists.
+    var existing = transcript.children.length;
+    var added = Array.prototype.slice.call(freshList.children, existing);
+    added.forEach(function (node) {
+      transcript.appendChild(document.importNode(node, true));
+      wirePassages(node);
+    });
+
+    // The run is over: drop the stage block, put the composer back.
+    stageBlock.remove();
+    var reason = document.getElementById("composer-reason");
+    if (reason) {
+      reason.remove();
+    }
+    if (input) {
+      input.disabled = false;
+      input.removeAttribute("aria-describedby");
+    }
+    document.querySelectorAll(".composer button[disabled]").forEach(function (b) {
+      b.disabled = false;
+    });
+    wireSamples(document);
+  }
+
   function tick() {
     fetch("/chat/messages", { headers: { "X-Requested-With": "fetch" } })
       .then(function (response) {
@@ -168,19 +209,24 @@
           window.setTimeout(tick, POLL_MS);
           return;
         }
-        var parsed = new DOMParser().parseFromString(html, "text/html");
-        var fresh = parsed.querySelector("[data-stage] .stage__label");
-        if (!fresh) {
-          // No stage block in the fresh render: the run has settled.
-          // Reload, so the composer is re-enabled and the new source
-          // cards get their dialogs and their listeners.
-          window.location.reload();
+        var fresh = new DOMParser().parseFromString(html, "text/html");
+        var freshLabel = fresh.querySelector("[data-stage] .stage__label");
+        if (!freshLabel) {
+          absorb(fresh);
           return;
         }
-        // The server's label, rendered from the port the agent is
-        // actually inside. Never computed here.
-        if (fresh.textContent.trim() !== label.textContent.trim()) {
-          label.textContent = fresh.textContent.trim();
+        /*
+          ONLY THE LABEL'S TEXT IS UPDATED while the run is in flight, and
+          the element is never replaced: `[data-stage]` carries
+          role="status" aria-live="polite", and swapping the node out each
+          tick would stop it announcing for the same reason as above.
+          The text is the server's, rendered from the port the agent is
+          actually inside. Never computed here.
+        */
+        var label = stageBlock.querySelector(".stage__label");
+        var next = freshLabel.textContent.trim();
+        if (label && label.textContent.trim() !== next) {
+          label.textContent = next;
         }
         window.setTimeout(tick, POLL_MS);
       })

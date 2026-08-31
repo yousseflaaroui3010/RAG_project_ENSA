@@ -130,6 +130,83 @@ def test_the_two_dark_palettes_cannot_drift_apart(palettes):
     assert media == palettes["dark"]
 
 
+DIRECTION_LOCKED = re.compile(
+    r"margin-left|margin-right|padding-left|padding-right"
+    r"|text-align:\s*(left|right)|(^|[^-])left:|(^|[^-])right:",
+    re.MULTILINE,
+)
+
+
+def test_no_rule_is_locked_to_one_reading_direction():
+    """Acceptance criterion 11, the half a stylesheet can be held to.
+
+    "Given the interface is rendered under a right-to-left locale, when
+    any screen is viewed, then layout mirrors while file names, paths and
+    numbers stay left-to-right." A `margin-left: auto` that pushes the nav
+    to the right edge does NOT mirror -- under `dir="rtl"` it pushes it to
+    the same physical side and the layout is half-mirrored, which is worse
+    than not mirroring at all. `margin-inline-start` mirrors for free.
+
+    THIS FOUND EIGHT REAL ONES when it was first run against this
+    stylesheet: the skip link's `left`, five `margin-left: auto` pushes, a
+    `padding-left` and a `text-align: left`. None of them was visible in
+    LTR, which is the whole problem -- V1 ships LTR (PRD section 5), so
+    nothing an operator does today would ever reveal them.
+
+    UX spec 6.5's other half -- mono file names and article numbers
+    staying left-to-right inside a mirrored layout, "the case most
+    implementations get wrong" -- is the `.mono` rule's `direction: ltr;
+    unicode-bidi: isolate`, asserted below."""
+    css = CSS.read_text(encoding="utf-8")
+    offenders = [
+        line.strip()
+        for line in css.splitlines()
+        if DIRECTION_LOCKED.search(line) and not line.strip().startswith(("*", "/*"))
+    ]
+    assert offenders == [], (
+        "these rules will not mirror under dir=rtl; use the logical "
+        f"property instead (margin-inline-start, padding-inline-start, "
+        f"text-align: start, inset-inline-start): {offenders}"
+    )
+
+
+def test_every_spacing_value_is_on_the_signed_scale():
+    """UX spec 3.2: "4, 8, 12, 16, 24, 32, 48, 64. Nothing between. A value
+    not on this scale is a bug."
+
+    Scoped to padding, margin and gap -- the properties that ARE spacing.
+    Border widths and the focus ring's offset are stroke weights, not
+    spacing, and 3.2 is not about them; sweeping every `2px` in the file
+    would flag the 2px refusal border that section 6.2 asks for.
+
+    A review found one real offender here, `.cited { padding: 0 2px }`,
+    which no test could see because a stylesheet has no behaviour to
+    assert on. This is the check that makes the scale a rule rather than
+    an intention."""
+    allowed = {"0", "4px", "8px", "12px", "16px", "24px", "32px", "48px", "64px"}
+    css = CSS.read_text(encoding="utf-8")
+    offenders: list[str] = []
+    for declaration in re.findall(
+        r"(?:padding|margin|gap|row-gap|column-gap)[a-z-]*:\s*([^;]+);", css
+    ):
+        for value in declaration.split():
+            if value.startswith("var(") or value in {"auto", "inherit", "0"}:
+                continue
+            if value.endswith("px") and value not in allowed:
+                offenders.append(declaration.strip())
+    assert offenders == [], (
+        f"spacing values off UX spec 3.2's scale: {sorted(set(offenders))}"
+    )
+
+
+def test_file_names_stay_left_to_right_inside_a_mirrored_layout():
+    """UX spec 6.5, the clause it calls out as usually got wrong."""
+    css = CSS.read_text(encoding="utf-8")
+    mono = _block(css, ".mono, code")
+    assert "direction: ltr" in mono
+    assert "unicode-bidi: isolate" in mono
+
+
 def test_the_measurement_agrees_with_the_journal_s_recorded_numbers():
     """Prove the arithmetic on values whose answer is already written down.
 

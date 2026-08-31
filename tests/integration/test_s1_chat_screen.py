@@ -36,11 +36,13 @@ from fastapi.testclient import TestClient
 import chunking
 import embeddings
 import parent_store
+import ui.conversation
 import vector_store
 import workspaces
 from agent.answering import NOT_COVERED
 from agent.ports import AgentPorts
 from app import Runtime, create_app
+from config import get_settings
 from db import repo
 from tests.fake_chat import ScriptedChat
 from tests.fake_encoders import install as install_fake_encoders
@@ -665,6 +667,137 @@ def test_a_new_conversation_clears_the_transcript(sanad):
 
 
 # --- the shell (UX spec 4) -------------------------------------------
+
+
+def test_the_lifespan_really_opens_the_one_qdrant_client(tmp_path, monkeypatch):
+    """The ADR-04 line no test had ever executed.
+
+    Every other test in this file passes a `ports_factory`, which takes
+    the lifespan's early return, so `vector_store.open_store()` -- the one
+    place the process's single Qdrant client is opened and closed -- was
+    covered by nothing. A cold review pointed at it, and this project's
+    own law is that a line which has never run is untested, not passing.
+
+    It DID run live, twice, when the server was driven by hand; that is
+    evidence, not a check. This is the check."""
+    settings = get_settings().model_copy(
+        update={"qdrant_storage_path": str(tmp_path / "qdrant")}
+    )
+    monkeypatch.setattr(vector_store, "get_settings", lambda: settings)
+    runtime = Runtime(db_path=tmp_path / "sanad.db")
+
+    assert runtime.client is None
+    with TestClient(create_app(runtime)) as client:
+        client.get("/")
+        assert runtime.client is not None, "the lifespan must open the store"
+    assert runtime.client is None, "and close it again on shutdown"
+
+
+def test_a_passage_link_never_resolves_against_another_workspace(sanad):
+    """F-01 isolation, at the URL.
+
+    Addressed by message and index alone, the link resolved against
+    whatever workspace happened to be ACTIVE when it was followed -- so
+    switching workspace and pressing Back served message 3, card 1 of a
+    different conversation, looking entirely correct.
+
+    The second workspace here holds no conversation at all, so its
+    message index cannot exist: the page must say the passage is gone
+    rather than quietly serve the other workspace's section."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    page = _settled(client, runtime, workspace.id)
+    href = page.split('href="/chat/passage/')[1].split('"')[0]
+    assert workspace.id in href, "the link must name its own workspace"
+
+    other = workspaces.create_workspace(
+        name="Manuals", folder_path="/tmp/manuals", db_path=db_path
+    )
+    # Follow the SAME message/card coordinates against the other workspace.
+    _ws, message, index = href.split("/")
+    served = client.get(f"/chat/passage/{other.id}/{message}/{index}").text
+
+    assert "no longer on screen" in served
+    assert "MARQUEUR" not in served
+    assert "<mark" not in served
+
+
+def test_the_error_panel_cannot_print_the_configured_api_key(sanad, monkeypatch):
+    """Core law: never log a secret.
+
+    UX spec 5 requires the panel to show "the exact failing value", and
+    provider SDKs put the request URL in exception text -- for Google AI
+    Studio that URL carries `?key=...`. Verbatim is the requirement;
+    verbatim enough to print the key is not.
+
+    The key is redacted by exact value rather than by looking for
+    something key-shaped, so this test sets a real one in config and
+    raises an exception carrying it."""
+    secret = "AIzaSyTHIS-IS-THE-KEY-0000000000000000000"
+    settings = get_settings().model_copy(update={"cloud_api_key": secret})
+    monkeypatch.setattr(ui.conversation, "get_settings", lambda: settings)
+
+    build, workspace, _ = sanad
+    client, runtime = build()
+
+    def leaky() -> AgentPorts:
+        raise RuntimeError(
+            f"400 from https://generativelanguage.googleapis.com/v1/models?key={secret}"
+        )
+
+    runtime.ports_factory = leaky
+    _ask(client)
+    page = _settled(client, runtime, workspace.id)
+
+    assert "panel--error" in page
+    assert secret not in page, "the API key must never reach the screen"
+    assert "[redacted]" in page
+    # The rest of the message must survive, or the panel stops naming the
+    # failing value and becomes the bare "something went wrong" UX spec 5
+    # forbids.
+    assert "generativelanguage.googleapis.com" in page
+
+
+def test_switching_workspace_says_the_conversation_context_has_moved(sanad):
+    """UX spec 4, the half of that sentence an earlier version missed:
+    changing the workspace "clears nothing and interrupts nothing, but the
+    chat area shows a one-line notice that the conversation context has
+    moved"."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    other = workspaces.create_workspace(
+        name="Manuals", folder_path="/tmp/manuals", db_path=db_path
+    )
+
+    moved = client.post(
+        "/workspace", data={"workspace_id": other.id}, follow_redirects=True
+    ).text
+    assert "conversation context has moved" in moved
+    assert "Manuals" in moved
+
+    # And it is a notice about ONE navigation, not a banner that sticks:
+    # a plain visit afterwards must not still be announcing the move.
+    assert "conversation context has moved" not in client.get("/").text
+
+
+def test_the_rtl_preview_flips_the_document_direction(sanad):
+    """UX spec 6.5: "Verify with an RTL preview even though V1 ships LTR."
+
+    The preview is the whole mechanism -- there is no locale switch and no
+    Arabic copy (UX spec 14, assumption 3). It exists so acceptance
+    criterion 11 can be looked at, and so open risk 3's "specified but
+    never exercised" stops being true for the layout half.
+
+    The hostile value is checked in the same test because `dir` is written
+    straight onto the document element: anything that is not "rtl" must
+    come back "ltr", never the caller's string."""
+    build, workspace, _ = sanad
+    client, _runtime = build()
+
+    assert 'dir="ltr"' in client.get("/").text
+    assert 'dir="rtl"' in client.get("/?dir=rtl").text
+    assert 'dir="ltr"' in client.get('/?dir="><script>').text
 
 
 def test_a_question_containing_markup_is_shown_as_text_not_run_as_markup(sanad):

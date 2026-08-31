@@ -1605,6 +1605,94 @@ fast first question -- deliberately NOT improvised here, because it makes
 `uv run python app.py` take half a minute before it serves anything and
 that is a call for whoever owns the demo.
 
+## ST-27's TWO REVIEW PASSES, 2026-08-31, and what they cost
+
+Both ran on the branch before merge, per rule 5. **Seven stories running
+now** on the claim that a post-green review finds a real defect: this one
+found nine, five of them blocking, on a branch whose whole gate was green.
+
+THE TWO BLOCKING FINDINGS BOTH PASSES AGREED ON, and neither was visible
+in any test, any lint or any live run:
+
+1. **TWO LIVE RACES, and the screen produces them by itself.** Starlette
+   runs a plain `def` route on a threadpool, and this page polls every
+   700ms while it is open. So `settle` -- read the run, check it is done,
+   clear it -- had two threads pass the check and append ONE answer
+   TWICE, into the transcript and into `turns`, which then fed a
+   duplicated exchange back as F-07 memory. And `_start` read `busy`,
+   then assigned `conversation.run` on a later line, so a double-clicked
+   Send started TWO paid model runs and silently discarded the first.
+   Both are now one locked step (`Conversation.begin`, `Conversation.
+   settle`), and both are pinned by tests that release 16 threads off a
+   `threading.Barrier` rather than hoping for an interleaving.
+   THE DOCSTRING WAS THE TELL: it said "no second reader to race with".
+   One user is not one thread.
+2. **CANCEL DID NOTHING DURING "WRITING".** The checkpoint only fired when
+   the NEXT port was entered, and `write_answer` is the last one -- so the
+   flag set during the one stage a user actually waits through was never
+   read again. The button was decoration on the stage that needed it. Now
+   checkpointed after the write; the accepted cost is that a completed,
+   paid-for answer is discarded, which is what "stops after the current
+   stage" means. The suite was green over this because the cancel test
+   gated on `grade` and never on `write_answer`.
+
+THE OTHER THREE BLOCKING ONES:
+3. **A passage link resolved against whatever workspace was ACTIVE when
+   it was followed.** Switch workspace, press Back, open a source card,
+   and you read a different workspace's section -- silently, looking
+   entirely correct. That is F-01 isolation. The URL now carries the
+   workspace id, and a test follows the same message/card coordinates
+   against a second workspace and requires the "no longer on screen" page.
+4. **THE ERROR PANEL COULD PRINT THE API KEY.** UX spec 5 wants "the exact
+   failing value", and Google AI Studio puts `?key=...` in the request URL
+   that its SDK exceptions carry. A failed call would have rendered the
+   key on screen and into any screenshot or projector. Redacted by EXACT
+   CONFIGURED VALUE rather than by guessing what a key looks like.
+5. **`vector_store.open_store()` in the lifespan had never executed under
+   test.** Every test passes a `ports_factory` and takes the early
+   return. It ran live, twice, by hand -- which is evidence, not a check.
+   Now covered.
+
+NON-BLOCKING, all fixed here except where noted:
+6. UX spec 4's "the chat area shows a one-line notice that the
+   conversation context has moved" was simply **missing**, and had not
+   been declared as missing either. Now rendered on the workspace switch.
+7. **THE POLITE LIVE REGION NEVER ANNOUNCED ANYTHING.** The only path that
+   added a message was a full page load, and a live region announces what
+   is INSERTED into it, never what was already there when the document
+   loaded. `aria-live` was correct markup doing nothing, and the test that
+   asserted `role="status"` was in the page could not tell the difference.
+   The poll now appends the finished answer into the existing list. The
+   `<noscript>` path still reloads and still cannot announce; that cost is
+   real and is accepted.
+8. `.cited { padding: 0 2px }` was off UX spec 3.2's spacing scale ("a
+   value not on this scale is a bug"). Fixed, and a test now sweeps every
+   padding, margin and gap in the stylesheet -- proven by putting a 3px
+   value back and watching it fail.
+9. **CRITERION 4 IS UNVERIFIED and is not claimed.** "Closing the passage
+   viewer returns focus to that same card" rests on `<dialog>.showModal()`
+   doing it, which is the platform's own behaviour and the reason a
+   `<dialog>` was chosen over a hand-rolled overlay. Nothing here drives a
+   real browser, so nothing here has watched it happen. OWNER ST-38.
+
+## AN ESCALATION FOR UX-01's OWNER (rule 1), raised not decided
+
+**Two signed sentences disagree about the text inside a source card.**
+Design principle 1 says a source card is "never smaller than body text".
+Section 3.3 puts the Mono role at 13px, and file names and section labels
+are exactly what that role is for. A card's file name is both things at
+once, and body is 15px.
+
+An earlier version of `sanad.css` settled this in a code comment, at
+13px. That is the reinterpretation rule 1 forbids -- "if a spec is wrong
+or ambiguous, escalate; never edit the spec to match the code" cuts both
+ways, and quietly picking one clause over another is the same move.
+
+SHIPPED AT BODY SIZE pending a ruling, for two stated reasons: between
+two signed readings the accessible one is the safer place to sit, and
+principle 1 is the more specific sentence -- it names this component.
+Reverse it in one line if the ruling goes the other way.
+
 WHAT THE SCREEN CANNOT DO YET, and none of it is hidden:
 - **The clarification variant cannot appear live.** `ui/ports.py` stubs
   ST-22's `clarify` to None. The screen renders the variant and a test

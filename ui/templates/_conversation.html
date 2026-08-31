@@ -13,6 +13,21 @@
 {% import "_sources.html" as cards %}
 <section class="conversation" aria-label="Conversation" data-conversation>
 
+  {% if moved %}
+    {#
+      UX spec 4, and it is the SECOND half of that sentence: changing the
+      workspace "clears nothing and interrupts nothing, BUT the chat area
+      shows a one-line notice that the conversation context has moved".
+      Without it, a reader who switches sees a transcript that looks like
+      the one they were just reading and has no way to tell the answers
+      now come from somewhere else.
+    #}
+    <p class="notice" role="status">
+      The conversation context has moved to {{ active.name }}. Earlier
+      answers on this screen came from a different workspace.
+    </p>
+  {% endif %}
+
   {% if state == ScreenState.NO_DOCUMENTS %}
     {#
       UX spec 6.3: with no documents "the sample questions are replaced by
@@ -55,7 +70,15 @@
     </div>
   {% endif %}
 
-  <ol class="transcript" aria-live="polite" aria-relevant="additions">
+  {#
+    UX spec 6.4: "New messages are announced through a polite live
+    region." `sanad.js` APPENDS a finished answer into this list rather
+    than reloading the page, because a live region announces what is
+    inserted into it and never what was already there when the document
+    loaded. The attribute alone is not the feature.
+  #}
+  <ol class="transcript" aria-live="polite" aria-relevant="additions"
+      data-transcript>
     {% for message in messages %}
       {% set m = loop.index0 %}
       <li class="msg msg--{{ message.kind }}">
@@ -93,7 +116,7 @@
           {% endif %}
 
           {% if message.sources %}
-            {{ cards.source_panel(message, m) }}
+            {{ cards.source_panel(message, m, active.id) }}
           {% endif %}
 
         {% elif message.kind == MessageKind.REFUSAL %}

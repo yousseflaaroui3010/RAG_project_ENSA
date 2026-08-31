@@ -9,6 +9,8 @@ rules can be pushed at one at a time.
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from agent.state import Answer, AnswerKind, Source, Turn
@@ -295,6 +297,89 @@ def test_only_a_real_answer_enters_the_conversation_memory():
     conversation.run = answered
     conversation.settle()
     assert conversation.turns == [Turn(question="Et pour les cadres ?", answer="Trois mois.")]
+
+
+def test_two_threads_settling_the_same_run_append_it_once():
+    """The race a cold review found, driven rather than argued.
+
+    Starlette runs a plain `def` route on a threadpool, so the 700ms poll
+    and a browser refresh really do call `settle` at the same instant.
+    Written as read-check-clear, both passed the check and the answer
+    appeared TWICE -- once in the transcript and once in `turns`, which
+    then fed a duplicated exchange back as F-07 memory.
+
+    A barrier is what makes this a test rather than a coincidence: every
+    thread is held until all of them have arrived, so they enter the
+    critical section together instead of politely one after another."""
+    conversation = Conversation(workspace_id="ws-1")
+    run = _run()
+    run._answer = _answer(  # noqa: SLF001
+        AnswerKind.ANSWER, "Trois mois.", (Source(FILE, LABEL),)
+    )
+    run._done = True  # noqa: SLF001
+    run.reading.cited = (_hit(SECTION[:30]),)
+    run.reading.parents = {PARENT: SECTION}
+    conversation.run = run
+
+    threads = 16
+    barrier = threading.Barrier(threads)
+
+    def settle_together() -> None:
+        barrier.wait(timeout=5)
+        conversation.settle()
+
+    workers = [threading.Thread(target=settle_together) for _ in range(threads)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=5)
+
+    assert len(conversation.messages) == 1
+    assert len(conversation.turns) == 1
+
+
+def test_two_threads_asking_at_once_start_exactly_one_run():
+    """The second race: a double-clicked Send.
+
+    Both requests passed a `busy` check and both assigned
+    `conversation.run`. The first worker kept going, spent a real provider
+    call, and had its answer silently discarded by the second. The user
+    saw one answer and paid for two.
+
+    `begin` returning False is the whole contract: exactly one caller may
+    be told to start a thread."""
+    conversation = Conversation(workspace_id="ws-1")
+    threads = 16
+    barrier = threading.Barrier(threads)
+    claimed: list[bool] = []
+    guard = threading.Lock()
+
+    def ask_together() -> None:
+        barrier.wait(timeout=5)
+        won = conversation.begin(_run(), "Quelle duree ?")
+        with guard:
+            claimed.append(won)
+
+    workers = [threading.Thread(target=ask_together) for _ in range(threads)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=5)
+
+    assert sum(claimed) == 1, "exactly one caller may start the run"
+    assert len(conversation.messages) == 1, "and only its question is shown"
+
+
+def test_a_finished_run_does_not_block_the_next_question():
+    """The control probe for the test above. Without it, `begin` could
+    simply always return False after the first call and both assertions
+    would still pass -- a chat screen that answers one question ever."""
+    conversation = Conversation(workspace_id="ws-1")
+    first = _run()
+    assert conversation.begin(first, "one") is True
+    first.fail(RuntimeError("done"))
+    conversation.settle()
+    assert conversation.begin(_run(), "two") is True
 
 
 def test_settling_twice_does_not_double_the_transcript():

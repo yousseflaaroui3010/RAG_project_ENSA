@@ -116,11 +116,22 @@ class Reading:
 class Run:
     """One question, from submitted to settled.
 
-    Every field a request thread reads is guarded by `_lock`, because the
+    Every SCALAR a request thread reads is guarded by `_lock`, because the
     worker writes `stage` while the page renders it. The lock is held for
     single assignments only -- it never spans a port call, or Cancel could
     not be recorded while the model is thinking, which is the one moment
-    it is needed."""
+    it is needed.
+
+    `reading` IS THE EXCEPTION AND IT IS NOT GUARDED. An earlier version
+    of this docstring said "every field", which was not true and is the
+    kind of sentence a later reader trusts instead of checking. What makes
+    it safe is ordering, not the lock: the worker fills `reading` inside
+    `write_answer` and only then sets `_done` under the lock, and nothing
+    outside reads `reading` until it has seen `done` -- `Conversation.
+    settle` is the only reader and it checks `run.done` first. So the
+    lock release that publishes `_done` is what publishes `reading` with
+    it. If a future caller ever reads `reading` on a run that is still in
+    flight, that argument evaporates and this needs the lock."""
 
     question: str
     workspace_id: str
@@ -262,7 +273,19 @@ class Run:
                 # about what was read.
                 self.reading.cited = tuple(passages)
                 self.reading.parents = dict(parent_texts)
-                return write_answer(question, passages, parent_texts)
+                written = write_answer(question, passages, parent_texts)
+                # CANCEL HAS TO WORK ON THE LAST STAGE TOO. Writing is the
+                # final port, so without this checkpoint the flag set
+                # during it is never read again and the answer lands as if
+                # Cancel had not been pressed -- a button that does nothing
+                # on the one stage a user actually waits through. UX spec
+                # 6.3 says Cancel "stops after the current stage", and this
+                # is that sentence: the stage finishes, then it stops.
+                # The cost is real and is accepted: a completed answer that
+                # was paid for is discarded. Showing it anyway would make
+                # the button a lie, which is worse.
+                self._checkpoint()
+                return written
 
             return wrapped
 

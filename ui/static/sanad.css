@@ -145,7 +145,7 @@ h3 { font-size: var(--size-body); font-weight: 600; line-height: 1.6; }
 
 .skip-link {
   position: absolute;
-  left: -9999px;
+  inset-inline-start: -9999px;
   top: var(--space-8);
   padding: var(--space-8) var(--space-16);
   background: var(--surface-raised);
@@ -153,7 +153,7 @@ h3 { font-size: var(--size-body); font-weight: 600; line-height: 1.6; }
   border: 1px solid var(--border-strong);
   z-index: 10;
 }
-.skip-link:focus { left: var(--space-8); }
+.skip-link:focus { inset-inline-start: var(--space-8); }
 
 /* ---- Shell (UX spec 4) --------------------------------------------- */
 
@@ -173,7 +173,7 @@ h3 { font-size: var(--size-body); font-weight: 600; line-height: 1.6; }
 .shell__name { font-weight: 600; font-size: var(--size-section); }
 .shell__workspace { display: flex; align-items: center; gap: var(--space-8); }
 .shell__label { font-size: var(--size-meta); color: var(--text-muted); }
-.shell__nav { display: flex; gap: var(--space-12); margin-left: auto; }
+.shell__nav { display: flex; gap: var(--space-12); margin-inline-start: auto; }
 .shell__link { color: var(--accent); text-decoration: none; }
 .shell__link.is-current { font-weight: 600; text-decoration: underline; }
 .shell__link.is-disabled { color: var(--text-muted); cursor: not-allowed; }
@@ -239,7 +239,7 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 }
 .chat__title { margin: 0; }
 .chat__grounding { margin: 0; color: var(--text-muted); font-size: var(--size-meta); }
-.chat__header form { margin-left: auto; }
+.chat__header form { margin-inline-start: auto; }
 
 .transcript { list-style: none; margin: 0; padding: 0; }
 
@@ -309,14 +309,14 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 .bubble--refusal { border: 2px solid var(--notice); background: var(--surface); }
 .refusal__lead { margin: 0; font-weight: 600; }
 .refusal__label { margin: var(--space-12) 0 var(--space-4); font-size: var(--size-meta); }
-.searched { margin: 0; padding-left: var(--space-24); }
+.searched { margin: 0; padding-inline-start: var(--space-24); }
 
 .bubble--clarification { background: var(--surface-raised); border-color: var(--border-strong); }
 .choices, .samples { list-style: none; margin: var(--space-12) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-8); }
 
 .sample {
   font: inherit;
-  text-align: left;
+  text-align: start;
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border-strong);
@@ -364,6 +364,24 @@ input[type="text"]:disabled, select:disabled, button:disabled {
   .sources { grid-column: 1; grid-row: auto; }
 }
 .sources__title { margin: 0 0 var(--space-8); font-size: var(--size-meta); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+
+/*
+  ESCALATION, NOT A DECISION (CLAUDE.md rule 1). Two signed statements
+  disagree about the text inside a source card and this file cannot settle
+  it:
+    * design principle 1 -- "A source card is never collapsed by default,
+      NEVER SMALLER THAN BODY TEXT, never grey-on-grey";
+    * section 3.3 -- the Mono role is 13px, and file names and section
+      labels are exactly what it is for.
+  A card's file name is both. An earlier version of this stylesheet
+  resolved the conflict silently in a comment, at 13px, which is the
+  reinterpretation rule 1 forbids.
+  Shipped at BODY size pending a human ruling, because between two signed
+  readings the accessible one is the safer place to sit and principle 1 is
+  the more specific sentence -- it is about this component by name.
+  Recorded in BUILD-STATE for UX-01's owner.
+*/
+.source__file, .source__section { font-size: var(--size-body); }
 .sources__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
 .source__link {
   display: grid;
@@ -395,7 +413,7 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 .viewer::backdrop { background: rgb(0 0 0 / 55%); }
 .viewer__head { display: flex; align-items: start; gap: var(--space-16); margin-bottom: var(--space-16); }
 .viewer__title { margin: 0; }
-.viewer__head .btn { margin-left: auto; }
+.viewer__head .btn { margin-inline-start: auto; }
 
 .passage { margin: 0 0 var(--space-24); }
 .passage__heading { margin: 0 0 var(--space-16); }
@@ -419,7 +437,7 @@ input[type="text"]:disabled, select:disabled, button:disabled {
   color: var(--text);
   border-bottom: 2px solid var(--accent);
   font-weight: 600;
-  padding: 0 2px;
+  padding: 0 var(--space-4);
 }
 
 /* ---- Composer (UX spec 6.1: pinned to the bottom of the area) ------- */
@@ -448,7 +466,7 @@ input[type="text"]:disabled, select:disabled, button:disabled {
   background: var(--surface-raised);
 }
 .stage__label { font-weight: 600; }
-.stage form { margin-left: auto; }
+.stage form { margin-inline-start: auto; }
 
 /* 3.6: "Progress and stage hints animate. Nothing else moves." */
 .stage__dot {

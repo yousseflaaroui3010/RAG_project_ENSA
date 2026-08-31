@@ -42,7 +42,7 @@ from agent.ports import AgentPorts
 from config import get_settings
 from db import repo
 from ui import screen
-from ui.conversation import Conversation, Message, MessageKind
+from ui.conversation import Conversation, MessageKind
 from ui.ports import build_default_ports
 from ui.runs import Run
 
@@ -55,6 +55,12 @@ STATIC = HERE / "ui" / "static"
 # than leaving the method to the browser's discretion. Without it, a
 # refresh after asking re-submits the question.
 SEE_OTHER = 303
+
+# The most a posted form may carry. Sanad's largest field is a question,
+# which openapi bounds at `question_max_length` characters; 64 KiB leaves
+# room for percent-escaped multibyte French and every other field on the
+# page many times over. A body past this is dropped rather than buffered.
+MAX_FORM_BYTES = 64 * 1024
 
 
 @dataclass
@@ -112,6 +118,28 @@ def _active(runtime: Runtime) -> screen.WorkspaceOption | None:
     return chosen or options[0]
 
 
+def _direction(request: Request) -> str:
+    """The RTL PREVIEW UX spec 6.5 asks for, and nothing more.
+
+    "Verify with an RTL preview even though V1 ships LTR, per PRD section
+    5." A preview is what makes acceptance criterion 11 checkable at all
+    -- without one, "layout mirrors under a right-to-left locale" can only
+    ever be inspected by hand in a browser's devtools, and open risk 3
+    already says RTL "is specified but never exercised until a late
+    preview".
+
+    This is deliberately NOT a locale switch. There is no Arabic copy, no
+    translation layer and no language negotiation; assumption 3 in UX spec
+    14 fixes the interface copy as English for V1, and ST-38 owns actually
+    exercising RTL. All this does is set the `dir` attribute so the
+    stylesheet's logical properties can be seen doing their job.
+
+    Anything that is not "rtl" is "ltr", including a missing, empty or
+    hostile value -- the attribute is written straight into the document
+    element and only these two strings may ever reach it."""
+    return "rtl" if request.query_params.get("dir") == "rtl" else "ltr"
+
+
 def _context(runtime: Runtime, request: Request) -> dict:
     """Everything one render of S1 needs, assembled once.
 
@@ -136,6 +164,11 @@ def _context(runtime: Runtime, request: Request) -> dict:
     busy = bool(conversation and conversation.busy)
     return {
         "request": request,
+        "dir": _direction(request),
+        # UX spec 4: "Changing it clears nothing and interrupts nothing,
+        # but the chat area shows a one-line notice that the conversation
+        # context has moved."
+        "moved": request.query_params.get("moved") == "1",
         # openapi AskRequest bounds the question, and config.py is where
         # that bound lives (docs/phase2/CLAUDE.md: no magic literals in
         # module code). `ask` enforces it server-side too -- this only
@@ -178,8 +211,26 @@ async def _form(request: Request) -> dict[str, str]:
     standard library's own decoder for `application/x-www-form-urlencoded`
     -- percent-escapes, `+` for space, repeated keys and all. The only
     line of judgement here is the charset, and it is UTF-8 because that is
-    what `base.html` declares and what a browser therefore encodes in."""
-    body = (await request.body()).decode("utf-8", errors="replace")
+    what `base.html` declares and what a browser therefore encodes in.
+
+    THE BODY IS READ IN BOUNDED CHUNKS rather than with
+    `await request.body()`, which buffers whatever arrives before anything
+    checks its size. The cap is generous next to the largest field this
+    app has -- a question, bounded at `question_max_length` characters by
+    openapi -- and it exists so that a client which keeps sending cannot
+    grow this process's memory without limit. LD-07 binds the server to
+    127.0.0.1 and PRD section 6 is single-user, so this is a guard rail
+    rather than a defence against anyone; the reason to have it is that
+    "nobody hostile can reach it" is an assumption about deployment, and
+    the cheaper habit is not to rely on one."""
+    seen = 0
+    chunks: list[bytes] = []
+    async for chunk in request.stream():
+        seen += len(chunk)
+        if seen > MAX_FORM_BYTES:
+            return {}
+        chunks.append(chunk)
+    body = b"".join(chunks).decode("utf-8", errors="replace")
     return dict(parse_qsl(body, keep_blank_values=True, encoding="utf-8"))
 
 
@@ -238,13 +289,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/chat/ask")
     async def ask(request: Request) -> Response:
-        # `await request.form()` rather than FastAPI's `Form(...)`, and the
-        # reason is a dependency: declaring a `Form` parameter makes
-        # FastAPI require `python-multipart` at import time, even for a
-        # plain urlencoded form. Starlette parses urlencoded bodies with
-        # no such package. Sanad's forms carry text, never a file upload
-        # (UX spec 13 rules out drag-and-drop upload outright), so the
-        # dependency would buy nothing.
+        # `_form`, not FastAPI's `Form(...)` and not Starlette's
+        # `request.form()`: both require `python-multipart`. See `_form`.
         form = await _form(request)
         return _start(runtime, form.get("question", ""))
 
@@ -268,13 +314,30 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     async def switch(request: Request) -> Response:
         """UX spec 4: changing the workspace "clears nothing and interrupts
         nothing". The conversation for each workspace is kept, so switching
-        away and back returns to the transcript that was there."""
-        form = await _form(request)
-        runtime.active_workspace_id = form.get("workspace_id", "") or None
-        return RedirectResponse("/", status_code=SEE_OTHER)
+        away and back returns to the transcript that was there.
 
-    @app.get("/chat/passage/{message}/{index}", response_class=HTMLResponse)
-    def passage(request: Request, message: int, index: int) -> HTMLResponse:
+        The same sentence continues: "but the chat area shows a one-line
+        notice that the conversation context has moved". That notice is
+        carried on the redirect as `?moved=1` rather than in server state,
+        because it belongs to ONE render -- a flag on the Runtime would
+        still be set when the operator came back to this screen an hour
+        later, announcing a move that happened long ago."""
+        form = await _form(request)
+        chosen = form.get("workspace_id", "") or None
+        moved = chosen is not None and chosen != (
+            _active(runtime).id if _active(runtime) else None
+        )
+        runtime.active_workspace_id = chosen
+        return RedirectResponse(
+            "/?moved=1" if moved else "/", status_code=SEE_OTHER
+        )
+
+    @app.get(
+        "/chat/passage/{workspace_id}/{message}/{index}", response_class=HTMLResponse
+    )
+    def passage(
+        request: Request, workspace_id: str, message: int, index: int
+    ) -> HTMLResponse:
         """One source card's sections, as a page of their own.
 
         The no-JavaScript path for the passage viewer: the card is a real
@@ -283,20 +346,30 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         render `_passage.html`, so there is one description of a passage
         and not two.
 
-        ADDRESSED BY MESSAGE AND THEN BY CARD, not by card alone. Every
-        answer in the transcript keeps its own cards visible (UX spec
-        6.2), so a single index would open the newest answer's Article 13
-        when the reader clicked an older answer's -- silently, and looking
-        entirely correct."""
-        context = _context(runtime, request)
-        messages: list[Message] = context["messages"]
+        ADDRESSED BY WORKSPACE, THEN MESSAGE, THEN CARD. Every one of the
+        three is load-bearing and each was added after the previous
+        addressing scheme was shown to open the wrong text:
+
+        * by card alone, an older answer's card opened the NEWEST answer's
+          section, because every answer keeps its own cards visible (UX
+          spec 6.2);
+        * by message and card, the link resolved against whatever
+          workspace was ACTIVE when it was followed -- so switching
+          workspace and pressing Back served message 3, card 1 of a
+          different conversation entirely.
+
+        Both failures look completely correct on screen, which is what
+        makes them worth the extra path segment: the reader has no way to
+        tell they are reading the wrong document's section."""
+        conversation = runtime.conversations.get(workspace_id)
+        messages = conversation.messages if conversation else []
         card = None
         if 0 <= message < len(messages):
             cards = messages[message].sources
             if 0 <= index < len(cards):
                 card = cards[index]
         return templates.TemplateResponse(
-            request, "passage.html", {**context, "card": card}
+            request, "passage.html", {**_context(runtime, request), "card": card}
         )
 
     return app
@@ -317,16 +390,22 @@ def _start(runtime: Runtime, question: str) -> Response:
     # `required` and an empty box means they pressed Send by accident.
     # `ask` would raise on it (openapi AskRequest, minLength 1) and that
     # would print an error panel for a question nobody asked.
-    if not asked or conversation.busy:
+    if not asked:
         return RedirectResponse("/", status_code=SEE_OTHER)
-    conversation.messages.append(Message(kind=MessageKind.USER, text=asked))
     run = Run(
         question=asked,
         workspace_id=active.id,
         session_id=conversation.session_id,
         history=tuple(conversation.turns),
     )
-    conversation.run = run
+    # THE CHECK AND THE CLAIM IN ONE STEP. Reading `busy` here and
+    # assigning `conversation.run` on the next line is a race the screen
+    # produces on its own: Starlette runs these routes on a threadpool, so
+    # two Sends milliseconds apart both passed and both started a worker.
+    # The first then ran to completion, spent a real provider call, and
+    # had its answer discarded. See `Conversation.begin`.
+    if not conversation.begin(run, asked):
+        return RedirectResponse("/", status_code=SEE_OTHER)
     try:
         ports = runtime.ports()
     except Exception as exc:  # noqa: BLE001

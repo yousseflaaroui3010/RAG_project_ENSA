@@ -6,7 +6,7 @@
   and the theme toggle is revealed by script rather than rendered dead.
   A button that does nothing without JavaScript is worse than no button.
 #}<!doctype html>
-<html lang="en" dir="ltr">
+<html lang="en" dir="{{ dir | default('ltr') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,8 +16,8 @@
     THE NO-JAVASCRIPT LOADING PATH. While a question is in flight the page
     re-fetches itself so the stage hint stays true (UX spec 6.3). Inside
     <noscript> on purpose: with scripting on, sanad.js polls
-    /chat/status and swaps the conversation area instead, which does not
-    move focus or restart a screen reader mid-answer.
+    /chat/messages and updates the stage label's text in place, which does
+    not move focus or restart a screen reader mid-answer.
   #}
   {% if busy %}<noscript><meta http-equiv="refresh" content="2"></noscript>{% endif %}
 </head>

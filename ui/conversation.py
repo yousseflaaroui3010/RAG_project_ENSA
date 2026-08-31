@@ -24,11 +24,13 @@ the product exists to demonstrate." The refusal variant is bordered in
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
 from agent.state import Answer, AnswerKind, Source, Turn
+from config import get_settings
 from ui.runs import Run, RunCancelled, find_span
 from vector_store import SearchHit
 
@@ -259,6 +261,36 @@ def message_for(
     )
 
 
+REDACTED = "[redacted]"
+
+
+def redact_secrets(text: str) -> str:
+    """Take the configured API key out of anything about to be displayed.
+
+    THE ERROR PANEL PRINTS AN EXCEPTION VERBATIM, which is exactly what
+    UX spec 5 asks for -- "always shows the offending value ... never a
+    bare 'something went wrong'". The risk a cold review raised is that
+    provider SDKs put the request URL in the exception text, and for
+    Google AI Studio that URL carries `?key=...`. That would render the
+    key on screen, into any screenshot, and into a defense projector.
+
+    Redacting the CONFIGURED VALUE rather than pattern-matching for
+    things that look like keys: an exact string comparison cannot have
+    false negatives against the one secret this process actually holds,
+    and a regex for "something key-shaped" would both miss real keys and
+    censor innocent text. The empty key is skipped, or every message
+    would have `[redacted]` spliced between all its characters.
+
+    SCOPE, stated: this covers the key Sanad was configured with. It
+    cannot cover a secret that reaches an exception from somewhere else,
+    and it is a second line of defence rather than a reason to relax the
+    core-law rule about never logging one."""
+    key = get_settings().cloud_api_key
+    if key and key in text:
+        return text.replace(key, REDACTED)
+    return text
+
+
 def error_message(exc: BaseException, question: str) -> Message:
     """Any break in the answering pipeline, as UX spec 5's `ErrorPanel`.
 
@@ -266,14 +298,17 @@ def error_message(exc: BaseException, question: str) -> Message:
     "exact failing value" the component inventory requires, and on the
     failure section 11 cares most about -- "answering service
     unreachable" -- `agent.chat.ChatUnavailableError` already writes a
-    sentence naming the mode and the missing setting."""
+    sentence naming the mode and the missing setting.
+
+    Passed through `redact_secrets` first: verbatim is the requirement,
+    but not verbatim enough to print an API key."""
     return Message(
         kind=MessageKind.ERROR,
         text="",
         error=ErrorDetail(
             sentence="Sanad could not answer this question.",
             attempted=f"Asked: {question}",
-            value=f"{type(exc).__name__}: {exc}",
+            value=redact_secrets(f"{type(exc).__name__}: {exc}"),
             hint=(
                 "Nothing was fabricated in place of an answer. Check the "
                 "model settings in .env, then use Retry."
@@ -300,64 +335,109 @@ class Conversation:
 
     Held in memory for the life of the process. PRD section 6 is single
     user on one machine and LD-06 keeps data local, so there is no store
-    to put this in and no second reader to race with. A new conversation
-    (UX spec 6.2) is this object, emptied."""
+    to put this in. A new conversation (UX spec 6.2) is this object,
+    emptied.
+
+    ONE USER IS NOT ONE THREAD, and an earlier version of this docstring
+    said "no second reader to race with" on exactly that mistaken step.
+    Starlette runs a plain `def` route on a threadpool, and this screen
+    generates concurrent requests all by itself: the poll fires every
+    700ms while the page is open, and a refresh or a double-clicked Send
+    lands beside it. A cold review found two live races here -- one answer
+    appended twice, and two paid model runs started for one question. The
+    lock below is what closes them, and every method that both READS and
+    then WRITES this object holds it across both halves."""
 
     workspace_id: str
     session_id: str | None = None
     messages: list[Message] = field(default_factory=list)
     turns: list[Turn] = field(default_factory=list)
     run: Run | None = None
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
     def busy(self) -> bool:
         """A run is in flight, so the input is disabled and the stage hint
-        is showing (UX spec 6.3)."""
+        is showing (UX spec 6.3).
+
+        Read without the lock ON PURPOSE: this is a snapshot for
+        rendering, one reference load, and any answer it gives was true a
+        moment ago. Nothing DECIDES anything on it -- the decision to start
+        a run is made inside `begin`, under the lock."""
         return self.run is not None and not self.run.done
 
     def reset(self) -> None:
         """New conversation. The session id goes too, which is what makes
         it new: `ask` mints a fresh one and F-07's memory starts clean."""
-        self.messages.clear()
-        self.turns.clear()
-        self.session_id = None
-        self.run = None
+        with self._lock:
+            self.messages.clear()
+            self.turns.clear()
+            self.session_id = None
+            self.run = None
+
+    def begin(self, run: Run, question: str) -> bool:
+        """Claim this conversation for one question. False if it is taken.
+
+        THE CHECK AND THE CLAIM ARE ONE STEP, which is the whole point.
+        Two Sends a few milliseconds apart both used to pass a `busy`
+        check and both used to assign `self.run`; the first worker then
+        ran to completion, spent a real provider call, and had its answer
+        thrown away when the second overwrote it. The user saw one answer
+        and paid for two.
+
+        The user's message is appended here, under the same lock, so a
+        transcript can never show a question whose run was never claimed."""
+        with self._lock:
+            if self.run is not None and not self.run.done:
+                return False
+            self.messages.append(Message(kind=MessageKind.USER, text=question))
+            self.run = run
+            return True
 
     def settle(self, *, legal_workspace: bool = False) -> None:
         """Fold a finished run into the transcript.
 
         Called on every render rather than by the worker thread, so the
-        thread only ever writes its own `Run` and the message list has one
-        writer. Idempotent: a settled run is cleared, so a second call
-        does nothing."""
-        run = self.run
-        if run is None or not run.done:
-            return
-        self.run = None
-        answer = run.answer
-        if answer is not None:
-            self.messages.append(
-                message_for(
-                    answer,
-                    run.reading.cited,
-                    run.reading.parents,
-                    legal_workspace=legal_workspace,
+        worker only ever writes its own `Run`.
+
+        IDEMPOTENT UNDER CONCURRENCY, not merely on a second sequential
+        call. The run is detached under the lock BEFORE anything is
+        appended, so of two threads arriving together exactly one comes
+        away holding it; the other sees None and does nothing. Written the
+        obvious way -- read, check, then clear -- both could pass the check
+        and the answer appeared twice, once in the transcript and once in
+        `turns`, which then fed a duplicated exchange back as F-07
+        memory."""
+        with self._lock:
+            run = self.run
+            if run is None or not run.done:
+                return
+            self.run = None
+
+            answer = run.answer
+            if answer is not None:
+                self.messages.append(
+                    message_for(
+                        answer,
+                        run.reading.cited,
+                        run.reading.parents,
+                        legal_workspace=legal_workspace,
+                    )
                 )
-            )
-            self.session_id = answer.session_id
-            if answer.kind is AnswerKind.ANSWER:
-                # F-07's in-session memory holds completed exchanges. A
-                # refusal or a clarifying question is not one, and feeding
-                # "I could not find this" back as conversational history
-                # would teach the next turn a fact about the corpus that
-                # the corpus does not contain.
-                self.turns.append(Turn(question=run.question, answer=answer.text))
-            return
-        error = run.error
-        if isinstance(error, RunCancelled):
-            self.messages.append(
-                Message(kind=MessageKind.INTERRUPTED, text=INTERRUPTED_TEXT)
-            )
-            return
-        if error is not None:
-            self.messages.append(error_message(error, run.question))
+                self.session_id = answer.session_id
+                if answer.kind is AnswerKind.ANSWER:
+                    # F-07's in-session memory holds completed exchanges. A
+                    # refusal or a clarifying question is not one, and
+                    # feeding "I could not find this" back as history would
+                    # teach the next turn a fact about the corpus that the
+                    # corpus does not contain.
+                    self.turns.append(Turn(question=run.question, answer=answer.text))
+                return
+            error = run.error
+            if isinstance(error, RunCancelled):
+                self.messages.append(
+                    Message(kind=MessageKind.INTERRUPTED, text=INTERRUPTED_TEXT)
+                )
+                return
+            if error is not None:
+                self.messages.append(error_message(error, run.question))
