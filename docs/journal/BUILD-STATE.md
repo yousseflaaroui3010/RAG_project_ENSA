@@ -1,31 +1,47 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: **f4cf208 on main**, 2026-08-30. Five PRs landed
-since the previous header and all five are merged: #61 (the graph project
-name), #62 (ST-07 Corpus v1), #63 (the ST-18 spike), #65 (the ST-12
-review pass) and #64 (`.env.example` drift now an actual check).
+Last verified commit: **9da0c56 on main**, 2026-08-30. Four PRs landed
+since the previous header and all four are merged: #68 (the ST-18 article
+matcher counted digits, not articles), #69 (YL's review of MB's six PRs,
+with three findings left open), #67 (ST-19 golden set batch 1) and #70
+(ST-29 golden set batch 2).
 
-MEASURED ON MAIN AT f4cf208, by hand, in gate.yml order, AFTER both of
+MEASURED ON MAIN AT 9da0c56, by hand, in gate.yml order, AFTER both of
 today's merges rather than before: `uv sync --frozen` clean (170
-packages), `uv run ruff check .` exit 0, `uv run pytest` **529 passed /
-2 skipped** in 59.31s.
+packages), `uv run ruff check .` exit 0, `uv run pytest` **556 passed /
+2 skipped** in 72.74s. Plus the golden set's own corpus check, which is
+not in gate.yml because `data/` is git-ignored: `uv run python
+scripts/golden_grounding.py` -> "OK: 45 rows grounded (30 in scope, 15
+out)".
 
 THE FOURTH GATE STEP WAS NOT RUN LOCALLY AND THIS HEADER WILL NOT PRETEND
-IT WAS. `gitleaks` is NOT INSTALLED on MB's machine -- `where gitleaks`
-and `gitleaks version` both come back empty, 2026-08-30. Previous headers
-quoted a local `gitleaks detect` exit 0; whatever produced those, this
-machine cannot produce one today. What IS verified: the `verify` job on
-GitHub runs `gitleaks/gitleaks-action@v2` and passed on BOTH merged PRs
-(#65 in 1m23s, #64 in 1m29s on the re-run against the updated main). So
-the secret scan is green ON CI and UNVERIFIED LOCALLY. Whoever installs
-gitleaks here closes the gap; until then, do not write "all four steps".
+IT WAS. `gitleaks` is NOT INSTALLED on MB's machine -- re-checked against
+PATH and `~/AppData/Local/Microsoft/WinGet/Links/`, both empty, 2026-08-30.
+What IS verified: the `verify` job on GitHub runs
+`gitleaks/gitleaks-action@v2` and passed on BOTH merged PRs (#67 in 1m21s
+on the re-run against the updated main, #70 in 1m24s), and the JOB'S STEPS
+were listed rather than the green tick trusted -- Lint, Tests and Secret
+scan all `success` on each. So the secret scan is green ON CI and
+UNVERIFIED LOCALLY. Whoever installs gitleaks here closes the gap; until
+then, do not write "all four steps".
 
-WHY THIS HEADER MOVED AT ALL, since it is the failure the header exists to
-catch: it sat at `2ebb74d` / 522 passed while FIVE commits had landed above
-it. Its own rule says the only commit allowed above the stamped one is the
-journal commit recording the measurement. Five were not that. Caught by
-asking "is everything journaled" rather than by any check -- there is no
-gate on this file's freshness, and that remains true after this edit.
+**BOTH OF TODAY'S MERGES SKIPPED THE RULE-5 PARTNER REVIEW**, at the
+human's explicit instruction ("push all changes to github and merge them").
+The concern was raised before acting and the instruction was not withdrawn.
+Same shape as the ST-17 deviation of 2026-08-23 and ST-21's of 2026-08-26.
+**The unpaid-review list is now ST-21, ST-23, ST-19 and ST-29** -- four,
+where it was two this morning. On this project a post-green pass has found
+a real defect on six stories running, and #68 is today's example: it found
+a substring matcher that no test had ever exercised, after a rule-5 review,
+a re-review AND a green suite had all passed over it.
+
+WHY THIS HEADER MOVED, and this time it is not a staleness confession: it
+moved at merge time, which is what its own rule demands. The previous
+header sat at f4cf208 / 529 and four commits had landed above it, but two
+of those four are the merges this stamp records and the other two are YL's,
+which arrived while #67 was open. Recorded so the next reader can tell an
+obeyed rule from a broken one. There is still no gate on this file's
+freshness.
 
 **SANAD NOW ANSWERS A REAL QUESTION END TO END, WITH SOURCES.** ST-24
 closed the last seam on the critical path. Five of the eight ports in
@@ -1850,30 +1866,44 @@ shipped code. Fix them in the design, or accept each one in writing.
 
 ## Next (ordered queue, top 3 only)
 
-REWRITTEN 2026-08-30 after ST-19, because the queue below had grown five
-entries numbered 0,1,2,2,1,2 and three of them were already done. The
-three that matter now:
+REWRITTEN AGAIN 2026-08-30, after #67 and #70 merged. The previous version
+of this queue named ST-19's review and ST-29 itself; both are overtaken.
+The three that matter now:
 
-A. **ST-19 REVIEW + MERGE (MB owns the story, YL owns the review).** The
-   branch is green and unreviewed. Project plan ST-19's exit gate names
-   the review explicitly: "Files in `evaluation/golden/`, schema respected,
-   PR reviewed by YL". The first two are machine-checked; the third is not
-   done.
-B. **ST-32 EVALUATION RUNNER (YL).** Now genuinely unblocked -- it needed
-   ST-24 (merged) and a golden set to run on (built). This is the critical
-   path to a V1.0 gate: ST-32 -> ST-33 -> ST-36 -> ST-41, and NONE of the
-   four has started. It reads `evaluation/golden/*.jsonl`; the field list
-   is in `evaluation/golden/README.md` and `tests/unit/test_golden_set.py`
-   is the executable copy of it.
-C. **ST-29 GOLDEN SET BATCH 2 (MB).** +15 in-scope, +7 out-of-scope, to a
-   running total of 30 + 15. Same schema, same two checks, same review
-   path. It does not block ST-32 -- a runner that works on 23 questions
-   works on 45 -- so it runs in parallel rather than ahead.
+A. **ST-32 EVALUATION RUNNER (YL).** The critical path to a V1.0 gate:
+   ST-32 -> ST-33 -> ST-36 -> ST-41, and NONE of the four has started.
+   Every blocker is gone -- it needed ST-24 (merged) and a golden set to
+   run on (45 questions on main). It reads `evaluation/golden/*.jsonl`;
+   the field list is in `evaluation/golden/README.md` and
+   `tests/unit/test_golden_set.py` is the executable copy of it. Read the
+   two honest caveats in that README before scoring anything: `g-in-015`
+   quotes a figure from an undated guide, and `g-out-005` is arguable.
+B. **THE FOUR UNPAID REVIEWS: ST-21, ST-23, ST-19, ST-29.** This list
+   doubled today because both golden-set PRs merged on the human's
+   instruction without a rule-5 pass. It is not bookkeeping: ST-12's
+   review, when it was finally paid six weeks late, found three real
+   defects, one of which let the product cite a file the report called
+   Skipped. For ST-19 and ST-29 the rows to read are the fifteen
+   out-of-scope questions, because those are what G2 is graded on.
+C. **ST-35 GOLDEN SET COMPLETE AND FROZEN (MB).** +10 in-scope, +5
+   out-of-scope to 40 + 20, then the freeze. Mechanically it is one row
+   added to `EXPECTED_COUNTS` in `tests/unit/test_golden_set.py` plus
+   `batch3.jsonl`; a companion test refuses any golden file the table does
+   not list, so forgetting the row fails loudly rather than silently.
 
-A NOTE FOR WHOEVER WRITES BATCH 2, so the lesson is not re-paid: read
+A NOTE FOR WHOEVER WRITES BATCH 3, so the lesson is not re-paid: read
 `evaluation/golden/README.md` before drafting a single out-of-scope
 question, and run `uv run python scripts/golden_grounding.py` before
-believing any of them is absent. See the byte-grep entry in Now.
+believing any of them is absent. See the byte-grep entry in Now -- a
+byte-wise grep reported ZERO occurrences of `préavis` in a document holding
+forty, and four questions were nearly written on that zero.
+
+AND ONE THING NEITHER STORY FIXED, inherited from #69's root-cause finding:
+`testpaths = ["tests"]` in pyproject.toml puts `scripts/` outside every
+check. `scripts/golden_grounding.py` is in that blind spot. It has been RUN
+and its output quoted with a date, but nothing asserts it, so a change to
+it would break silently. Its control probe is all that stands in for a
+test. Owner MB, alongside the three ST-07/ST-18 script findings #69 parked.
 
 SUPERSEDED QUEUE, kept below because the ST-21 correction inside it is
 still worth reading:
