@@ -1,0 +1,72 @@
+{#
+  Source cards and the passage viewer (UX spec 5, 6.1, 6.2).
+
+  Macros rather than includes, so every input is named in a signature. An
+  include would inherit whatever happened to be in scope, and the bug that
+  hides behind that is a card rendering the wrong message's sources while
+  looking perfectly correct.
+
+  Design principle 1 governs the styling: "A source card is never
+  collapsed by default, never smaller than body text, never grey-on-grey."
+#}
+
+{% import "_passage.html" as viewer %}
+
+{% macro source_panel(message, message_index, workspace_id) %}
+  {#
+    UX spec 6.1 puts this on the right rail, and 3.1 moves it "from a side
+    rail to a stacked section below the answer" under 1024px. That is one
+    grid, not two renderings: the cards sit in column two beside their
+    answer and fall underneath it when the grid collapses. The cards stay
+    attached to THEIR answer either way, which is what 6.2 asks for.
+  #}
+  <aside class="sources" aria-label="Sources for this answer">
+    <h3 class="sources__title">Sources ({{ message.sources | length }})</h3>
+    <ul class="sources__list">
+      {% for card in message.sources %}
+        <li class="source">
+          {#
+            A real <a> to a real page. Scripting off: it opens the passage
+            on its own page. Scripting on: sanad.js opens the <dialog>
+            below and returns focus to this link on close, which is
+            acceptance criterion 4. Never a clickable <div> — the React
+            reference uses one (ChatScreen.tsx:524) and it is unreachable
+            by keyboard.
+          #}
+          <a class="source__link"
+             href="/chat/passage/{{ workspace_id }}/{{ message_index }}/{{ card.index }}"
+             data-passage="passage-{{ message_index }}-{{ card.index }}">
+            <span class="source__file mono">{{ card.file_name }}</span>
+            {% if card.section_label %}
+              <span class="source__section mono">{{ card.section_label }}</span>
+            {% endif %}
+            <span class="source__action">Open passage</span>
+          </a>
+        </li>
+      {% endfor %}
+    </ul>
+  </aside>
+
+  {#
+    One <dialog> per card, rendered inline so the overlay needs no fetch.
+    <dialog>.showModal() is the platform's own focus trap: it traps Tab,
+    closes on Escape, and restores focus to the element that opened it.
+    Hand-rolling that is where accessibility goes to die, and UX spec 6.4
+    requires all three.
+  #}
+  {% for card in message.sources %}
+    <dialog class="viewer" id="passage-{{ message_index }}-{{ card.index }}"
+            aria-labelledby="viewer-title-{{ message_index }}-{{ card.index }}">
+      <div class="viewer__head">
+        <h2 class="viewer__title" id="viewer-title-{{ message_index }}-{{ card.index }}">
+          <span class="mono">{{ card.file_name }}</span>
+          {% if card.section_label %}
+            — <span class="mono">{{ card.section_label }}</span>
+          {% endif %}
+        </h2>
+        <button class="btn btn--quiet" type="button" data-close-viewer>Close</button>
+      </div>
+      {{ viewer.passage_body(card) }}
+    </dialog>
+  {% endfor %}
+{% endmacro %}

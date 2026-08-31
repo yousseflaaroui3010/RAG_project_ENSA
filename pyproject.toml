@@ -45,6 +45,11 @@ dependencies = [
 dev = [
     "pytest",
     "ruff",
+    # Drives the FastAPI app in tests (`fastapi.testclient.TestClient` is
+    # an httpx client). Already present transitively and already in
+    # uv.lock; declared here because an undeclared import works until the
+    # day the package that dragged it in stops depending on it (ST-27).
+    "httpx",
 ]
 
 [tool.ruff]
