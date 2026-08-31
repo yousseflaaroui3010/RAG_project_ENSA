@@ -10,6 +10,7 @@ rules can be pushed at one at a time.
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -299,6 +300,53 @@ def test_only_a_real_answer_enters_the_conversation_memory():
     assert conversation.turns == [Turn(question="Et pour les cadres ?", answer="Trois mois.")]
 
 
+class _SlowDone(Run):
+    """A run whose `done` read is slow enough to open the race window.
+
+    THIS CLASS IS THE TEST. A first version of both tests below released
+    16 threads off a `threading.Barrier` and asserted the outcome -- and
+    it PASSED with the locks taken out, because CPython does not switch
+    threads inside a check that does no I/O and allocates nothing. It was
+    hoping for an unlucky interleaving, which is the weak form: green
+    whether the code is right or wrong.
+
+    A barrier INSIDE the critical section is not the fix either: with the
+    lock in place, the first thread would hold it and wait for a second
+    thread that is blocked on that same lock, and the correct code would
+    deadlock.
+
+    Sleeping inside the `done` read is what works. Both critical sections
+    begin by reading it, so:
+      * WITHOUT the lock every thread sleeps at once, all of them see the
+        same stale answer, and all of them act on it;
+      * WITH the lock the sleep happens while the lock is held, so the
+        others queue and see the state the winner left behind.
+    The difference is deterministic rather than lucky."""
+
+    @property
+    def done(self) -> bool:
+        time.sleep(0.02)
+        return True
+
+
+def _finished(question: str = "Quelle duree ?") -> _SlowDone:
+    run = _SlowDone(question=question, workspace_id="ws-1", session_id=None)
+    run._answer = _answer(  # noqa: SLF001
+        AnswerKind.ANSWER, "Trois mois.", (Source(FILE, LABEL),)
+    )
+    run.reading.cited = (_hit(SECTION[:30]),)
+    run.reading.parents = {PARENT: SECTION}
+    return run
+
+
+def _run_together(target, threads: int = 8) -> None:
+    workers = [threading.Thread(target=target) for _ in range(threads)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=10)
+
+
 def test_two_threads_settling_the_same_run_append_it_once():
     """The race a cold review found, driven rather than argued.
 
@@ -308,31 +356,12 @@ def test_two_threads_settling_the_same_run_append_it_once():
     appeared TWICE -- once in the transcript and once in `turns`, which
     then fed a duplicated exchange back as F-07 memory.
 
-    A barrier is what makes this a test rather than a coincidence: every
-    thread is held until all of them have arrived, so they enter the
-    critical section together instead of politely one after another."""
+    Proven discriminating: removing the lock from `settle` turns this
+    red."""
     conversation = Conversation(workspace_id="ws-1")
-    run = _run()
-    run._answer = _answer(  # noqa: SLF001
-        AnswerKind.ANSWER, "Trois mois.", (Source(FILE, LABEL),)
-    )
-    run._done = True  # noqa: SLF001
-    run.reading.cited = (_hit(SECTION[:30]),)
-    run.reading.parents = {PARENT: SECTION}
-    conversation.run = run
+    conversation.run = _finished()
 
-    threads = 16
-    barrier = threading.Barrier(threads)
-
-    def settle_together() -> None:
-        barrier.wait(timeout=5)
-        conversation.settle()
-
-    workers = [threading.Thread(target=settle_together) for _ in range(threads)]
-    for worker in workers:
-        worker.start()
-    for worker in workers:
-        worker.join(timeout=5)
+    _run_together(conversation.settle)
 
     assert len(conversation.messages) == 1
     assert len(conversation.turns) == 1
@@ -347,24 +376,23 @@ def test_two_threads_asking_at_once_start_exactly_one_run():
     saw one answer and paid for two.
 
     `begin` returning False is the whole contract: exactly one caller may
-    be told to start a thread."""
+    be told to start a thread. The conversation starts holding a FINISHED
+    run, so every thread has to read `done` -- which is where the window
+    is -- rather than short-circuiting on `self.run is None`.
+
+    Proven discriminating: removing the lock from `begin` turns this
+    red."""
     conversation = Conversation(workspace_id="ws-1")
-    threads = 16
-    barrier = threading.Barrier(threads)
+    conversation.run = _finished()
     claimed: list[bool] = []
     guard = threading.Lock()
 
     def ask_together() -> None:
-        barrier.wait(timeout=5)
         won = conversation.begin(_run(), "Quelle duree ?")
         with guard:
             claimed.append(won)
 
-    workers = [threading.Thread(target=ask_together) for _ in range(threads)]
-    for worker in workers:
-        worker.start()
-    for worker in workers:
-        worker.join(timeout=5)
+    _run_together(ask_together)
 
     assert sum(claimed) == 1, "exactly one caller may start the run"
     assert len(conversation.messages) == 1, "and only its question is shown"

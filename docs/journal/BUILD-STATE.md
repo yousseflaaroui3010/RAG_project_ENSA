@@ -1820,8 +1820,17 @@ in any test, any lint or any live run:
    then assigned `conversation.run` on a later line, so a double-clicked
    Send started TWO paid model runs and silently discarded the first.
    Both are now one locked step (`Conversation.begin`, `Conversation.
-   settle`), and both are pinned by tests that release 16 threads off a
-   `threading.Barrier` rather than hoping for an interleaving.
+   settle`).
+   AND THE FIRST VERSION OF THEIR TESTS WAS VACUOUS -- caught by running
+   the mutation rather than by reading. Releasing 16 threads off a
+   `threading.Barrier` and asserting the outcome PASSED with both locks
+   removed, because CPython does not switch threads inside a check that
+   does no I/O and allocates nothing. That is hoping for an unlucky
+   interleaving. The `done` read now sleeps 20ms, so without the lock
+   every thread sleeps at once and acts on the same stale answer: red at
+   `assert 3 == 1`, twice, and green with the locks back. A barrier
+   INSIDE the critical section is not the fix -- the correct code would
+   deadlock on it.
    THE DOCSTRING WAS THE TELL: it said "no second reader to race with".
    One user is not one thread.
 2. **CANCEL DID NOTHING DURING "WRITING".** The checkpoint only fired when
