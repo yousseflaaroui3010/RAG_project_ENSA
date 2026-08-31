@@ -1657,15 +1657,20 @@ This file is long and most of it is history. Everything a new session
 needs to START is in this section; the rest is evidence for claims made
 here, to be consulted when a specific claim matters.
 
-WHERE THE BUILD IS, updated 2026-08-28. Ingestion is finished and merged:
+WHERE THE BUILD IS, updated 2026-08-30. Ingestion is finished and merged:
 change detection, conversion, chunking, embeddings, both derived stores,
-and the sync engine that wires them (ST-12 through ST-17). **The answering
-half is now complete on the critical path**: the agent graph and its trace
-(ST-21) and hybrid retrieval, the grader and the reword (ST-23) are
-merged, and the answer node with its source contract and honest refusal
-(ST-24) is green on `feat/S2-ST-24-answer-node`, NOT yet merged. There is
-still NO UI and NO `app.py`, so Sanad cannot be LAUNCHED -- but it does
-now answer a real question end to end, in a test.
+and the sync engine that wires them (ST-12 through ST-17). The answering
+half is complete on the critical path and MERGED: the agent graph and its
+trace (ST-21), hybrid retrieval with the grader and the reword (ST-23),
+and the answer node with its source contract and honest refusal (ST-24).
+
+**SANAD CAN NOW BE LAUNCHED AND LOOKED AT.** ST-27 is green on
+`feat/S2-ST-27-chat-screen` and NOT yet merged: `app.py` plus a `ui/`
+package give S1, the chat screen, server-rendered off the FastAPI host.
+`uv run python app.py` starts it. The sentence this paragraph carried
+until today -- "there is still NO UI and NO app.py, so Sanad cannot be
+LAUNCHED" -- is the one ST-27 exists to falsify, and it is left visible
+above in the correction below rather than quietly deleted.
 
 THE SEAMS. `agent/ports.py` defines eight callables. FIVE are real --
 `retrieve`, `grade`, `reword`, `fetch_parents`, `write_answer` -- and
@@ -1688,6 +1693,243 @@ does NOT: `ollama` is not installed and nothing listens on 11434. So a
 story can now be proven against a real model -- and should be, by hand,
 because that is exactly what found the retired model name that no test
 could see.
+
+## ST-27, THE CHAT SCREEN (2026-08-30, YL) -- on a branch, not merged
+
+WHAT LANDS: `app.py` (FastAPI host, template routes) and a `ui/` package
+-- `ports.py` composes the real agent, `runs.py` holds one question in
+flight, `conversation.py` decides what renders, `screen.py` decides which
+state the screen is in, plus `ui/templates/` and `ui/static/`. Jinja and
+hand-written CSS per CR-02; ADR-10 intact, nothing vendored, no npm.
+
+MEASURED, in gate.yml order, on the branch: `uv sync --frozen` clean (170
+packages), `uv run ruff check .` exit 0, `uv run pytest` **598 passed / 2
+skipped**, exit code 0. Secret scan: `gitleaks detect --no-git` over the 20
+files this branch touches, **"no leaks found", exit 0** -- SCOPE STATED,
+that is this branch's files, not the whole history; a full-history
+`gitleaks detect` timed out twice at nine minutes on this machine.
+
+**ST-51 IS NOT A DEPENDENCY AND THAT IS ADR-13 PAYING OFF.** The UI calls
+`agent.graph.ask` IN-PROCESS, so the screen holds the real `Answer`
+object. There is no JSON round trip and no second copy of the openapi
+contract to keep in step. ST-51 mounts `/api/v1` on this same host later;
+its exit gate is "UI unchanged when mounted", which is why every screen
+route here sits under `/chat` and nothing answers on `/api`.
+
+THE ONE DESIGN PROBLEM WORTH READING, because it is the only part that
+was not obvious: **the loading stage hints.** UX spec 6.3 wants
+"Searching the workspace", then "Checking the answer", then "Writing";
+principle 3 says "Never fake progress ... say what is actually
+happening"; and a synchronous form POST can say nothing at all. The
+answer was to run `ask` on a worker thread and read the stage AT THE PORT
+SEAM -- entering `retrieve` IS searching, entering `grade` IS checking,
+entering `write_answer` IS writing. Nothing is timed and nothing is
+estimated. The wrapper is one `dataclasses.replace`, so `agent/` is
+untouched.
+
+That decision paid for two more things it was not chosen for: **Cancel**
+became real (the flag is checked at the next seam, which is literally
+6.3's "stops after the current stage"), and **the passage viewer** got
+its sections, because `write_answer`'s own arguments ARE what the answer
+was written from.
+
+A DEFECT CAUGHT BEFORE IT SHIPPED, and it is this project's recurring
+shape: the first draft recorded the passages at `fetch_parents` and then
+re-derived which of them were cited. That is two filters agreeing --
+exactly what `agent/nodes.py:418` says it built ONE tuple to prevent.
+Moved to the `write_answer` seam, where the arguments are that same
+tuple. A source card and the passage it opens are now two views of one
+list rather than two lists that happen to match.
+
+A DEFECT CAUGHT BY RUNNING IT, which no amount of reading would have
+found: on a machine with no `data/sanad.db`, `GET /` raised
+`RegistryNotFoundError` and served a stack trace instead of criterion 1's
+"No workspace yet" -- **the first screen a new operator ever sees.** Found
+while seeding the demo workspace, not by a test. `app.py` now calls
+`repo.ensure_schema` in its lifespan, and the test that pins it
+deliberately does NOT create the database first.
+
+## THE LIVE RUN, 2026-08-30 -- real corpus, real model, real browser route
+
+The exit gate says "demonstrated live", so it was, against the REAL
+things rather than fixtures. A workspace was created over
+`data/corpus/hr` with the legal flag set, and Sanad's own Sync indexed
+it: **2 documents active, 217 pages (201 + 16), 118 parent sections,
+1,255 seconds.** The server was `uv run python app.py` on 127.0.0.1:8000
+and every figure below was read off an HTTP response from it.
+
+| S1 state | How it was demonstrated |
+|---|---|
+| Empty, with documents | LIVE. Sample questions naming both real files, plus the sources line |
+| Loading, three stage hints | LIVE, sampled once a second: t=1 "Searching the workspace", t=3 "Checking the answer", t=4 "Writing" |
+| Error | LIVE. Server restarted with `MODEL_MODE=banana`; the panel named the exact failing value |
+| User variant | LIVE |
+| Answer variant | LIVE. 5 source cards, disclaimer line present (legal workspace) |
+| Refusal variant | LIVE. 7 searches disclosed, 0 source cards, no disclaimer |
+| Clarification variant | TEST ONLY -- ST-22's stub means the running app cannot produce one |
+| Source cards + passage viewer | LIVE. Article 14's whole section, 3,811 chars, with the 512-char retrieved chunk marked |
+| Interrupted (cancel) | LIVE. "Incomplete -- not an answer", no sources, input re-enabled |
+| No workspace / no documents | TEST ONLY -- the live machine has both |
+
+THE ANSWER IT ACTUALLY GAVE, because a screenshot of a state is not the
+same as a correct product. Asked "Quelle est la duree de la periode
+d'essai pour un cadre ?", `gemini-3.6-flash` answered from **Article 14**
+-- three months for cadres, renewable once, with the fixed-term rules
+beside it -- and cited Articles 14, 13, 80-82 and 502-503 of the
+consolidated code. The retry marker read 0 for that one. The refusal run
+("Comment cuisiner un tajine aux pruneaux ?") disclosed 7 searches and
+its marker read "Reworded 2 time(s)", which is exactly
+`config.retry_ceiling = 2`: the number shown IS the number the loop ran.
+
+ENCODING CHECKED RATHER THAN ASSUMED, because a French corpus in a
+Windows terminal is where mojibake hides: the served page decodes as
+UTF-8 with **zero replacement characters**, and the accented bytes are
+real codepoints (0xe9 for é, 0xe0 for à). The console this was read in
+cannot display them; the page is fine.
+
+**A COLD PROCESS IS UNRESPONSIVE ON ITS FIRST SEARCH, and it is parked,
+not fixed.** The first `retrieve` in a fresh server loads the real
+encoders (sentence-transformers + the fastembed BM25 model), and while
+that happens the server served no other request for minutes -- the stage
+hint sat on "Searching the workspace" and even `GET /chat/messages`
+never reached the log. OBSERVED, and the GIL is the likely cause rather
+than a proven one; nobody has profiled it. It is a warm-up cost, not a
+defect in the screen: the second question in the same process answered in
+seconds. Two things follow. For the defense, ASK ONE QUESTION BEFORE THE
+JURY WALKS IN (ST-30's demo script should say so). For a future story,
+the fix is a startup warm-up in `app.py`, which trades a slow boot for a
+fast first question -- deliberately NOT improvised here, because it makes
+`uv run python app.py` take half a minute before it serves anything and
+that is a call for whoever owns the demo.
+
+## ST-27's TWO REVIEW PASSES, 2026-08-31, and what they cost
+
+Both ran on the branch before merge, per rule 5. **Seven stories running
+now** on the claim that a post-green review finds a real defect: this one
+found nine, five of them blocking, on a branch whose whole gate was green.
+
+THE TWO BLOCKING FINDINGS BOTH PASSES AGREED ON, and neither was visible
+in any test, any lint or any live run:
+
+1. **TWO LIVE RACES, and the screen produces them by itself.** Starlette
+   runs a plain `def` route on a threadpool, and this page polls every
+   700ms while it is open. So `settle` -- read the run, check it is done,
+   clear it -- had two threads pass the check and append ONE answer
+   TWICE, into the transcript and into `turns`, which then fed a
+   duplicated exchange back as F-07 memory. And `_start` read `busy`,
+   then assigned `conversation.run` on a later line, so a double-clicked
+   Send started TWO paid model runs and silently discarded the first.
+   Both are now one locked step (`Conversation.begin`, `Conversation.
+   settle`).
+   AND THE FIRST VERSION OF THEIR TESTS WAS VACUOUS -- caught by running
+   the mutation rather than by reading. Releasing 16 threads off a
+   `threading.Barrier` and asserting the outcome PASSED with both locks
+   removed, because CPython does not switch threads inside a check that
+   does no I/O and allocates nothing. That is hoping for an unlucky
+   interleaving. The `done` read now sleeps 20ms, so without the lock
+   every thread sleeps at once and acts on the same stale answer: red at
+   `assert 3 == 1`, twice, and green with the locks back. A barrier
+   INSIDE the critical section is not the fix -- the correct code would
+   deadlock on it.
+   THE DOCSTRING WAS THE TELL: it said "no second reader to race with".
+   One user is not one thread.
+2. **CANCEL DID NOTHING DURING "WRITING".** The checkpoint only fired when
+   the NEXT port was entered, and `write_answer` is the last one -- so the
+   flag set during the one stage a user actually waits through was never
+   read again. The button was decoration on the stage that needed it. Now
+   checkpointed after the write; the accepted cost is that a completed,
+   paid-for answer is discarded, which is what "stops after the current
+   stage" means. The suite was green over this because the cancel test
+   gated on `grade` and never on `write_answer`.
+
+THE OTHER THREE BLOCKING ONES:
+3. **A passage link resolved against whatever workspace was ACTIVE when
+   it was followed.** Switch workspace, press Back, open a source card,
+   and you read a different workspace's section -- silently, looking
+   entirely correct. That is F-01 isolation. The URL now carries the
+   workspace id, and a test follows the same message/card coordinates
+   against a second workspace and requires the "no longer on screen" page.
+4. **THE ERROR PANEL COULD PRINT THE API KEY.** UX spec 5 wants "the exact
+   failing value", and Google AI Studio puts `?key=...` in the request URL
+   that its SDK exceptions carry. A failed call would have rendered the
+   key on screen and into any screenshot or projector. Redacted by EXACT
+   CONFIGURED VALUE rather than by guessing what a key looks like.
+5. **`vector_store.open_store()` in the lifespan had never executed under
+   test.** Every test passes a `ports_factory` and takes the early
+   return. It ran live, twice, by hand -- which is evidence, not a check.
+   Now covered.
+
+NON-BLOCKING, all fixed here except where noted:
+6. UX spec 4's "the chat area shows a one-line notice that the
+   conversation context has moved" was simply **missing**, and had not
+   been declared as missing either. Now rendered on the workspace switch.
+7. **THE POLITE LIVE REGION NEVER ANNOUNCED ANYTHING.** The only path that
+   added a message was a full page load, and a live region announces what
+   is INSERTED into it, never what was already there when the document
+   loaded. `aria-live` was correct markup doing nothing, and the test that
+   asserted `role="status"` was in the page could not tell the difference.
+   The poll now appends the finished answer into the existing list. The
+   `<noscript>` path still reloads and still cannot announce; that cost is
+   real and is accepted.
+8. `.cited { padding: 0 2px }` was off UX spec 3.2's spacing scale ("a
+   value not on this scale is a bug"). Fixed, and a test now sweeps every
+   padding, margin and gap in the stylesheet -- proven by putting a 3px
+   value back and watching it fail.
+9. **CRITERION 4 IS UNVERIFIED and is not claimed.** "Closing the passage
+   viewer returns focus to that same card" rests on `<dialog>.showModal()`
+   doing it, which is the platform's own behaviour and the reason a
+   `<dialog>` was chosen over a hand-rolled overlay. Nothing here drives a
+   real browser, so nothing here has watched it happen. OWNER ST-38.
+
+## AN ESCALATION FOR UX-01's OWNER (rule 1), raised not decided
+
+**Two signed sentences disagree about the text inside a source card.**
+Design principle 1 says a source card is "never smaller than body text".
+Section 3.3 puts the Mono role at 13px, and file names and section labels
+are exactly what that role is for. A card's file name is both things at
+once, and body is 15px.
+
+An earlier version of `sanad.css` settled this in a code comment, at
+13px. That is the reinterpretation rule 1 forbids -- "if a spec is wrong
+or ambiguous, escalate; never edit the spec to match the code" cuts both
+ways, and quietly picking one clause over another is the same move.
+
+SHIPPED AT BODY SIZE pending a ruling, for two stated reasons: between
+two signed readings the accessible one is the safer place to sit, and
+principle 1 is the more specific sentence -- it names this component.
+Reverse it in one line if the ruling goes the other way.
+
+WHAT THE SCREEN CANNOT DO YET, and none of it is hidden:
+- **The clarification variant cannot appear live.** `ui/ports.py` stubs
+  ST-22's `clarify` to None. The screen renders the variant and a test
+  drives it through the real graph with a clarify port written out loud,
+  but nothing in the running app produces one. ST-22 closes it.
+- **F-07 memory does nothing.** The conversation really collects its
+  completed turns and really passes them to `ask`; ST-25's `summarize`
+  stub throws them away. ST-25 closes it.
+- **No rewrite-and-split.** A two-part question is one search (ST-22).
+- **"Partial text kept" is vacuously true.** Section 11 asks an
+  interrupted answer to keep its partial text and mark it incomplete.
+  Nothing streams in V1 -- `build_write_answer` returns a whole string or
+  raises -- so there IS no partial text, and the interrupted message says
+  so instead of showing an empty bubble labelled incomplete. Whoever adds
+  streaming inherits the other half.
+- **The sample questions are file names, not good questions.** Parked with
+  an owner: ST-19's golden set is where real ones come from.
+
+TWO MORE DRIFTS IN `designrag-main/`, found while building against it,
+which take the recorded list from five to seven. Both are worse than the
+five, because both are the product lying rather than a style mismatch:
+6. **IT FABRICATES SOURCE CARDS.** `ChatScreen.tsx:168-177`: when the API
+   returns no sources, it falls back to two hardcoded mock passages. An
+   answer with no evidence renders with two citations. That is the exact
+   inverse of G3 and of `Answer.__post_init__`.
+7. **THE STAGE HINTS ARE A TIMER.** `ChatScreen.tsx:111-112` advances the
+   stage on `setTimeout` at 650ms and 1300ms, so the label reads
+   "Verifying retrieved passages" at 700ms whatever the pipeline is
+   doing. Design principle 3 bans it in one sentence.
+Also: the reference's copy promises "confidence scores", which Sanad does
+not have and has never had.
 
 THE FIVE THINGS MOST LIKELY TO WASTE A NEW SESSION'S TIME:
 1. Assuming the UI is React. It is not. `designrag-main/` is a gitignored
@@ -1866,6 +2108,25 @@ shipped code. Fix them in the design, or accept each one in writing.
 
 ## Next (ordered queue, top 3 only)
 
+MERGED 2026-08-31. ST-27 and MB's re-stamp (#71) rewrote this queue at
+the same time; hers is the newer and fuller list and is kept as the base,
+with ST-27 folded in. Her entry A stands unchanged and still outranks
+both UI stories.
+
+0. **MERGE ST-27** (`feat/S2-ST-27-chat-screen`). Gate run by hand in
+   gate.yml order on the merged tree: **621 passed / 2 skipped**, ruff
+   exit 0, gitleaks clean over the branch's files. BOTH REVIEW PASSES ARE
+   PAID -- a cold verifier read and the rule-5 reviewer pass -- and their
+   nine findings, five of them blocking, are fixed. See the ST-27 review
+   section above.
+   IT IS ALSO THE COUNTER-EXAMPLE TO ENTRY B BELOW. Two of the five
+   blocking findings were live thread races that a green suite, ruff and
+   several by-hand runs of the real server had all passed over, and one
+   was a Cancel button that did nothing on the only stage a user waits
+   through. That is the seventh story running where a post-green review
+   found something real, and it is what the four unpaid ones are being
+   compared against.
+
 REWRITTEN AGAIN 2026-08-30, after #67 and #70 merged. The previous version
 of this queue named ST-19's review and ST-29 itself; both are overtaken.
 The three that matter now:
@@ -1904,6 +2165,18 @@ check. `scripts/golden_grounding.py` is in that blind spot. It has been RUN
 and its output quoted with a date, but nothing asserts it, so a change to
 it would break silently. Its control probe is all that stands in for a
 test. Owner MB, alongside the three ST-07/ST-18 script findings #69 parked.
+
+1. **ST-22 CLARIFICATION + REWRITE-AND-SPLIT (YL)**, whose value went UP
+   with ST-27: the clarification message variant is now built, rendered
+   and tested, and `ui/ports.py`'s stub is the only reason a live run
+   cannot produce one. Filling `clarify` turns an already-built screen on.
+2. **ST-28, THE WORKSPACES SCREEN (S2)**, which ST-27 now points at from
+   four places -- the no-workspace state, the no-documents state, the nav,
+   and the "run Sync" pointer. Until it exists a new operator cannot
+   create a workspace from the interface at all; today that takes a
+   script. The shell, the design tokens, the components and the
+   state-resolution pattern are built and reusable, so S2 is mostly its
+   own screen rather than its own system.
 
 SUPERSEDED QUEUE, kept below because the ST-21 correction inside it is
 still worth reading:

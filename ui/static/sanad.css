@@ -1,0 +1,519 @@
+/*
+  Sanad's visual system (UX spec 3), hand-written per CR-02.
+
+  THE PALETTE BELOW IS THE SPEC'S OWN, hex for hex, and that is deliberate
+  rather than tidy. The React reference in `designrag-main/` dropped these
+  values for Tailwind defaults, and the build journal records the measured
+  result: `border-strong` came out at 1.48:1 in light and 1.88:1 in dark
+  against a 3:1 floor, failing UX spec criterion 10 and WCAG 1.4.11 while
+  looking perfectly fine. Section 3.4's own values pass -- 4.59 light and
+  3.94 dark -- because they were computed when they were chosen.
+
+  Every ratio in this file is checked by
+  tests/unit/test_ui_contrast.py, which reads the tokens out of this
+  stylesheet rather than out of a copy. A palette that agrees with a test
+  fixture and disagrees with the page is the usual way this check goes
+  green on a broken screen.
+*/
+
+/* ---- Tokens (UX spec 3.1-3.5) -------------------------------------- */
+
+:root {
+  /* 3.4 Colour roles, light. */
+  --surface: #FFFFFF;
+  --surface-raised: #F6F7F9;
+  --border: #DFE3E8;          /* decorative only, no floor */
+  --border-strong: #6E7681;   /* floor 3:1  -- control boundaries */
+  --text: #16191D;            /* floor 4.5:1 */
+  --text-muted: #5A626D;      /* floor 4.5:1 */
+  --accent: #1F5F8B;          /* floor 4.5:1 */
+  --focus: #0B7285;           /* floor 3:1 */
+
+  /* 3.5 Status roles. The spec fixes the ROLES and their floors, not the
+     hex ("Roles, not brand. Swap the hex values, keep the roles and the
+     contrast ratios"), so these were chosen here and then computed --
+     never estimated. `notice` carries the refusal variant and `danger`
+     the error panel, and the two must never be interchangeable: design
+     principle 2 says a refusal that looks like an error teaches users to
+     distrust the honest path. */
+  --notice: #8A5A00;          /* floor 4.5:1 -- refusal border and lead */
+  --danger: #A3271B;          /* floor 4.5:1 -- error panel only */
+
+  /* 3.1 Layout. */
+  --shell-max: 1280px;
+  --prose-max: 68ch;
+  --gutter: 24px;
+  --rail: 320px;
+
+  /* 3.2 Spacing scale. Eight values, nothing between. A value not on this
+     scale is a bug, so there is nowhere in this file to write one. */
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+  --space-64: 64px;
+
+  /* 3.3 Type scale. Body is 15px, not 16px, "because the file tables
+     carry a lot of columns". Anything below 13px is banned, so 13px is
+     the floor here and no smaller value appears in this file. */
+  --font-sans: "Segoe UI", "Noto Sans", "Lucida Grande", "Frutiger", sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  --size-display: 28px;
+  --size-section: 20px;
+  --size-body: 15px;
+  --size-meta: 13px;
+  --size-mono: 13px;
+
+  /* 3.6 Motion. Transitions cap at 150ms. */
+  --motion: 150ms;
+}
+
+/* Dark theme. Follows the operating system, with an explicit override on
+   <html data-theme> for the toggle -- UX spec 3.4 wants both, "because a
+   defense room projector is unpredictable and you want that switch on
+   stage". */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: #14161A;
+    --surface-raised: #1C1F25;
+    --border: #2C313A;
+    --border-strong: #6E7681;
+    --text: #E8EAED;
+    --text-muted: #9AA2AE;
+    --accent: #5AA9DC;
+    --focus: #3BC9DB;
+    --notice: #E3B341;
+    --danger: #F1958A;
+  }
+}
+
+:root[data-theme="dark"] {
+  --surface: #14161A;
+  --surface-raised: #1C1F25;
+  --border: #2C313A;
+  --border-strong: #6E7681;
+  --text: #E8EAED;
+  --text-muted: #9AA2AE;
+  --accent: #5AA9DC;
+  --focus: #3BC9DB;
+  --notice: #E3B341;
+  --danger: #F1958A;
+}
+
+/* ---- Base ---------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--size-body);
+  line-height: 1.6;
+}
+
+h1 { font-size: var(--size-display); font-weight: 600; line-height: 1.25; }
+h2 { font-size: var(--size-section); font-weight: 600; line-height: 1.3; }
+h3 { font-size: var(--size-body); font-weight: 600; line-height: 1.6; }
+
+.mono, code {
+  font-family: var(--font-mono);
+  font-size: var(--size-mono);
+  line-height: 1.5;
+  /* UX spec 6.5: mono file names and article numbers stay left-to-right
+     inside a mirrored layout, "which is the case most implementations get
+     wrong". Set here, once, so every file name and article number in the
+     product inherits it. */
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.muted { color: var(--text-muted); font-size: var(--size-meta); line-height: 1.45; }
+
+/* UX spec 6.4: "Visible focus ring at 3:1 against its background, never
+   removed." Two rings, because one colour cannot clear 3:1 against both a
+   light and a dark control -- the outline carries --focus and the offset
+   paints --surface behind it. */
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  inset-inline-start: -9999px;
+  top: var(--space-8);
+  padding: var(--space-8) var(--space-16);
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  z-index: 10;
+}
+.skip-link:focus { inset-inline-start: var(--space-8); }
+
+/* ---- Shell (UX spec 4) --------------------------------------------- */
+
+.shell {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+.shell__inner {
+  max-width: var(--shell-max);
+  margin: 0 auto;
+  padding: var(--space-12) var(--gutter);
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  flex-wrap: wrap;
+}
+.shell__name { font-weight: 600; font-size: var(--size-section); }
+.shell__workspace { display: flex; align-items: center; gap: var(--space-8); }
+.shell__label { font-size: var(--size-meta); color: var(--text-muted); }
+.shell__nav { display: flex; gap: var(--space-12); margin-inline-start: auto; }
+.shell__link { color: var(--accent); text-decoration: none; }
+.shell__link.is-current { font-weight: 600; text-decoration: underline; }
+.shell__link.is-disabled { color: var(--text-muted); cursor: not-allowed; }
+
+.marker {
+  font-size: var(--size-meta);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 0 var(--space-4);
+}
+
+select, input[type="text"] {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  /* border-strong, because a border is the only thing identifying this
+     control's boundary (UX spec 3.4). */
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: var(--space-8) var(--space-12);
+}
+input[type="text"]:disabled, select:disabled, button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.btn {
+  font: inherit;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  padding: var(--space-8) var(--space-16);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--motion) linear;
+}
+.btn--primary { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+.btn--quiet { background: var(--surface-raised); }
+.btn:disabled { background: var(--surface-raised); border-color: var(--border); }
+
+/* ---- Main and the S1 grid (UX spec 6.1, 3.1) ----------------------- */
+
+.main {
+  max-width: var(--shell-max);
+  margin: 0 auto;
+  padding: var(--space-24) var(--gutter) var(--space-64);
+}
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-24);
+  background: var(--surface-raised);
+  max-width: var(--prose-max);
+}
+.panel--empty { background: var(--surface); }
+
+.chat__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-16);
+  margin-bottom: var(--space-24);
+}
+.chat__title { margin: 0; }
+.chat__grounding { margin: 0; color: var(--text-muted); font-size: var(--size-meta); }
+.chat__header form { margin-inline-start: auto; }
+
+.transcript { list-style: none; margin: 0; padding: 0; }
+
+/*
+  UX spec 3.1: "the source panel moves from a side rail to a stacked
+  section below the answer" at 1024px. ONE grid does both. The cards stay
+  attached to their own answer either way (6.2), so nothing is duplicated
+  into a separate rail and no two copies of a card can disagree.
+*/
+.msg {
+  display: grid;
+  grid-template-columns: minmax(0, var(--prose-max)) var(--rail);
+  gap: var(--space-24);
+  margin-bottom: var(--space-24);
+  align-items: start;
+}
+@media (max-width: 1023px) {
+  .msg { grid-template-columns: minmax(0, var(--prose-max)); }
+}
+
+.bubble {
+  grid-column: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-16);
+  margin: 0;
+  max-width: var(--prose-max);
+}
+
+/* 6.2 User: right-aligned in LTR, surface-raised, no source panel. */
+.msg--user { justify-items: end; }
+.bubble--user { background: var(--surface-raised); }
+/* 6.5: alignment mirrors under RTL. */
+[dir="rtl"] .msg--user { justify-items: start; }
+
+/* 6.2 Answer: left-aligned, surface. */
+.bubble--answer { background: var(--surface); }
+.answer__text { margin: 0; white-space: pre-line; }
+
+.retries {
+  display: inline-block;
+  margin-top: var(--space-8);
+  font-size: var(--size-meta);
+  color: var(--text-muted);
+  border-bottom: 1px dotted var(--border-strong);
+  cursor: help;
+}
+
+/* F-09, between the answer body and the source cards (6.2). */
+.disclaimer {
+  grid-column: 1;
+  margin: var(--space-8) 0 0;
+  padding: var(--space-8) var(--space-12);
+  border-left: 3px solid var(--notice);
+  background: var(--surface-raised);
+  font-size: var(--size-meta);
+  line-height: 1.45;
+  max-width: var(--prose-max);
+}
+
+/*
+  6.2 Refusal: bordered in `notice` rather than `danger`, "styled as a
+  legitimate outcome, not a failure". The border is 2px and coloured, and
+  the variant is ALSO carried by the "What Sanad searched for" heading --
+  never by the colour alone (criterion 10).
+*/
+.bubble--refusal { border: 2px solid var(--notice); background: var(--surface); }
+.refusal__lead { margin: 0; font-weight: 600; }
+.refusal__label { margin: var(--space-12) 0 var(--space-4); font-size: var(--size-meta); }
+.searched { margin: 0; padding-inline-start: var(--space-24); }
+
+.bubble--clarification { background: var(--surface-raised); border-color: var(--border-strong); }
+.choices, .samples { list-style: none; margin: var(--space-12) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-8); }
+
+.sample {
+  font: inherit;
+  text-align: start;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: var(--space-8) var(--space-12);
+  cursor: pointer;
+}
+.samples { flex-direction: column; }
+
+/* Section 11 + criterion 8: marked incomplete, and no control anywhere on
+   it presents it as a finished answer. */
+.bubble--interrupted { border: 2px dashed var(--border-strong); background: var(--surface-raised); }
+.incomplete-mark {
+  margin: 0 0 var(--space-8);
+  font-weight: 600;
+  font-size: var(--size-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+/* UX spec 5's ErrorPanel: the only place `danger` appears. */
+.panel--error { border: 2px solid var(--danger); background: var(--surface); }
+.error__sentence { margin: 0 0 var(--space-8); font-weight: 600; color: var(--danger); }
+.error__attempted, .error__value {
+  margin: 0 0 var(--space-8);
+  padding: var(--space-8);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+.error__hint { margin: 0; color: var(--text-muted); font-size: var(--size-meta); }
+
+/* ---- Source cards (UX spec 5, principle 1) -------------------------- */
+
+/*
+  Principle 1: "never collapsed by default, never smaller than body text,
+  never grey-on-grey." So the file name is mono at 13px (the spec's own
+  Mono role) but the card's text colour is --text, not --text-muted, and
+  nothing here is hidden behind a disclosure.
+*/
+.sources { grid-column: 2; grid-row: 1 / span 3; }
+@media (max-width: 1023px) {
+  .sources { grid-column: 1; grid-row: auto; }
+}
+.sources__title { margin: 0 0 var(--space-8); font-size: var(--size-meta); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+
+/*
+  ESCALATION, NOT A DECISION (CLAUDE.md rule 1). Two signed statements
+  disagree about the text inside a source card and this file cannot settle
+  it:
+    * design principle 1 -- "A source card is never collapsed by default,
+      NEVER SMALLER THAN BODY TEXT, never grey-on-grey";
+    * section 3.3 -- the Mono role is 13px, and file names and section
+      labels are exactly what it is for.
+  A card's file name is both. An earlier version of this stylesheet
+  resolved the conflict silently in a comment, at 13px, which is the
+  reinterpretation rule 1 forbids.
+  Shipped at BODY size pending a human ruling, because between two signed
+  readings the accessible one is the safer place to sit and principle 1 is
+  the more specific sentence -- it is about this component by name.
+  Recorded in BUILD-STATE for UX-01's owner.
+*/
+.source__file, .source__section { font-size: var(--size-body); }
+.sources__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
+.source__link {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-12);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  transition: background var(--motion) linear;
+}
+.source__link:hover { background: var(--surface-raised); }
+.source__file { font-weight: 600; }
+.source__section { color: var(--text); }
+.source__action { color: var(--accent); font-size: var(--size-meta); text-decoration: underline; }
+
+/* ---- Passage viewer (UX spec 5) ------------------------------------ */
+
+.viewer {
+  max-width: 72ch;
+  width: calc(100% - var(--space-32));
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: var(--space-24);
+}
+.viewer::backdrop { background: rgb(0 0 0 / 55%); }
+.viewer__head { display: flex; align-items: start; gap: var(--space-16); margin-bottom: var(--space-16); }
+.viewer__title { margin: 0; }
+.viewer__head .btn { margin-inline-start: auto; }
+
+.passage { margin: 0 0 var(--space-24); }
+.passage__heading { margin: 0 0 var(--space-16); }
+.passage__note {
+  margin: 0 0 var(--space-8);
+  padding: var(--space-8);
+  border-left: 3px solid var(--notice);
+  background: var(--surface-raised);
+  font-size: var(--size-meta);
+  line-height: 1.45;
+}
+.passage__text { margin: 0; white-space: pre-wrap; max-width: var(--prose-max); }
+
+/*
+  The cited span. Colour is NOT the only cue (criterion 10): the mark also
+  carries a left rule and a bolder weight, so it survives a monochrome
+  projector and a colour-blind reader.
+*/
+.cited {
+  background: var(--surface-raised);
+  color: var(--text);
+  border-bottom: 2px solid var(--accent);
+  font-weight: 600;
+  padding: 0 var(--space-4);
+}
+
+/* ---- Composer (UX spec 6.1: pinned to the bottom of the area) ------- */
+
+.composer { margin-top: var(--space-24); max-width: var(--prose-max); }
+.composer__label { display: block; font-size: var(--size-meta); color: var(--text-muted); margin-bottom: var(--space-4); }
+.composer__row { display: flex; gap: var(--space-8); }
+.composer__input { flex: 1; }
+.composer__reason {
+  margin: var(--space-8) 0 0;
+  font-size: var(--size-meta);
+  line-height: 1.45;
+  color: var(--text);
+}
+
+/* ---- Stage hints (UX spec 6.3) ------------------------------------- */
+
+.stage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  max-width: var(--prose-max);
+  padding: var(--space-12) var(--space-16);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+.stage__label { font-weight: 600; }
+.stage form { margin-inline-start: auto; }
+
+/* 3.6: "Progress and stage hints animate. Nothing else moves." */
+.stage__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1200ms ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: 0.25; } }
+
+/* ---- Reduced motion (3.6, criterion 12) ---------------------------- */
+
+/*
+  "Honour reduced-motion by disabling all transitions and replacing any
+  animated indicator with a static one plus text." The dot stops moving
+  and gains a ring so it is still visibly an indicator; the TEXT beside it
+  was always the stage hint, so nothing is lost with the animation.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+  .stage__dot {
+    animation: none;
+    background: var(--surface);
+    border: 3px solid var(--accent);
+  }
+}
+
+/* ---- Below 768px (3.1) --------------------------------------------- */
+
+/*
+  "Below 768px the app shows a plain notice that Sanad targets a desktop
+  browser. Do not build a phone layout." So this is a notice, not a
+  breakpoint: the screen is hidden rather than reflowed, which is the
+  whole point of the instruction.
+*/
+.desktop-only { display: none; }
+@media (max-width: 767px) {
+  .shell__nav, .main { display: none; }
+  .desktop-only {
+    display: block;
+    max-width: var(--prose-max);
+    margin: var(--space-48) auto;
+    padding: 0 var(--gutter);
+  }
+}

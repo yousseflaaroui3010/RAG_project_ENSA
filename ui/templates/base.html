@@ -1,0 +1,102 @@
+{#
+  The shared shell, present on every screen (UX spec 4, PRD section 8).
+
+  Two things in here are accessibility requirements rather than layout:
+  the skip link is "the first focusable element on the page" (UX spec 4),
+  and the theme toggle is revealed by script rather than rendered dead.
+  A button that does nothing without JavaScript is worse than no button.
+#}<!doctype html>
+<html lang="en" dir="{{ dir | default('ltr') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Sanad{% endblock %}</title>
+  <link rel="stylesheet" href="/static/sanad.css">
+  {#
+    THE NO-JAVASCRIPT LOADING PATH. While a question is in flight the page
+    re-fetches itself so the stage hint stays true (UX spec 6.3). Inside
+    <noscript> on purpose: with scripting on, sanad.js polls
+    /chat/messages and updates the stage label's text in place, which does
+    not move focus or restart a screen reader mid-answer.
+  #}
+  {% if busy %}<noscript><meta http-equiv="refresh" content="2"></noscript>{% endif %}
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="shell">
+    <div class="shell__inner">
+      <span class="shell__name">Sanad</span>
+
+      {# UX spec 4: the workspace selector is never inside a menu, and it
+         renders disabled with "No workspace yet" when none exist. #}
+      <form class="shell__workspace" method="post" action="/workspace">
+        <label class="shell__label" for="workspace-select">Active workspace</label>
+        {% if workspaces %}
+          <select id="workspace-select" name="workspace_id" data-autosubmit>
+            {% for option in workspaces %}
+              <option value="{{ option.id }}" {% if active and option.id == active.id %}selected{% endif %}>
+                {{ option.name }}{% if option.legal_flag %} — legal{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+          <button class="btn btn--quiet" type="submit" data-hide-with-js>Switch</button>
+          {% if active and active.legal_flag %}
+            {# The "small persistent marker" of UX spec 4. Text, not a
+               colour: nothing in this interface means anything by colour
+               alone (criterion 10). #}
+            <span class="marker" title="This workspace is flagged as legal content">Legal</span>
+          {% endif %}
+        {% else %}
+          <select id="workspace-select" name="workspace_id" disabled>
+            <option>No workspace yet</option>
+          </select>
+        {% endif %}
+      </form>
+
+      <nav class="shell__nav" aria-label="Screens">
+        {% if workspaces %}
+          <a class="shell__link is-current" href="/" aria-current="page">Chat</a>
+        {% else %}
+          {#
+            Acceptance criterion 1: with no workspace, navigation to S1 is
+            disabled WITH A STATED REASON. A <span> rather than a disabled
+            link because a disabled anchor is not a thing; aria-disabled on
+            a link that still navigates is the usual wrong answer.
+          #}
+          <span class="shell__link is-disabled" aria-disabled="true"
+                title="Create a workspace before asking questions">Chat</span>
+        {% endif %}
+        {# S2 arrives with ST-28 and S3 with ST-34. Named but not linked,
+           because a link to a route that does not exist is a 404 dressed
+           as navigation. #}
+        <span class="shell__link is-disabled" aria-disabled="true"
+              title="The Workspaces screen is not built yet (ST-28)">Workspaces</span>
+        <span class="shell__link is-disabled" aria-disabled="true"
+              title="The Reports screen is not built yet (ST-34)">Reports</span>
+      </nav>
+
+      <button class="btn btn--quiet theme-toggle" type="button"
+              aria-pressed="false" hidden>Dark theme</button>
+    </div>
+  </header>
+
+  {#
+    UX spec 3.1: "Below 768px the app shows a plain notice that Sanad
+    targets a desktop browser. Do not build a phone layout." The notice is
+    always in the markup and the stylesheet decides which of the two is
+    visible, so there is no width sniffing and no second render path.
+  #}
+  <p class="desktop-only">
+    Sanad is built for a desktop browser. This window is too narrow to show
+    a document, its sources and the passage behind them at once. Widen the
+    window to carry on.
+  </p>
+
+  <main id="main" class="main">
+    {% block main %}{% endblock %}
+  </main>
+
+  <script src="/static/sanad.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{#
+  The body of one passage: the full section, with the retrieved span
+  marked (UX spec 5, `PassageViewer`: "cited span highlighted").
+
+  Used by both the overlay and the standalone page, so the two cannot
+  drift into showing different text for the same citation.
+
+  THE HIGHLIGHT IS SEGMENTS, NOT SPLICED MARKUP. `ui/conversation.py` cuts
+  the section into cited and uncited runs and Jinja escapes each one. A
+  section is text from someone's PDF; building `<mark>` around it in
+  Python and marking the result safe is how a document ends up executing
+  as markup.
+#}
+
+{% macro passage_body(card) %}
+  {% for passage in card.passages %}
+    <article class="passage">
+      {% if not passage.highlighted %}
+        {#
+          Said out loud rather than left for the reader to wonder about.
+          A section whose chunk could not be located is shown whole and
+          unmarked; drawing the highlight somewhere plausible instead
+          would be a citation pointing at the wrong sentence, which the
+          reader has no way to detect.
+        #}
+        <p class="passage__note">
+          Showing the whole section. Sanad could not locate the exact
+          retrieved span inside it, so nothing here is marked as the
+          cited text.
+        </p>
+      {% endif %}
+      <p class="passage__text">{% for segment in passage.segments %}{%
+        if segment.cited %}<mark class="cited">{{ segment.text }}</mark>{%
+        else %}{{ segment.text }}{% endif %}{% endfor %}</p>
+    </article>
+  {% endfor %}
+{% endmacro %}

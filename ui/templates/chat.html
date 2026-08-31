@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Chat — Sanad{% endblock %}
+
+{#
+  S1, the chat screen (UX spec 6, PRD section 8).
+
+  Regions, in 6.1's order: shell header (base.html), conversation area
+  capped at prose-max, source panel on the right rail, input bar pinned to
+  the bottom of the conversation area.
+
+  The new-conversation action sits in the CONVERSATION AREA header, not in
+  the shell, "because it is scoped to S1" (6.2).
+#}
+
+{% block main %}
+{% if state == ScreenState.NO_WORKSPACE %}
+  {# UX spec 4's empty state. S2 is the landing screen and it arrives with
+     ST-28, so this states the next step rather than linking into nothing. #}
+  <section class="panel panel--empty">
+    <h1>No workspace yet</h1>
+    <p>Sanad answers from documents you have grouped into a workspace, so
+       there is nothing to ask about until one exists.</p>
+    <p class="muted">Creating a workspace is the Workspaces screen's job,
+       and that screen is not built yet (ST-28).</p>
+  </section>
+{% else %}
+  <div class="chat">
+    <div class="chat__header">
+      <h1 class="chat__title">Chat</h1>
+      <p class="chat__grounding">
+        Answering from <strong>{{ active.name }}</strong>
+      </p>
+      <form method="post" action="/chat/new">
+        <button class="btn btn--quiet" type="submit">New conversation</button>
+      </form>
+    </div>
+
+    {% include "_conversation.html" %}
+
+    {#
+      The input bar. A real <form> that posts, so the screen works with
+      scripting off; sanad.js only stops the page jumping.
+    #}
+    <form class="composer" method="post" action="/chat/ask" data-composer>
+      <label class="composer__label" for="question">Your question</label>
+      <div class="composer__row">
+        <input class="composer__input" id="question" name="question" type="text"
+               autocomplete="off" required
+               maxlength="{{ question_max_length }}"
+               {% if input_reason %}disabled aria-describedby="composer-reason"{% endif %}
+               placeholder="Ask a question about this workspace">
+        <button class="btn btn--primary" type="submit"
+                {% if input_reason %}disabled{% endif %}>Send</button>
+      </div>
+      {#
+        UX spec 6.3 and PRD section 8 both require the disabled input to
+        show WHY, inline. Two different sentences, because the two reasons
+        have different next steps.
+      #}
+      {% if input_reason %}
+        <p class="composer__reason" id="composer-reason">{{ input_reason }}</p>
+      {% endif %}
+    </form>
+  </div>
+{% endif %}
+{% endblock %}
