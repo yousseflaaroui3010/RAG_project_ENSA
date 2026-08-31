@@ -1,53 +1,69 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: **9da0c56 on main**, 2026-08-30. Four PRs landed
-since the previous header and all four are merged: #68 (the ST-18 article
-matcher counted digits, not articles), #69 (YL's review of MB's six PRs,
-with three findings left open), #67 (ST-19 golden set batch 1) and #70
-(ST-29 golden set batch 2).
+Last verified commit: **c70c654 on main**, 2026-08-31. Two PRs landed
+since the previous header and both are merged: #71 (MB's re-stamp at
+9da0c56 after ST-19 and ST-29) and #72 (ST-27, the S1 chat screen).
 
-MEASURED ON MAIN AT 9da0c56, by hand, in gate.yml order, AFTER both of
-today's merges rather than before: `uv sync --frozen` clean (170
-packages), `uv run ruff check .` exit 0, `uv run pytest` **556 passed /
-2 skipped** in 72.74s. Plus the golden set's own corpus check, which is
-not in gate.yml because `data/` is git-ignored: `uv run python
-scripts/golden_grounding.py` -> "OK: 45 rows grounded (30 in scope, 15
-out)".
+MEASURED ON MAIN AT c70c654, by hand, in gate.yml order, AFTER both
+merges rather than before: `uv sync --frozen` clean (170 packages),
+`uv run ruff check .` exit 0, `uv run pytest` **621 passed / 2 skipped**
+in 375.52s. Every exit code was read from `$?`, not inferred from the
+last line of output -- `ruff_exit=0` and `PYTEST_EXIT=0`.
 
-THE FOURTH GATE STEP WAS NOT RUN LOCALLY AND THIS HEADER WILL NOT PRETEND
-IT WAS. `gitleaks` is NOT INSTALLED on MB's machine -- re-checked against
-PATH and `~/AppData/Local/Microsoft/WinGet/Links/`, both empty, 2026-08-30.
-What IS verified: the `verify` job on GitHub runs
-`gitleaks/gitleaks-action@v2` and passed on BOTH merged PRs (#67 in 1m21s
-on the re-run against the updated main, #70 in 1m24s), and the JOB'S STEPS
-were listed rather than the green tick trusted -- Lint, Tests and Secret
-scan all `success` on each. So the secret scan is green ON CI and
-UNVERIFIED LOCALLY. Whoever installs gitleaks here closes the gap; until
-then, do not write "all four steps".
+**ALL FOUR GATE STEPS RAN LOCALLY THIS TIME, and the fourth one is the
+news.** `gitleaks` IS installed on YL's machine, so the secret scan is no
+longer CI-only: `gitleaks detect --no-git` over the whole tracked tree at
+c70c654 -- 112 files, 2.65 MB -- reports **"no leaks found", exit 0**.
 
-**BOTH OF TODAY'S MERGES SKIPPED THE RULE-5 PARTNER REVIEW**, at the
-human's explicit instruction ("push all changes to github and merge them").
-The concern was raised before acting and the instruction was not withdrawn.
-Same shape as the ST-17 deviation of 2026-08-23 and ST-21's of 2026-08-26.
-**The unpaid-review list is now ST-21, ST-23, ST-19 and ST-29** -- four,
-where it was two this morning. On this project a post-green pass has found
-a real defect on six stories running, and #68 is today's example: it found
-a substring matcher that no test had ever exercised, after a rule-5 review,
-a re-review AND a green suite had all passed over it.
+SCOPE OF THAT SCAN, stated precisely because the previous three headers
+were vaguer than the command they quoted: it covers every TRACKED FILE AS
+IT STANDS at c70c654. It does NOT walk the git history, and a full-history
+`gitleaks detect` timed out twice at nine minutes on this machine. History
+is covered by CI's `gitleaks-action`, which passed on #72's `verify` run.
+So: current tree verified locally, history verified on CI. Do not compress
+that into "gitleaks clean" without the two halves.
 
-WHY THIS HEADER MOVED, and this time it is not a staleness confession: it
-moved at merge time, which is what its own rule demands. The previous
-header sat at f4cf208 / 529 and four commits had landed above it, but two
-of those four are the merges this stamp records and the other two are YL's,
-which arrived while #67 was open. Recorded so the next reader can tell an
-obeyed rule from a broken one. There is still no gate on this file's
+Also still true and inherited from MB's stamp: gitleaks is NOT installed
+on HER machine (PATH and `~/AppData/Local/Microsoft/WinGet/Links/` both
+empty), so a header she writes cannot make this claim. Whoever installs
+it there closes the gap for good.
+
+Plus the golden set's own corpus check, which is not in gate.yml because
+`data/` is git-ignored: `uv run python scripts/golden_grounding.py` ->
+"OK: 45 rows grounded (30 in scope, 15 out)", per MB's stamp.
+
+**ST-27 PAID BOTH REVIEW PASSES AND THAT IS THE HEADLINE, not the
+screen.** A cold verifier read and the rule-5 reviewer pass ran on the
+branch before merge and found **NINE defects, five of them blocking, on a
+tree whose whole gate was green.** Seven stories running now. The two
+worst were live thread races that ruff, 609 passing tests and several
+by-hand runs of the real server had all passed over. The full list is in
+the ST-27 review section below; read it before deciding the four unpaid
+reviews can be written off.
+
+**THE UNPAID-REVIEW LIST IS STILL ST-21, ST-23, ST-19 AND ST-29** --
+unchanged by today, because ST-27 paid its own. MB's stamp recorded that
+#67 and #70 merged without a rule-5 pass at the human's explicit
+instruction, with the concern raised first and not withdrawn; that entry
+stands and is not softened here.
+
+WHY THIS HEADER MOVED: at merge time, which is what its own rule demands.
+The only commit above the one named here should be the journal commit
+recording this measurement. There is still no gate on this file's
 freshness.
 
-**SANAD NOW ANSWERS A REAL QUESTION END TO END, WITH SOURCES.** ST-24
-closed the last seam on the critical path. Five of the eight ports in
-`agent/ports.py` are real and every one on the ANSWER path is. There is
-still no UI and no `app.py`, so it cannot be LAUNCHED -- but the engine
-runs, in a test, with real retrieval, real sections and real citations.
+**SANAD CAN NOW BE LAUNCHED AND LOOKED AT.** `uv run python app.py`
+serves S1, the chat screen (ST-27, CR-02: Jinja templates, hand-written
+CSS, no JS toolchain). The engine has answered since ST-24; as of c70c654
+a human can watch it do so, with its sources, its honest refusals and the
+passage behind every citation. The sentence three headers carried until
+today -- "there is still no UI and no app.py, so it cannot be LAUNCHED"
+-- is the one ST-27 existed to falsify.
+
+WHAT IS STILL NOT WIRED, so the sentence above is not read as more than
+it says: F-07 session memory does nothing (ST-25's `summarize` stub), the
+clarification variant cannot appear live (ST-22's `clarify` stub), there
+is no rewrite-and-split, and S2 and S3 do not exist (ST-28, ST-34).
 
 WHAT ST-24 COST, worth reading before the next agent story: the answer
 itself was the easy half. The decline parser -- the one word that lets
@@ -2113,12 +2129,11 @@ the same time; hers is the newer and fuller list and is kept as the base,
 with ST-27 folded in. Her entry A stands unchanged and still outranks
 both UI stories.
 
-0. **MERGE ST-27** (`feat/S2-ST-27-chat-screen`). Gate run by hand in
-   gate.yml order on the merged tree: **621 passed / 2 skipped**, ruff
-   exit 0, gitleaks clean over the branch's files. BOTH REVIEW PASSES ARE
-   PAID -- a cold verifier read and the rule-5 reviewer pass -- and their
-   nine findings, five of them blocking, are fixed. See the ST-27 review
-   section above.
+0. ~~MERGE ST-27~~ **DONE -- merged as #72, c70c654 on main, 2026-08-31.**
+   Gate re-run on main after the merge: 621 passed / 2 skipped, ruff exit
+   0, gitleaks clean over the whole tracked tree. Both review passes were
+   paid before it landed and their nine findings, five blocking, are
+   fixed. See the ST-27 review section above.
    IT IS ALSO THE COUNTER-EXAMPLE TO ENTRY B BELOW. Two of the five
    blocking findings were live thread races that a green suite, ruff and
    several by-hand runs of the real server had all passed over, and one
