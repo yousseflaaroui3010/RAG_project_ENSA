@@ -1,31 +1,47 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: **f4cf208 on main**, 2026-08-30. Five PRs landed
-since the previous header and all five are merged: #61 (the graph project
-name), #62 (ST-07 Corpus v1), #63 (the ST-18 spike), #65 (the ST-12
-review pass) and #64 (`.env.example` drift now an actual check).
+Last verified commit: **9da0c56 on main**, 2026-08-30. Four PRs landed
+since the previous header and all four are merged: #68 (the ST-18 article
+matcher counted digits, not articles), #69 (YL's review of MB's six PRs,
+with three findings left open), #67 (ST-19 golden set batch 1) and #70
+(ST-29 golden set batch 2).
 
-MEASURED ON MAIN AT f4cf208, by hand, in gate.yml order, AFTER both of
+MEASURED ON MAIN AT 9da0c56, by hand, in gate.yml order, AFTER both of
 today's merges rather than before: `uv sync --frozen` clean (170
-packages), `uv run ruff check .` exit 0, `uv run pytest` **529 passed /
-2 skipped** in 59.31s.
+packages), `uv run ruff check .` exit 0, `uv run pytest` **556 passed /
+2 skipped** in 72.74s. Plus the golden set's own corpus check, which is
+not in gate.yml because `data/` is git-ignored: `uv run python
+scripts/golden_grounding.py` -> "OK: 45 rows grounded (30 in scope, 15
+out)".
 
 THE FOURTH GATE STEP WAS NOT RUN LOCALLY AND THIS HEADER WILL NOT PRETEND
-IT WAS. `gitleaks` is NOT INSTALLED on MB's machine -- `where gitleaks`
-and `gitleaks version` both come back empty, 2026-08-30. Previous headers
-quoted a local `gitleaks detect` exit 0; whatever produced those, this
-machine cannot produce one today. What IS verified: the `verify` job on
-GitHub runs `gitleaks/gitleaks-action@v2` and passed on BOTH merged PRs
-(#65 in 1m23s, #64 in 1m29s on the re-run against the updated main). So
-the secret scan is green ON CI and UNVERIFIED LOCALLY. Whoever installs
-gitleaks here closes the gap; until then, do not write "all four steps".
+IT WAS. `gitleaks` is NOT INSTALLED on MB's machine -- re-checked against
+PATH and `~/AppData/Local/Microsoft/WinGet/Links/`, both empty, 2026-08-30.
+What IS verified: the `verify` job on GitHub runs
+`gitleaks/gitleaks-action@v2` and passed on BOTH merged PRs (#67 in 1m21s
+on the re-run against the updated main, #70 in 1m24s), and the JOB'S STEPS
+were listed rather than the green tick trusted -- Lint, Tests and Secret
+scan all `success` on each. So the secret scan is green ON CI and
+UNVERIFIED LOCALLY. Whoever installs gitleaks here closes the gap; until
+then, do not write "all four steps".
 
-WHY THIS HEADER MOVED AT ALL, since it is the failure the header exists to
-catch: it sat at `2ebb74d` / 522 passed while FIVE commits had landed above
-it. Its own rule says the only commit allowed above the stamped one is the
-journal commit recording the measurement. Five were not that. Caught by
-asking "is everything journaled" rather than by any check -- there is no
-gate on this file's freshness, and that remains true after this edit.
+**BOTH OF TODAY'S MERGES SKIPPED THE RULE-5 PARTNER REVIEW**, at the
+human's explicit instruction ("push all changes to github and merge them").
+The concern was raised before acting and the instruction was not withdrawn.
+Same shape as the ST-17 deviation of 2026-08-23 and ST-21's of 2026-08-26.
+**The unpaid-review list is now ST-21, ST-23, ST-19 and ST-29** -- four,
+where it was two this morning. On this project a post-green pass has found
+a real defect on six stories running, and #68 is today's example: it found
+a substring matcher that no test had ever exercised, after a rule-5 review,
+a re-review AND a green suite had all passed over it.
+
+WHY THIS HEADER MOVED, and this time it is not a staleness confession: it
+moved at merge time, which is what its own rule demands. The previous
+header sat at f4cf208 / 529 and four commits had landed above it, but two
+of those four are the merges this stamp records and the other two are YL's,
+which arrived while #67 was open. Recorded so the next reader can tell an
+obeyed rule from a broken one. There is still no gate on this file's
+freshness.
 
 **SANAD NOW ANSWERS A REAL QUESTION END TO END, WITH SOURCES.** ST-24
 closed the last seam on the critical path. Five of the eight ports in
@@ -2083,44 +2099,75 @@ shipped code. Fix them in the design, or accept each one in writing.
 
 ## Next (ordered queue, top 3 only)
 
-MERGED 2026-08-31, resolving a real conflict rather than picking a side:
-ST-27 and MB's ST-19/ST-29 rewrote this queue at the same time. Two of
-her three entries are now CLOSED by that merge -- ST-19 landed as #67 and
-ST-29 as #70 -- so what survives from her side is ST-32, and it is the
-one that matters most.
+MERGED 2026-08-31. ST-27 and MB's re-stamp (#71) rewrote this queue at
+the same time; hers is the newer and fuller list and is kept as the base,
+with ST-27 folded in. Her entry A stands unchanged and still outranks
+both UI stories.
 
 0. **MERGE ST-27** (`feat/S2-ST-27-chat-screen`). Gate run by hand in
-   gate.yml order: 609 passed / 2 skipped, ruff exit 0, gitleaks clean
-   over the branch's files. BOTH REVIEW PASSES ARE DONE and their nine
-   findings are fixed -- see the section above. Do not merge on the green
-   alone; that is what the reviews were for.
-1. **ST-32 EVALUATION RUNNER (YL).** The critical path to a V1.0 gate:
-   ST-32 -> ST-33 -> ST-36 -> ST-41, and none of the four has started.
-   Genuinely unblocked now -- it needed ST-24 (merged) and a golden set to
-   run on, and ST-19 plus ST-29 have built one to 30 in-scope + 15
-   out-of-scope. It reads `evaluation/golden/*.jsonl`; the field list is
-   in `evaluation/golden/README.md` and `tests/unit/test_golden_set.py`
-   is the executable copy of it.
-   THIS OUTRANKS BOTH UI STORIES. ST-27 made the product visible, which
-   is worth a lot on a defense day; ST-32 is what decides whether it is
-   allowed to ship at all.
-2. **ST-22 CLARIFICATION + REWRITE-AND-SPLIT (YL)**, and its value went UP
+   gate.yml order on the merged tree: **621 passed / 2 skipped**, ruff
+   exit 0, gitleaks clean over the branch's files. BOTH REVIEW PASSES ARE
+   PAID -- a cold verifier read and the rule-5 reviewer pass -- and their
+   nine findings, five of them blocking, are fixed. See the ST-27 review
+   section above.
+   IT IS ALSO THE COUNTER-EXAMPLE TO ENTRY B BELOW. Two of the five
+   blocking findings were live thread races that a green suite, ruff and
+   several by-hand runs of the real server had all passed over, and one
+   was a Cancel button that did nothing on the only stage a user waits
+   through. That is the seventh story running where a post-green review
+   found something real, and it is what the four unpaid ones are being
+   compared against.
+
+REWRITTEN AGAIN 2026-08-30, after #67 and #70 merged. The previous version
+of this queue named ST-19's review and ST-29 itself; both are overtaken.
+The three that matter now:
+
+A. **ST-32 EVALUATION RUNNER (YL).** The critical path to a V1.0 gate:
+   ST-32 -> ST-33 -> ST-36 -> ST-41, and NONE of the four has started.
+   Every blocker is gone -- it needed ST-24 (merged) and a golden set to
+   run on (45 questions on main). It reads `evaluation/golden/*.jsonl`;
+   the field list is in `evaluation/golden/README.md` and
+   `tests/unit/test_golden_set.py` is the executable copy of it. Read the
+   two honest caveats in that README before scoring anything: `g-in-015`
+   quotes a figure from an undated guide, and `g-out-005` is arguable.
+B. **THE FOUR UNPAID REVIEWS: ST-21, ST-23, ST-19, ST-29.** This list
+   doubled today because both golden-set PRs merged on the human's
+   instruction without a rule-5 pass. It is not bookkeeping: ST-12's
+   review, when it was finally paid six weeks late, found three real
+   defects, one of which let the product cite a file the report called
+   Skipped. For ST-19 and ST-29 the rows to read are the fifteen
+   out-of-scope questions, because those are what G2 is graded on.
+C. **ST-35 GOLDEN SET COMPLETE AND FROZEN (MB).** +10 in-scope, +5
+   out-of-scope to 40 + 20, then the freeze. Mechanically it is one row
+   added to `EXPECTED_COUNTS` in `tests/unit/test_golden_set.py` plus
+   `batch3.jsonl`; a companion test refuses any golden file the table does
+   not list, so forgetting the row fails loudly rather than silently.
+
+A NOTE FOR WHOEVER WRITES BATCH 3, so the lesson is not re-paid: read
+`evaluation/golden/README.md` before drafting a single out-of-scope
+question, and run `uv run python scripts/golden_grounding.py` before
+believing any of them is absent. See the byte-grep entry in Now -- a
+byte-wise grep reported ZERO occurrences of `préavis` in a document holding
+forty, and four questions were nearly written on that zero.
+
+AND ONE THING NEITHER STORY FIXED, inherited from #69's root-cause finding:
+`testpaths = ["tests"]` in pyproject.toml puts `scripts/` outside every
+check. `scripts/golden_grounding.py` is in that blind spot. It has been RUN
+and its output quoted with a date, but nothing asserts it, so a change to
+it would break silently. Its control probe is all that stands in for a
+test. Owner MB, alongside the three ST-07/ST-18 script findings #69 parked.
+
+1. **ST-22 CLARIFICATION + REWRITE-AND-SPLIT (YL)**, whose value went UP
    with ST-27: the clarification message variant is now built, rendered
    and tested, and `ui/ports.py`'s stub is the only reason a live run
    cannot produce one. Filling `clarify` turns an already-built screen on.
-3. **ST-28, the Workspaces screen (S2)**, which ST-27 now points at from
+2. **ST-28, THE WORKSPACES SCREEN (S2)**, which ST-27 now points at from
    four places -- the no-workspace state, the no-documents state, the nav,
    and the "run Sync" pointer. Until it exists a new operator cannot
    create a workspace from the interface at all; today that takes a
-   script. The shell, the tokens, the components and the state-resolution
-   pattern are built and reusable, so S2 is mostly its own screen rather
-   than its own system.
-
-A NOTE FOR WHOEVER TOUCHES THE GOLDEN SET, kept from MB's entry so the
-lesson is not re-paid: read `evaluation/golden/README.md` before drafting
-a single out-of-scope question, and run
-`uv run python scripts/golden_grounding.py` before believing any of them
-is absent. See the byte-grep entry in Now.
+   script. The shell, the design tokens, the components and the
+   state-resolution pattern are built and reusable, so S2 is mostly its
+   own screen rather than its own system.
 
 SUPERSEDED QUEUE, kept below because the ST-21 correction inside it is
 still worth reading:
