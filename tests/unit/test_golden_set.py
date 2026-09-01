@@ -66,6 +66,7 @@ EXPECTED_COUNTS = {
     # file name        in scope, out of scope, story
     "batch1.jsonl": (15, 8, "ST-19"),
     "batch2.jsonl": (15, 7, "ST-29"),
+    "batch3.jsonl": (10, 5, "ST-35"),
 }
 
 # Running totals after every batch that exists, which is the number ST-35
@@ -74,6 +75,22 @@ EXPECTED_COUNTS = {
 # total is not decoration -- it IS the denominator of a release gate.
 FINAL_TOTAL_IN_SCOPE = 40
 FINAL_TOTAL_OUT_OF_SCOPE = 20
+
+# ST-35 froze the set on 2026-09-01. Bumping this constant is the deliberate
+# act that lets FROZEN_IDS below change; the two are checked against each
+# other so neither can move alone.
+GOLDEN_SET_VERSION = "v1"
+
+# Every id in the frozen set. Derived from the two TOTALS above, never from
+# the files -- a list generated from the data it is meant to police cannot
+# police it, and would pass no matter what the files held. Built this way
+# rather than typed out sixty times because it then also pins the ids as
+# CONTIGUOUS: a gap (g-in-037 dropped, g-in-041 added to keep the count) is
+# a renumbering that a hand-written list would have been edited to accept.
+FROZEN_IDS = frozenset(
+    [f"g-in-{n:03d}" for n in range(1, FINAL_TOTAL_IN_SCOPE + 1)]
+    + [f"g-out-{n:03d}" for n in range(1, FINAL_TOTAL_OUT_OF_SCOPE + 1)]
+)
 
 
 def _rows(path: Path) -> list[dict]:
@@ -220,17 +237,53 @@ def test_no_batch_file_is_left_out_of_the_counts_table():
     )
 
 
-def test_the_running_total_never_passes_what_ST_35_freezes_at():
+def test_the_set_now_sits_exactly_on_the_total_ST_35_froze_it_at():
     """40 in-scope + 20 out-of-scope is PRD F-08, and G2 grades 20 of 20 on
     the second number. Going over it is as wrong as falling short: a 21st
     out-of-scope question makes the gate's own denominator a lie.
+
+    STRENGTHENED AT ST-35, from `<=` to `==`, and the change is the point of
+    the story. While the set was being built in batches a cap was the only
+    honest assertion available -- 23 rows and 45 rows both had to pass. Batch
+    3 completes it, so from here an UNDER-count is a defect too: a set that
+    quietly loses a row still passes a cap, and F-08 would then be measured
+    against a denominator nobody chose.
     """
     rows = _all_rows()
     in_scope = sum(1 for r in rows if r["kind"] == IN_SCOPE)
     out_of_scope = sum(1 for r in rows if r["kind"] == OUT_OF_SCOPE)
-    assert in_scope <= FINAL_TOTAL_IN_SCOPE, f"{in_scope} in-scope questions, F-08 caps it at 40"
-    assert out_of_scope <= FINAL_TOTAL_OUT_OF_SCOPE, (
-        f"{out_of_scope} out-of-scope questions, G2 is written against 20"
+    assert in_scope == FINAL_TOTAL_IN_SCOPE, (
+        f"{in_scope} in-scope questions, the frozen set is {FINAL_TOTAL_IN_SCOPE}"
+    )
+    assert out_of_scope == FINAL_TOTAL_OUT_OF_SCOPE, (
+        f"{out_of_scope} out-of-scope questions, G2 is written against "
+        f"{FINAL_TOTAL_OUT_OF_SCOPE}"
+    )
+
+
+def test_the_frozen_set_still_holds_exactly_the_ids_it_was_frozen_with(rows):
+    """The freeze, made mechanical. ST-35's exit gate says later edits need a
+    NEW VERSION, and a rule nothing enforces is a rule that gets forgotten in
+    the first hurried week of ST-36 tuning.
+
+    WHAT THIS CATCHES: a row added, dropped, or renumbered after the freeze.
+    WHAT IT DOES NOT CATCH, said out loud so nobody reads its green as more
+    than it is: an edit to the WORDING of an existing question or reference
+    answer, which keeps every id intact. Pinning the bytes instead would catch
+    that, and was deliberately not done -- the file is checked out on two
+    machines and a line-ending difference would fail a hash for a reason that
+    has nothing to do with the golden set. Wording is held by review and by
+    git history, not by this test.
+
+    To change the set: bump GOLDEN_SET_VERSION, update this list, and record
+    the reason in docs/journal/DECISIONS.md. The friction is the feature.
+    """
+    assert GOLDEN_SET_VERSION == "v1", "the frozen id list below belongs to v1"
+    got = {row["id"] for row in rows}
+    assert got == FROZEN_IDS, (
+        "the frozen golden set changed. Added: "
+        f"{sorted(got - FROZEN_IDS)}; removed: {sorted(FROZEN_IDS - got)}. "
+        "A frozen set needs a new GOLDEN_SET_VERSION and a DECISIONS row."
     )
 
 
