@@ -234,6 +234,93 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
+
+**ST-35 GOLDEN SET COMPLETE AND FROZEN, on branch
+`feat/S3-ST-35-golden-set-complete`, NOT MERGED and NOT REVIEWED.** Batch 3
+adds 10 in-scope and 5 out-of-scope rows, taking the set to **40 + 20**,
+which is PRD F-08 exactly and the denominator G2 is written against.
+`uv run python scripts/golden_grounding.py` -> **"OK: 60 rows grounded
+(40 in scope, 20 out)"**, exit 0, control probe found in all three files
+first. 19 mutations injected one at a time, all 19 killed.
+
+GATE STEPS 1-3 BY HAND ON THE BRANCH, in gate.yml order, exit codes read
+from `$?` rather than inferred from the last line: `uv sync --frozen` clean
+(170 packages), `uv run ruff check .` **exit 0**, `uv run pytest` **622
+passed / 2 skipped** in 230.55s, up from 621 on main -- which is exactly the
+one test this story adds. **STEP 4, GITLEAKS, WAS NOT RUN.** It is still not
+installed on THIS machine, re-checked today against PATH and
+`~/AppData/Local/Microsoft/WinGet/Links/`, which does not exist here. CI
+remains the only place that step executes for MB. Do not write "all four
+steps"; YL's machine can make that claim and this one cannot.
+
+THE TEN IN-SCOPE ROWS ARE 6 LABOUR CODE / 2 CNSS DAHIR / 2 CLEISS, putting
+the 40 at 26 / 8 / 6. Every reference answer was written from article text
+pulled through the product's own `conversion.convert_file`, which is the
+ST-19 rule and the reason a golden row measures the corpus the product
+actually sees rather than a second PDF reader's version of it.
+
+**THE ENTRY TO READ IF YOU READ ONE: A QUESTION THAT LOOKED PERFECT WAS
+ANSWERABLE, AND THE SCRIPT IS WHAT SAID SO.** "Ai-je droit a une indemnite
+pour perte d'emploi ?" is the ideal-shaped refusal -- unemployment insurance
+is not what a 1972 dahir or a 2011 labour code is about. The probe came back
+**present three times** (`code=2, cleiss=1`): the labour code grants
+`l'indemnite de perte d'emploi` twice, and the CLEISS guide carries a whole
+paragraph on the scheme WITH ITS CONTRIBUTION RATES. Scored as out-of-scope
+it would have made G2 read 19 refusals out of 20 -- a release gate failing
+for a reason nobody reading the report could have found. The candidates were
+probed BEFORE any row was drafted, which is why it cost ten minutes rather
+than a review round.
+
+**AND THE HARDER HALF, WHICH THE SCRIPT PASSED AND A HUMAN STILL HAD TO
+CATCH.** "Un pere a-t-il droit a un conge de paternite ?" -- the term appears
+in NONE of the three documents, so the checker says out-of-scope and is
+correct about the term. Dropped anyway: the corpus answers it under another
+name, since `g-in-015` is the father's three-day `conge de naissance`, so a
+refusal would have been the wrong answer. **Term-absence is necessary and not
+sufficient.** The checker sees only the string it was handed; whether the
+corpus can answer a question under ANY name is a judgement no probe can make.
+Mechanising it was considered and dropped -- it amounts to asking whether the
+corpus answers a question, which is the product, so the check would be graded
+by the thing it exists to grade. It is a recorded REVIEW step instead, in
+`evaluation/golden/README.md` beside the rows.
+
+THE FREEZE IS TWO MECHANISMS AND ONE HONEST GAP:
+- the running total moved from `<=` to `==`. A cap was the only honest
+  assertion while the set was being BUILT -- 23 rows and 45 rows both had to
+  pass -- and it is the wrong one now, because it passes just as happily on
+  39 in-scope rows as on 40.
+- `FROZEN_IDS` pins the sixty ids as a CONTIGUOUS run, gated on a new
+  `GOLDEN_SET_VERSION`, so a row added, dropped or renumbered fails loudly.
+- **IT DOES NOT PIN THE WORDING**, and the test's own docstring says so
+  rather than letting a green be read as more than it is. A byte hash would
+  have covered wording and was refused on evidence: this repo is checked out
+  on two machines and git rewrites line endings on checkout -- the commit
+  adding `batch3.jsonl` printed "LF will be replaced by CRLF" -- so a hash
+  would go red on one clone for a reason having nothing to do with the golden
+  set, and a check that cries wolf gets deleted. A normalised hash was
+  refused too, for the reason already recorded on this project: a drift check
+  that compares against a stored constant locks whatever bytes it was first
+  shown, and its green then says nothing about whether it is aimed at the
+  right side.
+
+THREE NEW TRAPS, all of a kind only a SOURCED-answer product can fail:
+- `g-in-035` + `g-in-037`: one sick day owes the EMPLOYER notice within 48
+  hours (code art. 271) and the CNSS a form within 30 days (dahir art. 33).
+  One event, two deadlines, two documents; the right number from the wrong
+  file is still a wrong citation.
+- the two article 33s are now BOTH rows rather than a note on one. Until this
+  batch the collision was described; now it is graded.
+- "54 jours de cotisation" appears three times with three different windows
+  -- 6 months for AMO, 10 for maternity benefit, 6 for early retirement --
+  for three different benefits, so the number alone does not identify the
+  entitlement.
+
+STILL OWED before merge, and this story has no exemption: the rule-5 review
+pass, on the fifteen new rows and especially on the five out-of-scope ones,
+which are what G2 is graded on. Re-stamp this file's header at merge time,
+not now.
+
+Previous, and still the state of main:
 **ST-19 GOLDEN SET BATCH 1 IS MERGED as `7c28d6b` (PR #67, squash),
 2026-08-30, and ST-29 BATCH 2 is on `feat/S2-ST-29-golden-set-batch-2`,
 NOT MERGED.** Running total **30 in-scope + 15 out-of-scope**, which is
@@ -2161,11 +2248,15 @@ B. **THE FOUR UNPAID REVIEWS: ST-21, ST-23, ST-19, ST-29.** This list
    defects, one of which let the product cite a file the report called
    Skipped. For ST-19 and ST-29 the rows to read are the fifteen
    out-of-scope questions, because those are what G2 is graded on.
-C. **ST-35 GOLDEN SET COMPLETE AND FROZEN (MB).** +10 in-scope, +5
-   out-of-scope to 40 + 20, then the freeze. Mechanically it is one row
-   added to `EXPECTED_COUNTS` in `tests/unit/test_golden_set.py` plus
-   `batch3.jsonl`; a companion test refuses any golden file the table does
-   not list, so forgetting the row fails loudly rather than silently.
+C. ~~**ST-35 GOLDEN SET COMPLETE AND FROZEN (MB).**~~ **BUILT 2026-09-01 on
+   `feat/S3-ST-35-golden-set-complete`, not merged and not reviewed.** 40 +
+   20, grounding script green on all 60 rows, 19 mutations all killed. See
+   the top of Now. The prediction in this entry held exactly -- it WAS one
+   `EXPECTED_COUNTS` row plus `batch3.jsonl` -- but that was the cheap half.
+   The expensive half was the two out-of-scope questions that had to be
+   thrown away, one caught BY the checker and one caught DESPITE it.
+   **What it unblocks: ST-36 now has a frozen set to score against, so the
+   critical path is entirely entry A.**
 
 A NOTE FOR WHOEVER WRITES BATCH 3, so the lesson is not re-paid: read
 `evaluation/golden/README.md` before drafting a single out-of-scope
