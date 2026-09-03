@@ -286,6 +286,74 @@ copied.
 
 ## Now
 
+**THE ST-19 / ST-29 OUT-OF-SCOPE REVIEW IS PAID, 2026-09-03, AND IT FOUND A
+FALSE REFUSAL IN THE FROZEN SET.** This file's own instruction for those two
+unpaid reviews was "the rows to read are the fifteen out-of-scope questions,
+because those are what G2 is graded on". That is exactly what was read, and
+**that is exactly the scope of this entry** -- see the honesty note at the end
+of it before writing either story off.
+
+**`g-out-008` WAS A FALSE REFUSAL, not a borderline one.** It asked "Combien de
+temps dure le conge parental apres le conge de maternite ?" and was graded as a
+question the product must REFUSE. Labour code **article 156 answers it under
+another name, with durations**: the mother may extend the contract suspension
+to ninety days at most, then take, in agreement with her employer, **one year of
+unpaid leave to raise her child**. The row's old reference answer asserted the
+opposite in words -- "aucun conge parental ; la notion n'y figure pas" -- and
+its own note called it "le plus dur du lot", so the risk was FELT AT THE TIME
+AND NOT RESOLVED. Scored as written it would have cost G2 a point for a CORRECT
+answer, which is precisely the failure the `perte d'emploi` candidate was
+dropped to avoid three days earlier.
+
+REPLACED with "Un salarie peut-il prendre un conge pour creer son entreprise ?",
+which keeps the slot's purpose -- a leave that does not exist, surrounded by
+leaves that do. Absence established BY READING, not by the probe: the corpus's
+leaves are enumerated (annual, maternity + art. 156, birth 269, family events
+274, job-search 48-49, council 277, union 419) and none is discretionary, and
+`convenance personnelle`, `conge exceptionnel` and `conge sans traitement` are
+absent from all three files.
+
+**THE FREEZE DID NOT NEED A VERSION BUMP FOR THIS, and that is the mechanism
+working rather than a hole in it.** `FROZEN_IDS` and `FROZEN_TOTALS` pin the ids
+and the counts; both are unchanged, because one question's WORDING changed. The
+README has said from the start that wording is held by review and git history,
+and this is that review. Anyone reading the freeze as "the set cannot change"
+should read the test's docstring, which says the narrower true thing.
+
+THREE MORE ROWS ARE ARGUABLE and are now listed in the README beside
+`g-out-005`, `g-out-019` and `g-out-020`, taking that table to **six of the
+twenty**:
+- `g-out-006` (CMR for civil servants): dahir **article 3 names them
+  explicitly**, as excluded -- "ne sont pas assujettis au present regime : les
+  fonctionnaires titulaires de l'Etat". A sourced answer saying so is right.
+- `g-out-009` (`prud'hommes`): the institution is French and absent, but the
+  code has 24 mentions of `tribunal` and a whole dispute chapter, so the corpus
+  can say where a dispute DOES go.
+- `g-out-004` (auto-entrepreneur): weaker, but dahir articles 2 and 3 list who
+  is and is not subject, so an answer can be reasoned from the lists.
+
+Six of twenty is a lot and it is written down rather than averaged away. G2
+wants 20 of 20, so if several are answered WELL the gate fails on questions
+rather than on the product. Replacing them was rejected: near-misses are the
+whole value of the out-of-scope half and the same argument repeated would empty
+it. What the list buys is that ST-36 starts from evidence instead of surprise.
+
+CLEAN, AND CHECKED RATHER THAN ASSUMED -- worth recording because a review that
+only reports faults teaches nobody where the bar is: `g-out-003` (no
+mutual-termination device; the `d'un commun accord` hits are about absences,
+art. 50, and arbitration, art. 568), `g-out-013` (all 8 `concurrence` hits mean
+economic competitiveness or "a concurrence de", i.e. "up to the amount of"),
+plus `g-out-001`, `002`, `010`, `011`, `012`, `014`, `015`. Every probe ran
+through `conversion.convert_file` with a control probe found first.
+
+**THE HONESTY NOTE, so neither story gets written off on this entry: ST-19 AND
+ST-29 ARE ONLY PARTLY REVIEWED.** What was read is the fifteen out-of-scope
+rows. What was NOT read is their thirty in-scope rows, their reference answers,
+or `tests/unit/test_golden_set.py` as those two stories left it. **They stay on
+the unpaid-review list**, with the highest-value part now done. And the same
+qualification as ST-35's review applies: this ran on MB's clone, on MB's
+artifact, so rule 5 is met in form and not in substance.
+
 **ST-35 GOLDEN SET COMPLETE AND FROZEN, MERGED as `617c972` (PR #74, squash),
 2026-09-03, branch deleted on merge. REVIEWED first -- both passes, findings
 fixed before the merge (see the review section below, and note that the freeze
