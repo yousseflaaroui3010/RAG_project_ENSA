@@ -1,5 +1,56 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
+Last verified commit: **617c972 on main**, 2026-09-03. One PR landed since
+the previous header: #74, ST-35, the golden set complete and frozen at 40
+in-scope + 20 out-of-scope, squash-merged after its rule-5 review pass.
+
+MEASURED ON MAIN AT 617c972, by hand, in gate.yml order, AFTER the merge
+rather than only on the branch: `uv sync --frozen` clean (170 packages),
+`uv run ruff check .` exit 0, `uv run pytest` **623 passed / 2 skipped**
+in 169.49s. Exit codes read from `$?`: `SYNC_EXIT=0`, `RUFF_EXIT=0`,
+`PYTEST_EXIT=0`. Plus the golden set's own corpus check, which is not in
+gate.yml because `data/` is git-ignored: `uv run python
+scripts/golden_grounding.py` -> **"OK: 60 rows grounded (40 in scope, 20
+out)"**, exit 0.
+
+**STEP 4, GITLEAKS, WAS NOT RUN LOCALLY FOR THIS STAMP.** This header was
+written on MB's clone, where gitleaks is absent -- re-checked three ways on
+2026-09-03: not on PATH, `~/AppData/Local/Microsoft/WinGet/Links/` does not
+exist, and `gitleaks version` returns "command not found". It IS covered for
+this commit: CI `verify` ran all four steps green on #74's final push (run
+33796546493, every step "success", secret scan included). So: steps 1-3
+verified locally on main after the merge, step 4 verified on CI against the
+same tree. Do not compress that into "the whole gate ran locally".
+
+**WHAT ST-35's REVIEW COST, and it is the entry to read: THE FREEZE THIS
+STORY EXISTS TO DELIVER COULD NOT FAIL.** `assert GOLDEN_SET_VERSION ==
+"v1"` compared a constant to a literal nine lines above it in the same
+module, and `FROZEN_IDS` was derived from `FINAL_TOTAL_*` rather than being
+an independent record. Adding a 41st question took two number edits and
+passed 13 of 13 with the version untouched -- run, not reasoned about. Three
+artifacts claimed otherwise, including a DECISIONS row saying "frozen at v1
+by two mechanisms". Fixed by `FROZEN_TOTALS = {"v1": (40, 20)}` and proven
+by deliberate violation, red before green. **That makes eight stories running
+where a post-green pass found what the suite could not**, and the second time
+on this project that a mutation battery reported every mutation killed while
+missing the one edit that mattered: a battery is only as wide as the list you
+write for it.
+
+**AND THE TWO REVIEW PASSES DISAGREED, which is the argument for running
+both.** The cold pass called `g-out-020` a mislabelled refusal; the briefed
+pass read the disability chapter (labour code articles 166-171) and showed
+the refusal was correct -- there is no hiring quota under any wording. Had
+only the cold pass run, a good row would have been deleted. Had only the
+briefed pass run, the arguable-row risk would not have been written down.
+
+ONE QUALIFICATION ON THAT REVIEW, recorded rather than absorbed: it ran on
+**MB's own clone**, and ST-35 is MB's story. Rule 5 is about the PARTNER's
+eyes, so this satisfies it in form and not necessarily in substance. The
+human was told this before merging and chose to proceed, which is a decision
+and not an oversight. **The unpaid-review list is unchanged: ST-21, ST-23,
+ST-19, ST-29.**
+
+Previous header, kept because its gate evidence still stands for ST-27:
 Last verified commit: **c70c654 on main**, 2026-08-31. Two PRs landed
 since the previous header and both are merged: #71 (MB's re-stamp at
 9da0c56 after ST-19 and ST-29) and #72 (ST-27, the S1 chat screen).
@@ -235,11 +286,11 @@ copied.
 
 ## Now
 
-**ST-35 GOLDEN SET COMPLETE AND FROZEN, on branch
-`feat/S3-ST-35-golden-set-complete`, NOT MERGED. REVIEWED 2026-09-03 (both
-passes, findings fixed on the branch -- see the review section below, and note
-that the freeze described in this paragraph did not work as written until that
-pass fixed it).** Batch 3
+**ST-35 GOLDEN SET COMPLETE AND FROZEN, MERGED as `617c972` (PR #74, squash),
+2026-09-03, branch deleted on merge. REVIEWED first -- both passes, findings
+fixed before the merge (see the review section below, and note that the freeze
+described in this paragraph did not work as written until that pass fixed
+it).** Batch 3
 adds 10 in-scope and 5 out-of-scope rows, taking the set to **40 + 20**,
 which is PRD F-08 exactly and the denominator G2 is written against.
 `uv run python scripts/golden_grounding.py` -> **"OK: 60 rows grounded
@@ -2322,6 +2373,39 @@ shipped code. Fix them in the design, or accept each one in writing.
 
 ## Next (ordered queue, top 3 only)
 
+REWRITTEN 2026-09-03 after #74 merged. Entry C below is done, so the queue
+is now unambiguous and has one name at the top of it:
+
+**1. ST-32 EVALUATION RUNNER (YL) -- the whole critical path, and nothing
+blocks it any more.** ST-32 -> ST-33 -> ST-36 -> ST-41, and none of the four
+has started. It needed ST-24 (merged) and a frozen golden set to score
+against; as of `617c972` it has both, 40 in-scope + 20 out-of-scope. It reads
+`evaluation/golden/*.jsonl`; the field list is in
+`evaluation/golden/README.md` and `tests/unit/test_golden_set.py` is the
+executable copy of it. **Read the caveats in that README first, and note
+there are now THREE arguable out-of-scope rows, not one** -- `g-out-005`,
+`g-out-019` and `g-out-020`, each refusing something the corpus genuinely
+lacks while sitting beside something it holds. G2 wants 20 refusals of 20, so
+a model that answers one of them WELL costs the gate a point. `g-in-015` also
+quotes a figure from an undated guide.
+
+**2. THE FOUR UNPAID REVIEWS: ST-21, ST-23, ST-19, ST-29** -- unchanged by
+today, and today made the case for them stronger rather than weaker. ST-35
+was reviewed and the review found that the story's headline feature did not
+work, on a tree where the whole gate was green and 19 mutations had been
+reported killed. That is eight stories running.
+
+**3. ST-22 CLARIFICATION + REWRITE-AND-SPLIT (YL)**, unchanged, detail below.
+
+ONE THING THE ST-35 REVIEW LEFT FOR A LATER STORY, parked rather than
+improvised: `FROZEN_TOTALS` closes the accidental-drift hatch but can still
+be edited under its own version name. The stronger design is a committed
+manifest the test does not generate. Not done here because it adds an
+artifact whose only reader is one test, and because the residual is now
+written down in two places instead of being invisible. Whoever owns the next
+evaluation story decides.
+
+Previous queue text, kept for its ST-27 entry:
 MERGED 2026-08-31. ST-27 and MB's re-stamp (#71) rewrote this queue at
 the same time; hers is the newer and fuller list and is kept as the base,
 with ST-27 folded in. Her entry A stands unchanged and still outranks
@@ -2359,15 +2443,21 @@ B. **THE FOUR UNPAID REVIEWS: ST-21, ST-23, ST-19, ST-29.** This list
    defects, one of which let the product cite a file the report called
    Skipped. For ST-19 and ST-29 the rows to read are the fifteen
    out-of-scope questions, because those are what G2 is graded on.
-C. ~~**ST-35 GOLDEN SET COMPLETE AND FROZEN (MB).**~~ **BUILT 2026-09-01 on
-   `feat/S3-ST-35-golden-set-complete`, not merged and not reviewed.** 40 +
-   20, grounding script green on all 60 rows, 19 mutations all killed. See
-   the top of Now. The prediction in this entry held exactly -- it WAS one
-   `EXPECTED_COUNTS` row plus `batch3.jsonl` -- but that was the cheap half.
-   The expensive half was the two out-of-scope questions that had to be
-   thrown away, one caught BY the checker and one caught DESPITE it.
-   **What it unblocks: ST-36 now has a frozen set to score against, so the
-   critical path is entirely entry A.**
+C. ~~**ST-35 GOLDEN SET COMPLETE AND FROZEN (MB).**~~ **DONE -- merged as
+   #74, `617c972` on main, 2026-09-03, branch deleted.** 40 + 20, grounding
+   script green on all 60 rows. Gate re-run on main after the merge: 623
+   passed / 2 skipped, ruff exit 0, grounding "OK: 60 rows grounded"; step 4
+   on CI only, this clone has no gitleaks. **It was REVIEWED before merging,
+   unlike #67 and #70, and the review is why this entry is worth re-reading:
+   the freeze it was built to deliver could not fail.** 19 mutations had been
+   reported all killed and the one realistic post-freeze edit was not among
+   them. See the top of Now.
+   The prediction in this entry held exactly -- it WAS one `EXPECTED_COUNTS`
+   row plus `batch3.jsonl` -- but that was the cheap half twice over: first
+   the two out-of-scope questions that had to be thrown away, then a freeze
+   mechanism that read as done and was decoration.
+   **What it unblocks: ST-36 now has a genuinely frozen set to score against,
+   so the critical path is entirely entry A.**
 
 A NOTE FOR WHOEVER WRITES BATCH 3, so the lesson is not re-paid: read
 `evaluation/golden/README.md` before drafting a single out-of-scope
