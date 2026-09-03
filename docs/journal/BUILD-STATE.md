@@ -1,26 +1,38 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: **617c972 on main**, 2026-09-03. One PR landed since
-the previous header: #74, ST-35, the golden set complete and frozen at 40
-in-scope + 20 out-of-scope, squash-merged after its rule-5 review pass.
+Last verified commit: **5e49246 on main**, 2026-09-03. Two PRs landed since
+the previous header: #76 (the ST-32 starting brief, documentation only) and
+#77 (`g-out-008` rewritten -- it was a FALSE REFUSAL that article 156 answers
+under another name; see the ST-19/ST-29 review section in Now).
 
-MEASURED ON MAIN AT 617c972, by hand, in gate.yml order, AFTER the merge
+MEASURED ON MAIN AT 5e49246, by hand, in gate.yml order, AFTER both merges
 rather than only on the branch: `uv sync --frozen` clean (170 packages),
 `uv run ruff check .` exit 0, `uv run pytest` **623 passed / 2 skipped**
-in 169.49s. Exit codes read from `$?`: `SYNC_EXIT=0`, `RUFF_EXIT=0`,
+in 127.57s. Exit codes read from `$?`: `SYNC_EXIT=0`, `RUFF_EXIT=0`,
 `PYTEST_EXIT=0`. Plus the golden set's own corpus check, which is not in
 gate.yml because `data/` is git-ignored: `uv run python
 scripts/golden_grounding.py` -> **"OK: 60 rows grounded (40 in scope, 20
 out)"**, exit 0.
 
+WHY THIS HEADER MOVED AGAIN THE SAME DAY, since the count is unchanged and a
+reader could mistake this for churn: #76 and #77 landed ABOVE the journal
+commit that recorded 617c972, and this file's own rule says the only commit
+allowed above the measured one is that journal commit. By that rule the
+previous header was stale the moment #76 merged. Re-measured rather than
+patched -- **the pass count is identical (623) and the point is that it was
+RE-RUN, not that it changed.** A header whose number happens to still be
+right, sitting above two commits nobody re-measured, is the exact shape this
+file has recorded going wrong six times.
+
 **STEP 4, GITLEAKS, WAS NOT RUN LOCALLY FOR THIS STAMP.** This header was
 written on MB's clone, where gitleaks is absent -- re-checked three ways on
 2026-09-03: not on PATH, `~/AppData/Local/Microsoft/WinGet/Links/` does not
 exist, and `gitleaks version` returns "command not found". It IS covered for
-this commit: CI `verify` ran all four steps green on #74's final push (run
-33796546493, every step "success", secret scan included). So: steps 1-3
-verified locally on main after the merge, step 4 verified on CI against the
-same tree. Do not compress that into "the whole gate ran locally".
+this commit: CI `verify` ran all four steps green on #77's final push (run
+33807884117, every step "success", secret scan included), and on #74's and
+#76's before it. So: steps 1-3 verified locally on main after the merges,
+step 4 verified on CI against the same trees. Do not compress that into "the
+whole gate ran locally".
 
 **WHAT ST-35's REVIEW COST, and it is the entry to read: THE FREEZE THIS
 STORY EXISTS TO DELIVER COULD NOT FAIL.** `assert GOLDEN_SET_VERSION ==
