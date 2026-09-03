@@ -258,11 +258,52 @@ of 20, so a model that answers any of these *well* costs the gate a point.
 
 | Row | Refuses | But the corpus nearby holds |
 |---|---|---|
+| `g-out-004` | whether an `auto-entrepreneur` must join the CNSS | dahir article 2 lists who **is** subject and article 3 who is **not**, so an answer can be reasoned from the lists without the term ever appearing |
 | `g-out-005` | the 35-hour week | *a* legal working week — 44 hours, article 184 |
+| `g-out-006` | the **CMR** pension rules for civil servants | dahir article 3 **names civil servants explicitly**, as excluded: "ne sont pas assujettis au présent régime : les fonctionnaires titulaires de l'État". A good answer can say so and be right |
+| `g-out-009` | how to bring a case to the `conseil de prud'hommes` | 24 mentions of `tribunal` and a whole dispute-resolution chapter, so the corpus can say where a dispute *does* go |
 | `g-out-019` | rules on `titres-restaurant` | dahir article 19's catch-all: "tous autres avantages en argent, les avantages en nature" (`g-in-024`), from which a sourced answer could reasonably be built |
 | `g-out-020` | a hiring **quota** for disabled workers | an entire chapter of duties — labour code articles 166 to 171 — so a good answer may name those while correctly denying the quota |
 
-`g-out-019` and `g-out-020` were added to this list at the ST-35 review, not
-when they were written. Both had passed `golden_grounding.py`: the terms really
-are absent. That is the limit the script has always had and the reason this
-section exists — see the paternity question above.
+`g-out-019` and `g-out-020` were added at the ST-35 review; `g-out-004`,
+`g-out-006` and `g-out-009` at the ST-19/ST-29 review of 2026-09-03. Every one
+of them had passed `golden_grounding.py`: the terms really are absent. That is
+the limit the script has always had and the reason this section exists — see
+the paternity question above.
+
+**Six of the twenty is a lot, and it is stated plainly rather than averaged
+away.** G2 demands 20 refusals out of 20, so if several of these are answered
+well the gate fails on questions rather than on the product. The alternative
+was to replace them, which was rejected: near-misses are the entire value of
+the out-of-scope half, and the same argument repeated would empty it. What the
+list buys is that the ST-36 conversation starts from evidence instead of from
+surprise.
+
+### One row was not merely arguable and was replaced (ST-19/ST-29 review, 2026-09-03)
+
+`g-out-008` used to ask **"Combien de temps dure le congé parental après le
+congé de maternité ?"** and it was a **false refusal**, not a borderline one.
+Labour code **article 156** answers it under another name, and with durations:
+a mother may extend the contract suspension to at most ninety days, and then,
+by agreement with her employer, take **one year of unpaid leave to raise her
+child**. The row's old reference answer asserted the opposite in so many words
+— "aucun congé parental ; la notion n'y figure pas" — and its note called it
+"le plus dur du lot", so the risk was felt at the time and not resolved.
+
+Scored as written it would have cost G2 a point for a *correct* answer, which
+is the exact failure the `perte d'emploi` candidate was dropped to avoid.
+
+Replaced with **"Un salarié peut-il prendre un congé pour créer son entreprise
+?"**, which keeps the slot's purpose — a leave that does not exist, surrounded
+by leaves that do. The absence was established **by reading**, not by the probe
+alone: the corpus's leaves and absences are enumerated (annual leave, maternity
+and article 156, birth leave article 269, family events article 274, job-search
+hours articles 48-49, council members article 277, union representatives
+article 419) and none is discretionary; `convenance personnelle`, `congé
+exceptionnel` and `congé sans traitement` are absent from all three documents,
+which closes the door on a general leave under another name.
+
+**The freeze did not need a version bump for this**, and that is the mechanism
+working rather than a loophole: `FROZEN_IDS` and `FROZEN_TOTALS` pin the ids
+and the counts, both unchanged here, and the README has always said wording is
+held by review and git history. This is the review.
