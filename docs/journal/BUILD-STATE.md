@@ -937,10 +937,18 @@ PARKED by this story, visible rather than fixed:
   file whose job is to help someone start was the one thing that could
   break them. Landed on its own one-line `fix/` branch rather than inside
   ST-24's squash.
-- No composition root builds the real `AgentPorts` yet. ST-24 wires them
-  in its integration test; a `build_ports()` cannot be honest until ST-22
-  and ST-25 land, and one written now would either carry the dangerous
-  stubs `agent/ports.py` exists to forbid or be rewritten twice. ST-51.
+- ~~No composition root builds the real `AgentPorts` yet.~~ **CLOSED BY
+  ST-27, and this entry was left standing stale until the ST-32 survey on
+  2026-09-03 went looking for it.** `ui/ports.py` now builds all eight:
+  `build_ports(client, model, *, parents_path=None)` and
+  `build_default_ports(client)`. The prediction here was half right -- it
+  could not be honest until ST-22 and ST-25 land -- and ST-27 solved that
+  the way this file asks for, by WRITING THE THREE STUBS OUT LOUD, each
+  naming its owning story and what it costs today, rather than faking them.
+  ST-32 imports this one rather than writing a second (DECISIONS,
+  2026-09-03). Note the shape of the mistake for next time: the entry was
+  accurate when written and nothing re-read it, which is the same staleness
+  this file has now recorded six times.
 
 Previous: THE ANSWERING HALF IS BUILT EXCEPT FOR ONE SEAM. ST-21 and ST-23
 are both MERGED (24479ba and af14c4e). Of the eight ports
@@ -2376,18 +2384,103 @@ shipped code. Fix them in the design, or accept each one in writing.
 REWRITTEN 2026-09-03 after #74 merged. Entry C below is done, so the queue
 is now unambiguous and has one name at the top of it:
 
-**1. ST-32 EVALUATION RUNNER (YL) -- the whole critical path, and nothing
-blocks it any more.** ST-32 -> ST-33 -> ST-36 -> ST-41, and none of the four
-has started. It needed ST-24 (merged) and a frozen golden set to score
-against; as of `617c972` it has both, 40 in-scope + 20 out-of-scope. It reads
-`evaluation/golden/*.jsonl`; the field list is in
-`evaluation/golden/README.md` and `tests/unit/test_golden_set.py` is the
-executable copy of it. **Read the caveats in that README first, and note
-there are now THREE arguable out-of-scope rows, not one** -- `g-out-005`,
-`g-out-019` and `g-out-020`, each refusing something the corpus genuinely
-lacks while sitting beside something it holds. G2 wants 20 refusals of 20, so
-a model that answers one of them WELL costs the gate a point. `g-in-015` also
-quotes a figure from an undated guide.
+**1. ST-32 EVALUATION RUNNER (YL) -- the whole critical path.** ST-32 ->
+ST-33 -> ST-36 -> ST-41, and none of the four has started. Exit gate from
+BUILD-PLAN line 93: **"One command -> dated report with per-question +
+overall scores."**
+
+A SURVEY WAS RUN ON 2026-09-03 BEFORE ANY CODE, and it is written out here so
+the story does not re-pay for it. **No code was written: ST-32 is YL's row and
+the survey ran on MB's clone, so it stops at the brief on purpose.**
+
+WHAT ALREADY EXISTS, and this is the half the queue got wrong:
+- **A COMPOSITION ROOT ALREADY EXISTS.** `ui/ports.py` builds all eight
+  callables -- `build_ports(client, model, *, parents_path=None)` and
+  `build_default_ports(client)`. **The line elsewhere in this file saying "no
+  composition root builds the real AgentPorts yet ... ST-51" is STALE**; ST-27
+  built one. DECIDED 2026-09-03 (human, DECISIONS row): the runner IMPORTS
+  that one rather than writing a second. Two composition roots free to drift
+  would mean the evaluation measures a differently-wired product than the app.
+- **THE DATABASE SIDE IS DONE**, since ST-10: `db/repo.py` has
+  `insert_eval_run` (line 438) and `insert_eval_result` (line 477), and
+  `db/schema.sql` has `eval_run` (line 64) and `eval_result` (line 78), with
+  cascade-delete already tested in `tests/unit/test_db_repo.py` and
+  `tests/unit/test_workspaces.py`. Do not design a new table.
+- **`ragas` IS ALREADY A DECLARED DEPENDENCY** and 0.4.3 is installed. No
+  dependency conversation is needed, which is the one thing that would have
+  required stopping to ask.
+- `config.reports_path` already defaults to `data/reports/`, and architecture
+  line 359 fixes the layout: `data/reports/<workspace_id>/<run_at>.json`,
+  referenced from `eval_run.report_path`.
+- The golden set is frozen at 40 + 20 (`617c972`).
+  `tests/unit/test_golden_set.py` is the executable copy of the row schema.
+
+**THE DESIGN PROBLEM THIS STORY HAS TO SOLVE, found by reading the objects
+rather than by assuming:** RAGAS faithfulness scores an answer against THE
+PASSAGES IT WAS GIVEN, and **neither `Answer` nor `Trace` carries passage
+text.** `Answer.sources` is `(file_name, section_label)` only, and `Trace`
+exposes `searches`, `files_consulted` and `retries` -- no text anywhere. So
+the contexts have to be captured while the graph runs.
+
+The route is already in the repo and should be reused, not reinvented:
+`ui/runs.py:221` `observed(ports)` decorates an `AgentPorts` with
+`dataclasses.replace` on the frozen dataclass, leaving ST-23's and ST-24's
+callables untouched underneath. The runner wraps `fetch_parents` the same way
+and keeps what it returned.
+
+**AND THE SUBTLE HALF, which decides whether the number means anything:** feed
+RAGAS the sections the writer ACTUALLY READ, not the retrieved child chunks.
+ST-24's `make_answer` builds one `cited` tuple and uses it BOTH as what the
+writer sees AND as what the source list is built from, precisely so the two
+cannot disagree; the trace can say "loaded 4 of 5". Scoring against the 5
+retrieved children instead of the 4 loaded sections measures a document the
+model never saw, and would score the product down for a defect it does not
+have. `Answer.trace`'s own docstring says the steps are kept in-process "so
+F-10 and the evaluation runner can read them without a round trip" -- that
+sentence was written for this story.
+
+WHAT THE REPORT MUST CARRY (PRD F-08 + architecture 5.3), all three, because
+ST-33 gates on them and cannot compute what the runner did not record:
+- per-question AND overall groundedness and relevancy, plus the run date;
+- G2's refusal correctness per out-of-scope row -- 20 of 20, no invented
+  answers. `Answer.refusal` is derived from `kind`, so it is not a judgement
+  call the runner has to make;
+- G3, sources on 100% of answers. Cheap here and worth recording explicitly:
+  `Answer.__post_init__` already REFUSES to construct an answer with no
+  sources, so a violation cannot reach the report as data -- it raises. Record
+  it as measured rather than assuming it, or the report claims a gate nothing
+  checked.
+- **the failing questions BY ID**, because F-08 says the release is blocked
+  and "the failing questions are listed".
+
+**THE ONE THING THAT DOES BLOCK A REAL RUN, and the previous version of this
+entry was wrong to say nothing blocks it: `.env` ON MB'S CLONE PINS
+`CHAT_MODEL_CLOUD=gemini-2.0-flash`,** the name Google retired and PR #55
+removed from `config.py`'s default. The code default is correct
+(`gemini-3.6-flash`); the `.env` file overrides it with the dead one, and
+pydantic-settings applies that override silently. A key IS present (56 chars).
+`.env` is git-ignored and holds a secret, so no merge can fix it and no agent
+should edit it -- it is a one-line by-hand change on that machine. This is the
+`.env` blocker recorded above, now CONFIRMED LIVE rather than suspected. **Not
+proven by an actual model call**, which would spend credits; the evidence is
+that the loaded setting reads `gemini-2.0-flash` and PR #55 is the record of
+that name being retired.
+
+READ BEFORE SCORING ANYTHING: `evaluation/golden/README.md`'s caveats, and
+note there are now **THREE arguable out-of-scope rows, not one** --
+`g-out-005`, `g-out-019` and `g-out-020`, each refusing something the corpus
+genuinely lacks while sitting beside something it holds. G2 wants 20 refusals
+of 20, so a model that answers one of them WELL costs the gate a point.
+`g-in-015` also quotes a figure from an undated guide.
+
+UNVERIFIED, and it is the first thing to settle: **the RAGAS 0.4.3 metric API
+has not been checked against current documentation.** That library renamed and
+restructured its metrics across the 0.1 / 0.2 / 0.3 lines, and nothing in this
+repo imports it yet, so there is no in-repo example to copy. Verify the import
+path and the evaluate() signature against the current docs before writing
+against remembered shapes -- and note RAGAS itself needs an LLM and an
+embedding model configured, which is a second place credits get spent and a
+second thing ADR-12's manual dispatch is protecting.
 
 **2. THE FOUR UNPAID REVIEWS: ST-21, ST-23, ST-19, ST-29** -- unchanged by
 today, and today made the case for them stronger rather than weaker. ST-35
