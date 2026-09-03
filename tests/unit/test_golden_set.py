@@ -76,10 +76,33 @@ EXPECTED_COUNTS = {
 FINAL_TOTAL_IN_SCOPE = 40
 FINAL_TOTAL_OUT_OF_SCOPE = 20
 
-# ST-35 froze the set on 2026-09-01. Bumping this constant is the deliberate
-# act that lets FROZEN_IDS below change; the two are checked against each
-# other so neither can move alone.
+# ST-35 froze the set on 2026-09-01.
+#
+# THE FREEZE IS THIS TABLE, and the totals are written out as a LITERAL here
+# on purpose. The first version of the freeze was this constant asserted
+# against the string "v1" nine lines further down, which CANNOT FAIL: growing
+# the set meant editing FINAL_TOTAL_IN_SCOPE and one EXPECTED_COUNTS row, and
+# the whole file then went green with the version still reading "v1". That was
+# not reasoned about, it was RUN -- a 41st in-scope row plus those two edits
+# passed 13 of 13 during the ST-35 review. The comment that used to sit here
+# claimed "the two are checked against each other so neither can move alone",
+# and it was simply false.
+#
+# Binding the totals to the version makes that same edit RED until the version
+# is bumped AND a row for the new version is added below: two deliberate acts
+# that read as a version bump in a diff, which is what ST-35's exit gate asks
+# for ("later edits need a new version").
+#
+# WHAT THIS STILL CANNOT SEE, said out loud rather than left to be discovered:
+# editing the "v1" row itself. That is tampering with the frozen record under
+# its own name -- visible in any diff, and a different thing from the quiet
+# drift during a tuning session that this table exists to stop.
+#
+# This is also the answer to PRD F-08 saying "at least 40": a legitimate 41st
+# question is not forbidden, it just costs a version bump instead of a
+# one-character edit.
 GOLDEN_SET_VERSION = "v1"
+FROZEN_TOTALS = {"v1": (40, 20)}
 
 # Every id in the frozen set. Derived from the two TOTALS above, never from
 # the files -- a list generated from the data it is meant to police cannot
@@ -237,6 +260,35 @@ def test_no_batch_file_is_left_out_of_the_counts_table():
     )
 
 
+def test_the_totals_still_match_the_version_they_were_frozen_under():
+    """THE FREEZE ITSELF. Everything else here checks the DATA against the
+    constants; this checks the CONSTANTS against the frozen record.
+
+    Without it the whole freeze is decoration, and that is not a theory: the
+    first version of this file asserted `GOLDEN_SET_VERSION == "v1"` against a
+    literal in the same file, so adding a 41st question meant editing
+    FINAL_TOTAL_IN_SCOPE and one EXPECTED_COUNTS row, and all thirteen tests
+    went green with the version untouched. The ST-35 review did that edit in an
+    isolated copy and watched it pass.
+
+    Proven the way this project requires a new check to be proven -- broken on
+    purpose first: with FINAL_TOTAL_IN_SCOPE at 41 this test fails, and it was
+    watched failing before it was watched passing.
+    """
+    assert GOLDEN_SET_VERSION in FROZEN_TOTALS, (
+        f"GOLDEN_SET_VERSION is {GOLDEN_SET_VERSION!r} but FROZEN_TOTALS only "
+        f"records {sorted(FROZEN_TOTALS)}. A new version needs its own row."
+    )
+    assert (FINAL_TOTAL_IN_SCOPE, FINAL_TOTAL_OUT_OF_SCOPE) == FROZEN_TOTALS[
+        GOLDEN_SET_VERSION
+    ], (
+        f"the totals now read {(FINAL_TOTAL_IN_SCOPE, FINAL_TOTAL_OUT_OF_SCOPE)} "
+        f"but {GOLDEN_SET_VERSION} was frozen at {FROZEN_TOTALS[GOLDEN_SET_VERSION]}. "
+        "Growing or shrinking the golden set needs a NEW GOLDEN_SET_VERSION, its "
+        "own FROZEN_TOTALS row, and a docs/journal/DECISIONS.md entry."
+    )
+
+
 def test_the_set_now_sits_exactly_on_the_total_ST_35_froze_it_at():
     """40 in-scope + 20 out-of-scope is PRD F-08, and G2 grades 20 of 20 on
     the second number. Going over it is as wrong as falling short: a 21st
@@ -275,10 +327,11 @@ def test_the_frozen_set_still_holds_exactly_the_ids_it_was_frozen_with(rows):
     has nothing to do with the golden set. Wording is held by review and by
     git history, not by this test.
 
-    To change the set: bump GOLDEN_SET_VERSION, update this list, and record
-    the reason in docs/journal/DECISIONS.md. The friction is the feature.
+    To change the set: bump GOLDEN_SET_VERSION, add the new version's totals to
+    FROZEN_TOTALS, and record the reason in docs/journal/DECISIONS.md. The
+    friction is the feature. (There is no id list to hand-edit -- FROZEN_IDS is
+    derived from the totals, which is what makes the ids contiguous.)
     """
-    assert GOLDEN_SET_VERSION == "v1", "the frozen id list below belongs to v1"
     got = {row["id"] for row in rows}
     assert got == FROZEN_IDS, (
         "the frozen golden set changed. Added: "

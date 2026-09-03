@@ -32,19 +32,34 @@ cannot see:
   built in batches, a cap was the only honest assertion — 23 rows and 45 rows
   both had to pass. Now an **under**-count is a defect too, and a cap cannot
   see one.
-- `FROZEN_IDS` pins the sixty ids as a contiguous run, gated on
-  `GOLDEN_SET_VERSION`. It catches a row added, dropped or renumbered. **It
-  does not catch an edit to the wording** of a question or a reference
-  answer. Pinning the bytes would have caught that and was deliberately not
-  done: this file is checked out on two machines, and git converts its line
-  endings on checkout — a hash would then fail for a reason that has nothing
-  to do with the golden set, which is the worst kind of red. Wording is held
-  by review and by git history.
+- `FROZEN_IDS` pins the sixty ids as a contiguous run. It catches a row added,
+  dropped or renumbered. **It does not catch an edit to the wording** of a
+  question or a reference answer. Pinning the bytes would have caught that and
+  was deliberately not done: this file is checked out on two machines, and git
+  converts its line endings on checkout — a hash would then fail for a reason
+  that has nothing to do with the golden set, which is the worst kind of red.
+  Wording is held by review and by git history.
+- `FROZEN_TOTALS = {"v1": (40, 20)}` binds the totals to the version, and this
+  is the one that makes the freeze real. **The first version of it did not.**
+  It asserted `GOLDEN_SET_VERSION == "v1"` against a literal nine lines away,
+  which cannot fail — so adding a 41st question meant editing
+  `FINAL_TOTAL_IN_SCOPE` and one `EXPECTED_COUNTS` row, and the file went green
+  with the version still reading `"v1"`. The ST-35 review did exactly that in
+  an isolated copy and watched it pass 13 of 13. Now the same edit is red until
+  the version is bumped and the new version gets its own row.
 
-**To change the set after the freeze:** bump `GOLDEN_SET_VERSION`, update
-`FINAL_TOTAL_*` and the id range, and write the reason in
-`docs/journal/DECISIONS.md`. The friction is the feature — an evaluation set
-edited during a tuning session is a set that has stopped measuring anything.
+  What it still cannot see, stated rather than left to be found: editing the
+  `"v1"` row itself. That is tampering with the frozen record under its own
+  name, plainly visible in a diff, and a different thing from the quiet drift
+  during a tuning session that this table exists to stop.
+
+**To change the set after the freeze:** bump `GOLDEN_SET_VERSION`, add the new
+version's totals to `FROZEN_TOTALS`, update `FINAL_TOTAL_*` and the
+`EXPECTED_COUNTS` row, and write the reason in `docs/journal/DECISIONS.md`. The
+friction is the feature — an evaluation set edited during a tuning session is a
+set that has stopped measuring anything. This is also how PRD F-08's "at least
+40" is honoured: a legitimate 41st question is not forbidden, it just costs a
+version bump instead of a one-character edit.
 
 The 40 + 20 target is PRD F-08 and architecture section 14. G2 is graded on the
 out-of-scope half and demands **20 of 20** refusals, so an out-of-scope question
@@ -131,12 +146,17 @@ harder than either question alone:
 | `g-in-025` maternity benefit, **14 weeks** (dahir art. 37) | `g-in-009` maternity leave, **14 weeks** (code art. 152) | same number, different documents, different meaning — citing the wrong file is wrong even with the right figure |
 | `g-in-029` early retirement at 55 (CLEISS) | `g-in-013` normal pension at 60 (dahir) | two ages that must not merge |
 
-**Two article-number collisions are now in the set and both are deliberate:**
-labour code article 53 vs CNSS dahir article 53 (severance vs old-age
-pension), and labour code article 33 vs dahir article 33 (early CDD
-termination vs the 30-day sick-leave notice). A citation that gets the number
-right and the document wrong is still a wrong citation, and F-03 makes the
-source line the product's contract with the user.
+**One article-number collision is in the set at batch 2, and it is
+deliberate:** labour code article 53 vs CNSS dahir article 53 (severance vs
+old-age pension). A citation that gets the number right and the document wrong
+is still a wrong citation, and F-03 makes the source line the product's
+contract with the user.
+
+*Corrected at the ST-35 review:* this paragraph used to claim two collisions
+here, counting labour code article 33 vs dahir article 33 as well. At batch 2
+only the code's article 33 was a row (`g-in-017`); the dahir's arrives with
+`g-in-037` in batch 3. The claim was true of the corpus and false of the set —
+see the batch 3 table below, where it is now graded.
 
 Seven more out-of-scope questions, every one verified absent: French labour
 court, personal-data obligations, health emergency rules, sabbatical leave,
@@ -170,14 +190,15 @@ when sick pay starts and stops (dahir art. 34), who qualifies for compulsory
 health insurance (CLEISS, AMO) and what remarriage does to a survivor's
 pension (CLEISS).
 
-Three traps are new and all three are the kind that only a sourced-answer
-product can fail:
+Four traps are new — three by design, the fourth found at the review — and all
+four are the kind that only a sourced-answer product can fail:
 
 | Rows | The trap |
 |---|---|
 | `g-in-035` (code art. 271) + `g-in-037` (dahir art. 33) | **One event, two deadlines, two documents.** The same sick day owes the employer notice within 48 hours and the CNSS a form within 30 days. Getting the number right from the wrong file is a wrong citation. |
 | `g-in-037` (dahir art. 33) + `g-in-017` (code art. 33) | The two article 33s are now **both rows**, not just a note. Until this batch the collision was described; now it is graded. |
-| `g-in-039` (AMO) + `g-in-025` (dahir art. 37) + `g-in-029` (early retirement) | **54 days of contributions appears three times with three different windows** — 6 months, 10 months, 6 months — for three different benefits. The number alone does not identify the entitlement. |
+| `g-in-039` (AMO) + `g-in-025` (dahir art. 37) + `g-in-029` (early retirement) | **"54 days of contributions" appears four times in the CLEISS guide alone, for four different benefits, across only two windows** — 6 months for AMO, 6 civil months for sick pay, 10 civil months for maternity pay, 6 months for early retirement. So the number does not identify the entitlement, and neither does the window: three of the four share one. |
+| `g-in-032` (code art. 37) + `g-in-025` (dahir art. 37) | **The third article-number collision**, found at the ST-35 review rather than when the row was written: disciplinary sanctions in the labour code against maternity benefit in the dahir. Same shape as the two article 53s and the two article 33s. |
 
 `g-in-034`'s ten-employee threshold also sits against `g-in-022`'s fifty, and
 `g-in-031` is the negative of `g-in-004`: one lists what justifies a dismissal,
@@ -201,14 +222,21 @@ absence turned out to be false, and the second time the script, not a human,
 was what noticed.
 
 **2. "Un père a-t-il droit à un congé de paternité ?" — absent as a term, and
-still wrong.** The words `congé de paternité` appear nowhere in the corpus, so
-it passes the checker. It was dropped anyway, because the corpus **does**
+still wrong.** The phrase `congé de paternité` appears nowhere in the corpus, so
+it passes the checker. (Precisely, and it makes the point sharper: the *word*
+`paternité` does appear — once, in labour code **article 269**, which is the
+birth-leave article that answers the question. The phrase is absent; the topic
+is one word away.) It was dropped anyway, because the corpus **does**
 answer it under another name: `g-in-015` is the father's three-day
 `congé de naissance`. A refusal here would be the wrong answer. Term-absence
 is necessary and not sufficient — the real test is whether the corpus can
 answer the question **under any name**, and only a human reading the rows can
-say. Same shape as `g-out-005` below, which is already the set's one arguable
-row; a second one would have been a choice, not an accident.
+say. Same shape as `g-out-005` below.
+
+That judgement was applied again at the ST-35 review, and it did not come back
+clean: two of the five new out-of-scope rows are arguable on exactly this
+ground and are now listed with `g-out-005` in the caveats below. The rule this
+section states was right; applying it once per drafting session was not enough.
 
 ## Two honest caveats, recorded rather than smoothed over
 
@@ -221,7 +249,20 @@ nobody may quote that figure in the report as current Moroccan practice.
 `data/corpus/SOURCES.md` already labels this file secondary; this is the same
 warning, at the row that depends on it.
 
-**2. `g-out-005` is the arguable one.** "Does the 35-hour week apply?" — the
-corpus has *a* legal working week (44 hours, article 184) but not the one asked
-about. Called out here so that if it scores badly at ST-36 the discussion is
-about the question, not about the retrieval.
+**2. Three out-of-scope rows are arguable, and they are named here so that if
+they score badly at ST-36 the discussion is about the question rather than
+about retrieval.** All three refuse something the corpus genuinely does not
+contain, while sitting close to something it does — which is what makes them
+worth having and also what makes them contestable. G2 demands 20 refusals out
+of 20, so a model that answers any of these *well* costs the gate a point.
+
+| Row | Refuses | But the corpus nearby holds |
+|---|---|---|
+| `g-out-005` | the 35-hour week | *a* legal working week — 44 hours, article 184 |
+| `g-out-019` | rules on `titres-restaurant` | dahir article 19's catch-all: "tous autres avantages en argent, les avantages en nature" (`g-in-024`), from which a sourced answer could reasonably be built |
+| `g-out-020` | a hiring **quota** for disabled workers | an entire chapter of duties — labour code articles 166 to 171 — so a good answer may name those while correctly denying the quota |
+
+`g-out-019` and `g-out-020` were added to this list at the ST-35 review, not
+when they were written. Both had passed `golden_grounding.py`: the terms really
+are absent. That is the limit the script has always had and the reason this
+section exists — see the paternity question above.

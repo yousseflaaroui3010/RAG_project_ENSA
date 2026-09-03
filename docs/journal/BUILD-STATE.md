@@ -236,7 +236,10 @@ copied.
 ## Now
 
 **ST-35 GOLDEN SET COMPLETE AND FROZEN, on branch
-`feat/S3-ST-35-golden-set-complete`, NOT MERGED and NOT REVIEWED.** Batch 3
+`feat/S3-ST-35-golden-set-complete`, NOT MERGED. REVIEWED 2026-09-03 (both
+passes, findings fixed on the branch -- see the review section below, and note
+that the freeze described in this paragraph did not work as written until that
+pass fixed it).** Batch 3
 adds 10 in-scope and 5 out-of-scope rows, taking the set to **40 + 20**,
 which is PRD F-08 exactly and the denominator G2 is written against.
 `uv run python scripts/golden_grounding.py` -> **"OK: 60 rows grounded
@@ -291,6 +294,12 @@ THE FREEZE IS TWO MECHANISMS AND ONE HONEST GAP:
   39 in-scope rows as on 40.
 - `FROZEN_IDS` pins the sixty ids as a CONTIGUOUS run, gated on a new
   `GOLDEN_SET_VERSION`, so a row added, dropped or renumbered fails loudly.
+  **[CORRECTED 2026-09-03: the "gated on" half of that sentence was FALSE. The
+  gate was `assert GOLDEN_SET_VERSION == "v1"`, a constant compared to a
+  literal in the same file, and adding a 41st row passed 13 of 13 with the
+  version untouched. `FROZEN_TOTALS` replaces it. Left standing rather than
+  rewritten, because a claim this file made and the review disproved is worth
+  more visible than tidy.]**
 - **IT DOES NOT PIN THE WORDING**, and the test's own docstring says so
   rather than letting a green be read as more than it is. A byte hash would
   have covered wording and was refused on evidence: this repo is checked out
@@ -315,15 +324,117 @@ THREE NEW TRAPS, all of a kind only a SOURCED-answer product can fail:
   for three different benefits, so the number alone does not identify the
   entitlement.
 
-STILL OWED before merge, and this story has no exemption: the rule-5 review
-pass, on the fifteen new rows and especially on the five out-of-scope ones,
-which are what G2 is graded on. Re-stamp this file's header at merge time,
-not now.
+**THE RULE-5 REVIEW PASS IS PAID, 2026-09-03, AND IT FOUND THE FREEZE DID NOT
+FREEZE.** Both passes ran on the branch -- a COLD verifier read and the briefed
+rule-5 pass -- and between them they returned 2 blocking findings, 6 worth
+fixing and 4 notes on a tree whose whole gate was green. Eight stories running
+now where a post-green pass found something the suite could not. All are fixed
+on this branch.
 
-Previous, and still the state of main:
+ONE HONEST QUALIFICATION ON THE WORD "PAID", because rule 5 is about WHOSE eyes
+and this file has recorded that deviation three times already: the pass ran on
+**MB's clone** (git identity `meriem-mb`; gitleaks absent, which the header
+says is MB's machine and not YL's). ST-35 is MB's own story. So the review
+found real defects and fixed them, but if YL did not run it, this satisfies
+rule 5 in FORM and not in SUBSTANCE -- the partner's eyes are the whole point,
+and a story reviewed on the author's own machine is not that. Recorded this way
+rather than written up as a clean pass, and whoever merges should decide
+whether it still wants YL's read. The unpaid-review list above (ST-21, ST-23,
+ST-19, ST-29) is unchanged by today either way.
+
+**THE ONE TO READ: THE FREEZE THIS STORY EXISTS TO DELIVER COULD NOT FAIL.**
+`assert GOLDEN_SET_VERSION == "v1"` compared a constant to a literal nine lines
+above it in the same module, and `FROZEN_IDS` was DERIVED from
+`FINAL_TOTAL_*`, so it was not an independent record either. The whole escape
+hatch was two number edits: `FINAL_TOTAL_IN_SCOPE` to 41, the `batch3.jsonl`
+row in `EXPECTED_COUNTS` to `(11, 5)`, add the row. The review did not reason
+about this, it RAN it in an isolated copy and watched **13 of 13 pass with the
+version still reading "v1"**. Three artifacts said otherwise -- the test's own
+comment ("the two are checked against each other so neither can move alone"),
+the README, and a DECISIONS row claiming "frozen at v1 by two mechanisms".
+The exit gate "later edits need a new version" was being reported as met by a
+check that could never go red.
+
+Note what this means about the 19 mutations this story reported killed: the
+list was drawn up by the person who wrote the code, and the one realistic
+post-freeze edit was not on it. A mutation battery is only as wide as the list
+you write for it -- the same sentence ST-24 wrote here after 31 killed
+mutations missed two real defects. That is now twice.
+
+FIXED: `FROZEN_TOTALS = {"v1": (40, 20)}`, a literal the live totals are
+checked against. **Proven by deliberate violation, in that order:** the 41st-row
+edit now fails on `test_the_totals_still_match_the_version_they_were_frozen_under`
+(exit 1), and the tree returns to green once restored (14 passed, exit 0). The
+residual limit is written into the docstring and the README rather than left to
+be discovered -- editing the `"v1"` row itself is still possible, but that is
+tampering visible in any diff, not the tuning-session drift the table stops.
+
+**THE SECOND BLOCKING FINDING WAS OVERTURNED, and how it was overturned is the
+part worth keeping.** The cold pass called `g-out-020` (the disability hiring
+quota) a mislabelled refusal, because the labour code carries a whole chapter
+on disabled workers. The briefed pass disagreed, having read that chapter:
+articles 166 to 171 impose real duties, and there is still **no hiring quota
+under any wording** -- `quota` 0 hits, `obligation d'emploi` 0, `tenu
+d'employer` 0, no effectif proportion. Re-verified here independently through
+`conversion.convert_file` before anything was edited. So the refusal STANDS and
+what was wrong was the row's reasoning: it rested on one missing word, which is
+the exact error that got "conge de paternite" dropped. Reference answer and
+note rewritten; the row is now listed as arguable instead of replaced.
+
+TWO PASSES DISAGREED AND THE DISAGREEMENT WAS THE VALUE. Had only the cold pass
+run, a correct row would have been thrown away. Had only the briefed pass run,
+the freeze defect would still have been caught but the arguable-row risk would
+not have been written down. Neither pass alone was sufficient, which is the
+first hard evidence on this project for running both rather than one.
+
+ALSO FIXED, all re-counted against the corpus on 2026-09-03 rather than taken
+from the reviews:
+- "54 jours de cotisation appears three times with three different windows
+  (6/10/6)" was wrong twice: **four** occurrences in the CLEISS guide alone, on
+  **two** distinct windows (6, 6, 10, 6). It had already been copied into the
+  README, this file and CHANGELOG-AI.
+- `g-in-036`'s "huit durees" in labour code article 274 is **six**.
+- `g-out-016` claimed the pension at 60 and the retraite anticipee BOTH require
+  "cessation de toute activite salariee". The corpus says that only for the
+  pension at 60; the anticipee paragraph asks for the employer's agreement,
+  3 240 days and 54 days over 6 months, with no cessation clause.
+- the README claimed two article-number collisions at batch 2 counting the two
+  article 33s, while the batch-3 section announced the same collision as new.
+  Both could not be true: at batch 2 only the code's article 33 was a row.
+- an undocumented **third** collision, which nobody had noticed: `g-in-032` is
+  labour code article 37, `g-in-025` is dahir article 37.
+- `g-out-019` (titres-restaurant) joins `g-out-005` and `g-out-020` in a
+  three-row arguable-rows table. The README had said `g-out-005` was "the set's
+  one arguable row" and that "a second one would have been a choice, not an
+  accident"; batch 3 shipped two more.
+- the paternity write-up said `conge de paternite` appears nowhere. True of the
+  phrase; the WORD `paternite` appears once, in article 269 -- the very article
+  that answers the question.
+
+GATE STEPS 1-3 RE-RUN BY HAND AFTER EVERY FIX, in gate.yml order, exit codes
+read from `$?`: `uv sync --frozen` clean (170 packages), `uv run ruff check .`
+**exit 0**, `uv run pytest` **623 passed / 2 skipped** in 179.20s -- up from 622
+on the branch, which is exactly the one test the freeze fix adds. Plus
+`uv run python scripts/golden_grounding.py` -> **"OK: 60 rows grounded (40 in
+scope, 20 out)"**, exit 0, control probe found first.
+
+**STEP 4, GITLEAKS, WAS NOT RUN.** Re-checked today by three routes on this
+machine: not on PATH, `~/AppData/Local/Microsoft/WinGet/Links/` does not exist,
+and `gitleaks version` is "command not found". CI remains the only place that
+step executes for this clone. Do not write "all four steps".
+
+STILL OWED before merge: nothing on review. Re-stamp this file's header at
+merge time, not now -- the header still names c70c654 on main and this branch
+is not merged.
+
+Previous:
 **ST-19 GOLDEN SET BATCH 1 IS MERGED as `7c28d6b` (PR #67, squash),
-2026-08-30, and ST-29 BATCH 2 is on `feat/S2-ST-29-golden-set-batch-2`,
-NOT MERGED.** Running total **30 in-scope + 15 out-of-scope**, which is
+2026-08-30, and ST-29 BATCH 2 IS ALSO MERGED, as `9da0c56` (PR #70).**
+[CORRECTED 2026-09-03 by the ST-35 review: this block previously read
+"Previous, and still the state of main" above a paragraph saying batch 2 was
+NOT MERGED. It merged before this branch existed -- `batch2.jsonl` is on main
+-- so the stamp was stale in the one file the project tells everyone to read
+first.] Running total at that point **30 in-scope + 15 out-of-scope**, which is
 ST-29's exit gate exactly. `uv run python scripts/golden_grounding.py` ->
 "OK: 45 rows grounded (30 in scope, 15 out)". 6 new mutations, all 6 killed.
 
