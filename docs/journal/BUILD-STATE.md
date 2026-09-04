@@ -298,6 +298,83 @@ copied.
 
 ## Now
 
+**THE ST-21 AND ST-23 REVIEWS ARE PAID, 2026-09-03. ST-21 CAME BACK CLEAN;
+ST-23 DID NOT.** That is two of the four unpaid reviews closed, and the
+remaining list is now **ST-19 and ST-29's in-scope halves** (see the entry
+below -- their out-of-scope rows are done).
+
+**ST-21: NO DEFECTS FOUND, and the negative is worth recording rather than
+left as silence.** What was read: `graph.py`, `nodes.py`, `state.py`,
+`trace.py`, `ports.py`. Its risky parts hold up under a hostile read -- the
+F-04 ceiling is read from config on EVERY decision and compared against the
+trace's own reword count, so the number that stops the loop and the number
+on the bubble are one number, never two; `route_after_parents` floors at zero
+readable sections and routes to a refusal rather than citing documents
+nothing read; `_queries` caps the WIDTH of a split, which the retry ceiling
+does not cover; `ask` validates question length in-process, because ADR-13
+means the openapi bound would otherwise hold for HTTP callers only. Much of
+this was already hardened by ST-24's two passes, which is the honest reason
+the story reads clean now and might not have in August.
+
+**ST-23 FINDING 1, FIXED: USER INPUT WAS REACHING THE PROMPT TEMPLATE.**
+`Prompt.render` substituted one variable at a time with `str.replace`, so
+each result was rescanned by the next substitution -- and `question` is
+filled before `passages`. A user typing the literal text `{{PASSAGES}}` into
+the chat box had the WHOLE PASSAGE BLOCK expanded into their own question
+slot. Proven against the REAL relevance-grader prompt rather than a fixture:
+the canary appeared twice. The function also promised "every variable filled
+and none left", which was false in both directions and checked nowhere.
+
+Note what kind of miss this was: `agent/prompts.py` opens with "TWO GUARDS,
+and both exist because the failure they catch is silent". Both guards run
+BEFORE substitution and compare NAMES only. This was a third silent failure
+in the one module written to be paranoid about silent failures.
+
+FIXED with a single-pass `_VARIABLE.sub` and a FUNCTION replacement -- a
+function rather than a string because `re.sub` processes backslashes in a
+string replacement, and corpus text is full of things a template engine must
+never interpret. Proven the way this project requires: **the test was written
+first and watched failing on the real prompt (exit 1), then watched passing.**
+
+**ST-23 FINDING 2, PARKED AND VISIBLE: A JOB ASSIGNED TO ST-23 WAS NEVER
+DONE.** `nodes.py:_merge_hits` says in writing that honest multi-query fusion
+"is retrieval work and belongs to ST-23". ST-23 shipped `retrieval.py` as a
+thin wrapper with no fusion and closed without doing it OR re-parking it.
+Invisible today only because `ui/ports.py` stubs `rewrite` to one query, so
+query order IS score order. **The day ST-22 lands, three things start at
+once:** passages arrive in arbitrary query order, nothing trims the list, and
+the writer receives up to (queries x `retrieval_depth_k`) sections uncapped.
+ST-32 then scores retrieval against that. Not improvised here -- picking a
+fusion rule is retrieval design and belongs with whoever implements the
+split. Parked as a comment in `_merge_hits` naming the rule and the story, so
+whoever lands ST-22 reads it first.
+
+TWO SMALLER NOTES, recorded and not fixed: the grader's `_DECORATION` pattern
+does not fold zero-width characters, though ST-24's near-identical decline
+parser was explicitly hardened for exactly that after a BOM-marked reply was
+misread -- here it fails LOUDLY, which is the safe direction, so it is an
+inconsistency rather than a danger. And `ChatUnavailableError`'s docstring
+says "raised at BUILD time, not at call time" while `_LangChainChat.complete`
+raises it at call time for a non-text response; `app.py:412` catches it around
+the build path with a comment saying "the model could not even be built". Same
+shape as the hyphen comment ST-23 itself recorded: a docstring describing
+behaviour the code does not have.
+
+SCOPE, STATED PRECISELY: this read the SOURCE of both stories -- `graph.py`,
+`nodes.py`, `state.py`, `trace.py`, `ports.py`, `prompts.py`, `grading.py`,
+`retrieval.py`, `chat.py` -- and NOT their test files, of which ST-21 alone
+ships 1,099 lines. A test suite can be wrong in ways source review cannot see
+(this project has shipped six fixtures too small for their own property), so
+that half is still owed by anyone who wants to call these reviews complete.
+
+ON RULE 5's "PARTNER'S EYES", and the honest version rather than the
+convenient one: ST-21 and ST-23 are YL's rows in BUILD-PLAN, and this ran on
+MB's clone (git identity `meriem-mb`). **If the human driving was MB, this is
+a genuine partner review** -- the first this session, since the golden-set
+work was MB reviewing MB. If YL was sitting at this machine, it is not. That
+cannot be settled from inside the session, so it is written as a condition
+rather than claimed as a fact.
+
 **THE ST-19 / ST-29 OUT-OF-SCOPE REVIEW IS PAID, 2026-09-03, AND IT FOUND A
 FALSE REFUSAL IN THE FROZEN SET.** This file's own instruction for those two
 unpaid reviews was "the rows to read are the fifteen out-of-scope questions,
@@ -2562,11 +2639,19 @@ against remembered shapes -- and note RAGAS itself needs an LLM and an
 embedding model configured, which is a second place credits get spent and a
 second thing ADR-12's manual dispatch is protecting.
 
-**2. THE FOUR UNPAID REVIEWS: ST-21, ST-23, ST-19, ST-29** -- unchanged by
-today, and today made the case for them stronger rather than weaker. ST-35
-was reviewed and the review found that the story's headline feature did not
-work, on a tree where the whole gate was green and 19 mutations had been
-reported killed. That is eight stories running.
+**2. THE UNPAID-REVIEW LIST IS DOWN FROM FOUR STORIES TO TWO HALF-STORIES.**
+ST-21 (clean) and ST-23 (one defect fixed, one parked) are PAID on their
+source; ST-19 and ST-29 are paid on their out-of-scope rows, which is the
+half BUILD-STATE named as mattering. **What is still owed:**
+- ST-19 + ST-29: their thirty IN-SCOPE rows and their reference answers.
+- ST-21 + ST-23: their TEST FILES. Source was read; tests were not, and
+  ST-21 alone ships 1,099 lines of them. This project has shipped six
+  fixtures too small for their own property, so that is not a formality.
+
+Every one of these reviews found something the green gate did not: ST-35's
+freeze could not fail, `g-out-008` was a false refusal, and ST-23 was letting
+user input into a prompt template. **Nine stories running.** Whoever argues
+the remaining halves can be skipped is arguing against a nine-for-nine record.
 
 **3. ST-22 CLARIFICATION + REWRITE-AND-SPLIT (YL)**, unchanged, detail below.
 
