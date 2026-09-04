@@ -1,18 +1,46 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-Last verified commit: **5e49246 on main**, 2026-09-03. Two PRs landed since
-the previous header: #76 (the ST-32 starting brief, documentation only) and
-#77 (`g-out-008` rewritten -- it was a FALSE REFUSAL that article 156 answers
-under another name; see the ST-19/ST-29 review section in Now).
+Last verified commit: **fd2e6fa on main**, 2026-09-03. One PR landed since
+the previous header: #79, the ST-21 and ST-23 reviews -- ST-21 clean, ST-23's
+prompt-template leak fixed and its fusion gap parked. See the review section
+in Now.
 
-MEASURED ON MAIN AT 5e49246, by hand, in gate.yml order, AFTER both merges
+MEASURED ON MAIN AT fd2e6fa, by hand, in gate.yml order, AFTER the merge
 rather than only on the branch: `uv sync --frozen` clean (170 packages),
-`uv run ruff check .` exit 0, `uv run pytest` **623 passed / 2 skipped**
-in 127.57s. Exit codes read from `$?`: `SYNC_EXIT=0`, `RUFF_EXIT=0`,
-`PYTEST_EXIT=0`. Plus the golden set's own corpus check, which is not in
-gate.yml because `data/` is git-ignored: `uv run python
-scripts/golden_grounding.py` -> **"OK: 60 rows grounded (40 in scope, 20
-out)"**, exit 0.
+`uv run ruff check .` exit 0, `uv run pytest` **625 passed / 2 skipped**
+in 131.85s -- up from 623, which is exactly the two tests the prompt fix
+adds. Exit codes read from `$?`: `SYNC_EXIT=0`, `RUFF_EXIT=0`,
+`PYTEST_EXIT=0`.
+
+**THE `.env` BLOCKER IS HALF CLOSED, AND THE OTHER HALF IS WORSE THAN THE
+FIRST. THIS IS THE ENTRY TO READ.** The retired model name is fixed:
+`CHAT_MODEL_CLOUD` on this clone now reads `gemini-3.6-flash`, and the
+byte-order mark that was sitting at the top of `.env` was stripped at the
+same time (harmless only because line 1 is a comment that absorbed it --
+reorder that file so a real setting sits first and that setting silently
+stops working, which is the pydantic-settings failure PR #64 recorded).
+
+**But ONE LIVE CALL then proved THE KEY ITSELF IS INVALID.** Google answered
+`400 INVALID_ARGUMENT / API_KEY_INVALID`, "API key not valid. Please pass a
+valid API key." The key is present and 56 characters long, so nothing about
+its SHAPE says it is wrong; only using it does. Owner: whoever holds this
+clone -- a new Google AI Studio key in `.env`, which is git-ignored and holds
+a secret, so no merge and no agent can do it.
+
+**WHY THAT ONE CALL WAS WORTH THE CREDITS IT SPENT, spelled out because the
+project's own law says stop and ask before spending money and the human was
+asked:** the config was CORRECT and the product still could not answer. Every
+check available offline was green -- the setting loads, the model name is the
+one ST-24 proved live, the key is present and plausible -- and all of it was
+consistent with a product that cannot talk to a model at all. Without the
+call this would have surfaced at ST-36, in the middle of the first evaluation
+run, as sixty failures nobody could attribute. "It builds" is not "it works",
+and this is the cheapest instance of that lesson this project will get.
+
+Plus the golden set's own corpus check, which is not in gate.yml because
+`data/` is git-ignored: `uv run python scripts/golden_grounding.py` ->
+**"OK: 60 rows grounded (40 in scope, 20 out)"**, exit 0 (measured at
+5e49246; #79 touched no golden file).
 
 WHY THIS HEADER MOVED AGAIN THE SAME DAY, since the count is unchanged and a
 reader could mistake this for churn: #76 and #77 landed ABOVE the journal
@@ -28,11 +56,11 @@ file has recorded going wrong six times.
 written on MB's clone, where gitleaks is absent -- re-checked three ways on
 2026-09-03: not on PATH, `~/AppData/Local/Microsoft/WinGet/Links/` does not
 exist, and `gitleaks version` returns "command not found". It IS covered for
-this commit: CI `verify` ran all four steps green on #77's final push (run
-33807884117, every step "success", secret scan included), and on #74's and
-#76's before it. So: steps 1-3 verified locally on main after the merges,
-step 4 verified on CI against the same trees. Do not compress that into "the
-whole gate ran locally".
+this commit: CI `verify` ran all four steps green on #79's final push (run
+33827305641, every step "success", secret scan included), and on #74, #76 and
+#77 before it. So: steps 1-3 verified locally on main after the merges, step 4
+verified on CI against the same trees. Do not compress that into "the whole
+gate ran locally".
 
 **WHAT ST-35's REVIEW COST, and it is the entry to read: THE FREEZE THIS
 STORY EXISTS TO DELIVER COULD NOT FAIL.** `assert GOLDEN_SET_VERSION ==
