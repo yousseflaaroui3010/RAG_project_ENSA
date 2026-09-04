@@ -173,6 +173,21 @@ def _merge_hits(batches: Sequence[Sequence[SearchHit]]) -> tuple[SearchHit, ...]
     so equality on the object would keep both and the model would read the
     same passage twice.
 
+    PARKED, NOT FIXED -- ST-22 owns the trigger, and this is visible rather
+    than improvised (ST-19/ST-29/ST-21/ST-23 review, 2026-09-03). The
+    paragraph below hands honest multi-query fusion to ST-23. **ST-23 shipped
+    and closed without doing it**, and `agent/retrieval.py` is a thin wrapper
+    over `vector_store.search` with no fusion in it. Nothing is wrong TODAY
+    only because `ui/ports.py` stubs `rewrite` to return exactly one query
+    (ST-22), so `batches` always has length one and query order IS score
+    order. THE DAY ST-22 LANDS, three things start at once: passages arrive in
+    arbitrary query order, nothing anywhere trims the list, and the writer is
+    handed up to (queries x `retrieval_depth_k`) sections with no cap. ST-32
+    then scores retrieval quality against that. Deliberately not fixed here:
+    picking a fusion rule is retrieval design, it belongs with whoever
+    implements the split, and improvising one now would pre-empt a decision
+    another story owns. Whoever lands ST-22 reads this docstring first.
+
     ORDER IS QUERY ORDER, NOT SCORE ORDER, and this needs saying because
     an earlier version of this docstring claimed "best-ranked first",
     which was false the moment there were two queries -- being found

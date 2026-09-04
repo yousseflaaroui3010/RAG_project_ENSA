@@ -72,11 +72,34 @@ class Prompt:
     user_template: str
 
     def render(self, **values: str) -> str:
-        """The user message, with every variable filled and none left.
+        """The user message, with every variable in the TEMPLATE filled
+        exactly once, in ONE PASS.
 
         Keyword arguments are lower-case versions of the template's
         `{{UPPER_CASE}}` names, so a call site reads like Python rather
-        than like a template."""
+        than like a template.
+
+        ONE PASS IS THE WHOLE POINT, and it replaces a sequential
+        `str.replace` per variable that the ST-23 review found in
+        2026-09-03. Substituting one at a time means each result is scanned
+        by the NEXT substitution, and `question` is filled before
+        `passages` -- so a user who typed the literal text `{{PASSAGES}}`
+        into the chat box had the entire passage block expanded into their
+        own question slot. Proven against the real relevance-grader prompt,
+        not reasoned about: the canary text appeared twice.
+
+        A VALUE IS DATA, NEVER TEMPLATE. That is the rule, and it is why
+        the replacement is a function rather than a string: `re.sub` with a
+        string replacement would also process backslashes in the value, so
+        a passage containing one would be mangled or raise. Corpus text is
+        full of things a template engine should never interpret.
+
+        The docstring this replaces claimed "every variable filled and NONE
+        LEFT", which was false in both directions: a value could carry a
+        `{{...}}` through untouched, and nothing checked afterwards. The
+        claim is now the narrower true one -- the template's variables are
+        filled; a value's text survives as text, placeholder-shaped or
+        not."""
         wanted = set(_VARIABLE.findall(self.user_template))
         given = {name.upper() for name in values}
         if missing := sorted(wanted - given):
@@ -93,10 +116,12 @@ class Prompt:
                 f"was not, or the value belongs to a different prompt -- "
                 f"both end with the value silently dropped."
             )
-        rendered = self.user_template
-        for name, value in values.items():
-            rendered = rendered.replace("{{" + name.upper() + "}}", value)
-        return rendered
+        lookup = {name.upper(): value for name, value in values.items()}
+        # `lookup[...]` cannot raise KeyError: the two guards above have
+        # already established that the template's variables and the given
+        # names are the same set. A .get() with a default here would turn
+        # that proven condition into a silent blank.
+        return _VARIABLE.sub(lambda match: lookup[match.group(1)], self.user_template)
 
 
 def _parse_frontmatter(raw: str, prompt_id: str) -> dict[str, str]:
