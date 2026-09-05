@@ -170,6 +170,13 @@ class Settings(BaseSettings):
     # once ST-17's sync writes while the UI reads on another connection.
     sqlite_busy_timeout_seconds: float = 30.0
 
+    # --- Evaluation (ST-32, F-08, architecture 5.3/9) ---
+    # G1: "≥ 90% of golden-set answers fully grounded". Read here, never
+    # hardcoded a second time, because ST-33's gate script applies the
+    # same PRD number to the same report and a literal duplicated in two
+    # files is two numbers free to disagree about one threshold.
+    eval_groundedness_threshold: float = 0.90
+
     # --- Server (ADR-13) ---
     # Single-user, no authentication, localhost only (LD-07).
     server_host: str = "127.0.0.1"
