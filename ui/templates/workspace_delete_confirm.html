@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ target.name }} — Sanad{% endblock %}
+
+{#
+  ConfirmDialog's no-JS path (UX spec 5, 7.2), and the whole path for V1:
+  a real intermediate page rather than an overlay. "Types-to-confirm not
+  required, focus trapped" -- a fresh page load with one real action and
+  one way back is a trap in the sense that matters here: nothing else on
+  it is reachable without leaving it first.
+#}
+{% block main %}
+{#
+  A plain section, not role="dialog"/"alertdialog": those roles promise a
+  focus trap and a modal that a full page navigation does not build, and
+  an ARIA role the markup does not back up is worse than none (nothing
+  here CAN be reached without leaving this page first, which is the
+  property that matters -- it does not need the widget role to have it).
+#}
+<section class="panel panel--error">
+  <h1>Delete "{{ target.name }}"?</h1>
+  {#
+    UX spec 7.2, verbatim: "states plainly that derived data goes and the
+    source files on disk stay, because that is F-01's third criterion and
+    users will not believe it unless the dialog says so."
+  #}
+  <p>This removes {{ target.name }}'s synced index -- every passage Sanad
+     can currently answer from -- and its sync history. It does
+     <strong>not</strong> touch the files in</p>
+  <p class="mono error__value">{{ target.folder_path }}</p>
+  <p>They stay on disk exactly as they are; only Sanad's copy of what it
+     read from them is removed.</p>
+  <form method="post" action="/workspaces/{{ target.id }}/delete">
+    <button class="btn btn--primary" type="submit">Yes, delete {{ target.name }}</button>
+  </form>
+  <p><a href="/workspaces?ws={{ target.id }}">Cancel, keep this workspace</a></p>
+</section>
+{% endblock %}
