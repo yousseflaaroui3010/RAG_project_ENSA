@@ -490,3 +490,45 @@ def insert_eval_result(
         (result_id, eval_run_id, question_id, kind, groundedness, relevancy, int(passed)),
     )
     return result_id
+
+
+# --- eval_run / eval_result reads (ST-34, S3 Reports) -------------------------
+#
+# Raw row reads only, same split as get_workspace/list_workspaces above: no
+# "which state" or "is this pass/fail" judgement lives here, that is
+# ui/reports_screen.py's job. eval_run.workspace_id is ON DELETE CASCADE
+# (db/schema.sql), so a plain JOIN can never orphan a row -- there is no
+# eval_run whose workspace disappeared while it survived.
+
+
+def list_eval_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Every recorded evaluation run, newest first, with the workspace name
+    UX spec 8.1's list wants ("date, workspace, and overall scores") --
+    joined here rather than requiring the caller to look each one up."""
+    return conn.execute(
+        "SELECT eval_run.*, workspace.name AS workspace_name "
+        "FROM eval_run JOIN workspace ON workspace.id = eval_run.workspace_id "
+        "ORDER BY eval_run.run_at DESC"
+    ).fetchall()
+
+
+def get_eval_run(conn: sqlite3.Connection, eval_run_id: str) -> sqlite3.Row | None:
+    """One run by id, with its workspace name, or None (S3's detail 404)."""
+    return conn.execute(
+        "SELECT eval_run.*, workspace.name AS workspace_name "
+        "FROM eval_run JOIN workspace ON workspace.id = eval_run.workspace_id "
+        "WHERE eval_run.id = ?",
+        (eval_run_id,),
+    ).fetchone()
+
+
+def list_eval_results(conn: sqlite3.Connection, eval_run_id: str) -> list[sqlite3.Row]:
+    """Every per-question row of one run, ordered by question_id. The
+    fallback source for S3's per-question table when the JSON report file
+    ST-32 also wrote is missing -- `answer_kind`, `sources_present` and
+    `error` live only in that file (see evaluation/runner.py), so this is
+    a real degrade, not the primary source."""
+    return conn.execute(
+        "SELECT * FROM eval_result WHERE eval_run_id = ? ORDER BY question_id",
+        (eval_run_id,),
+    ).fetchall()
