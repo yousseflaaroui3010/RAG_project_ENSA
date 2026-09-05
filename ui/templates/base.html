@@ -73,10 +73,12 @@
            behind the workspace it exists to create. #}
         <a class="shell__link{{ ' is-current' if current_screen == 'workspaces' else '' }}"
            href="/workspaces" {% if current_screen == 'workspaces' %}aria-current="page"{% endif %}>Workspaces</a>
-        {# S3 arrives with ST-34. Named but not linked, because a link to a
-           route that does not exist is a 404 dressed as navigation. #}
-        <span class="shell__link is-disabled" aria-disabled="true"
-              title="The Reports screen is not built yet (ST-34)">Reports</span>
+        {# S3 (ST-34): always a real link, same reasoning as Workspaces above --
+           reports are read across every workspace (UX spec 8.1), not scoped
+           to whichever one is active, so nothing about the active workspace
+           gates it. #}
+        <a class="shell__link{{ ' is-current' if current_screen == 'reports' else '' }}"
+           href="/reports" {% if current_screen == 'reports' %}aria-current="page"{% endif %}>Reports</a>
       </nav>
 
       <button class="btn btn--quiet theme-toggle" type="button"

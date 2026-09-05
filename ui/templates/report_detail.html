@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Report detail — Sanad{% endblock %}
+
+{#
+  S3 detail (UX spec 8.1-8.2): per-question table, pass/fail against
+  thresholds, export. `detail` is None for an id nobody wrote (404) --
+  ui/reports_screen.py's ErrorPanel case, showing the exact id requested
+  (UX spec 5: "ErrorPanel always shows the offending value").
+#}
+
+{% block main %}
+{% if detail is none %}
+  <div class="panel panel--error" role="alert">
+    <p class="error__sentence">No such report.</p>
+    <p class="error__value mono">{{ eval_run_id }}</p>
+    <p><a href="/reports">Back to all reports</a></p>
+  </div>
+{% else %}
+  <section aria-label="Report detail">
+    <p><a href="/reports">&larr; All reports</a></p>
+    <h1>{{ detail.summary.workspace_name }} <span class="mono">{{ detail.summary.run_at }}</span></h1>
+
+    {#
+      Three outcomes, not two: `passed` is `None` for G3 when neither the
+      report file nor the database can judge it (ui/reports_screen.py's
+      ReportSummary docstring explains the gap). Shape plus label plus
+      colour either way -- UX spec 3.5's "any one of the three can be
+      removed and the table still reads" -- never colour alone (8.4).
+    #}
+    {% macro _outcome_pill(passed) %}
+      {% if passed is none %}
+        <span class="status-pill">
+          <span class="status-dot status-dot--neutral status-dot--hollow-circle" aria-hidden="true"></span>
+          Not judged
+        </span>
+      {% elif passed %}
+        <span class="status-pill">
+          <span class="status-dot status-dot--positive status-dot--filled-circle" aria-hidden="true"></span>
+          Pass
+        </span>
+      {% else %}
+        <span class="status-pill">
+          <span class="status-dot status-dot--danger status-dot--filled-square" aria-hidden="true"></span>
+          Fail
+        </span>
+      {% endif %}
+    {% endmacro %}
+    <table class="file-table">
+      <caption class="sources__title">Release gates</caption>
+      <thead>
+        <tr>
+          <th scope="col">Metric</th>
+          <th scope="col">Value</th>
+          <th scope="col">Threshold</th>
+          <th scope="col">Outcome</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in detail.score_rows %}
+          <tr>
+            <td>{{ row.metric }}</td>
+            <td class="mono">{{ row.value_label }}</td>
+            <td class="mono">{{ row.threshold_label }}</td>
+            <td>{{ _outcome_pill(row.passed) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {#
+      UX spec 8.3's error clause, the reachable half: the run's own row
+      exists but the JSON file it also wrote has moved or gone (data/ is
+      git-ignored, per docs/phase2/CLAUDE.md). The summary above still
+      comes straight from the database and is not affected.
+    #}
+    {% if detail.file_error %}
+      <div class="panel panel--error" role="alert">
+        <p class="error__sentence">The full per-question report file is unavailable.</p>
+        <p class="error__value mono">{{ detail.file_error }}</p>
+      </div>
+    {% endif %}
+
+    <table class="file-table">
+      <caption class="sources__title">Per-question results</caption>
+      <thead>
+        <tr>
+          <th scope="col">Question</th>
+          <th scope="col">Kind</th>
+          <th scope="col">Outcome</th>
+          <th scope="col">Groundedness</th>
+          <th scope="col">Relevancy</th>
+          <th scope="col">Sources</th>
+          <th scope="col">Error</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for q in detail.questions %}
+          <tr>
+            <td class="mono">{{ q.question_id }}</td>
+            <td>{{ q.kind_label }}</td>
+            <td>
+              <span class="status-pill">
+                <span class="status-dot status-dot--{{ 'positive' if q.passed else 'danger' }} status-dot--{{ 'filled-circle' if q.passed else 'filled-square' }}" aria-hidden="true"></span>
+                {{ 'Pass' if q.passed else 'Fail' }}
+              </span>
+            </td>
+            <td class="mono">{{ q.groundedness_label }}</td>
+            <td class="mono">{{ q.relevancy_label }}</td>
+            <td>{{ q.sources_label }}</td>
+            <td>{{ q.error or '' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p>
+      {#
+        UX spec 8.2: "The action states what it produces before it runs."
+        A plain link, no JavaScript (CR-02) -- the browser's own download
+        handling is the whole delivery mechanism.
+      #}
+      <a class="btn btn--quiet" href="/reports/{{ detail.summary.id }}/export">
+        Export as Markdown for the report annex
+      </a>
+    </p>
+  </section>
+{% endif %}
+{% endblock %}
