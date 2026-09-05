@@ -30,8 +30,15 @@ dependencies = [
     # vendored static file under ui/static/, not a Python dependency, so
     # ADR-10 (no JS toolchain) still holds.
     "jinja2>=3.1",
-    # Faithfulness / relevancy metrics for the eval gate (F-08).
-    "ragas",
+    # ragas REMOVED 2026-09-05 (DECISIONS.md change request against
+    # architecture line 379): ragas==0.4.3, the current release, cannot be
+    # imported at all against this project's pinned langchain-community
+    # (a top-level import in ragas/llms/base.py reaches a LangChain class
+    # that no longer exists there), and the only langchain-community
+    # version it does import against is a two-major downgrade of a
+    # package the running app depends on. Groundedness/relevancy (G1) are
+    # now judged by evaluation.scoring.LLMJudgeScorer, which needs no
+    # dependency beyond the langchain packages already declared above.
     # Config from .env (all tunables; Hard technical rules).
     "pydantic-settings",
     # API process host + server (ADR-13). Binds 127.0.0.1 only.
