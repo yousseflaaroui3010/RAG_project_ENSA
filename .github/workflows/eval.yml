@@ -1,0 +1,43 @@
+name: eval
+# ADR-12: the golden-set evaluation spends real model credits, so this
+# workflow is manual-dispatch ONLY -- never on push or pull_request. The
+# dispatch itself is the authorization step; there is no separate approval
+# gate on top of it.
+on:
+  workflow_dispatch:
+    inputs:
+      workspace_id:
+        description: "workspace id to evaluate (db.repo.list_workspaces lists them)"
+        required: true
+        type: string
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Same uv setup as .github/workflows/gate.yml (ADR-10: uv + committed lockfile).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install dependencies (frozen)
+        run: uv sync --frozen
+
+      # PARKED, not solved here: this step assumes `workspace_id` already
+      # names a workspace that has been Synced against a real corpus on
+      # this runner (data/ is git-ignored, so nothing here provisions
+      # one). Provisioning a CI-side corpus/workspace is ST-36's concern
+      # ("first full evaluation run"), not this gate's.
+      - name: Run evaluation (spends model credits -- ST-32)
+        env:
+          MODEL_MODE: cloud
+          CLOUD_API_KEY: ${{ secrets.CLOUD_API_KEY }}
+        run: uv run python scripts/run_evaluation.py --workspace-id "${{ inputs.workspace_id }}"
+
+      - name: Release gate (PRD thresholds G1-G3 -- ST-33)
+        run: uv run python scripts/release_gate.py --workspace-id "${{ inputs.workspace_id }}"

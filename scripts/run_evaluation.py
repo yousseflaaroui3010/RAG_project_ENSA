@@ -24,13 +24,23 @@ equivalence nothing here has (see `evaluation.runner.EvalReport`).
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
+from pathlib import Path
 
-import vector_store
-from agent.chat import ChatUnavailableError, build_chat_model
-from evaluation.runner import run_evaluation
-from evaluation.scoring import build_llm_judge_scorer
-from ui.ports import build_ports
+# Flat-layout app (pyproject.toml [tool.uv] package = false): running this
+# file directly (`uv run python scripts/run_evaluation.py`) puts scripts/
+# on sys.path, not the repo root, so a root-level import below would raise
+# ModuleNotFoundError -- found by actually running this command while
+# proving ST-33's gate end to end, not by reading. `scripts/corpus.py`
+# already carries the same line for the same reason.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import vector_store  # noqa: E402
+from agent.chat import ChatUnavailableError, build_chat_model  # noqa: E402
+from evaluation.runner import run_evaluation  # noqa: E402
+from evaluation.scoring import build_llm_judge_scorer  # noqa: E402
+from ui.ports import build_ports  # noqa: E402
 
 
 def main(argv: Sequence[str] | None = None) -> int:

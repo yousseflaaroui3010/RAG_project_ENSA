@@ -326,6 +326,49 @@ copied.
 
 ## Now
 
+**ST-33 RELEASE GATE BUILT, 2026-09-05, ON BRANCH
+`feat/S3-ST-33-release-gate` cut from main at `8d89e94` (ST-32 merged, PR
+#82). NOT MERGED.** `evaluation/gate.py` (`evaluate_report`) reads an
+ST-32 report JSON and recomputes G1/G2/G3 itself rather than trusting the
+report's own `passed` bit, so it can name which gate and which question
+ids missed (DECISIONS.md, 2026-09-05). `scripts/release_gate.py` is the
+CLI (`--report <path>` or `--workspace-id <id>`, finds the latest report);
+`.github/workflows/eval.yml` is new, `workflow_dispatch` only per ADR-12,
+chaining `run_evaluation.py` then `release_gate.py` with the uv setup
+copied from `gate.yml`. PARKED, named in the workflow file: nothing here
+provisions a CI-side corpus/workspace to evaluate against -- that is
+ST-36's job, not this gate's.
+
+**FOUND AND FIXED WHILE PROVING THE GATE RUNS LIVE, NOT JUST TYPECHECKS:**
+`scripts/run_evaluation.py` had no `sys.path` insert, so `uv run python
+scripts/run_evaluation.py --help` raised `ModuleNotFoundError: vector_store`
+before argparse ever ran -- an ST-32 gap, invisible to ruff and pytest,
+caught only by running the exact command. Fixed with the one-line pattern
+`scripts/corpus.py` already carries, applied to both that file and the new
+`scripts/release_gate.py`.
+
+**PROVEN BY DELIBERATE VIOLATION, ALL THREE GATES SEPARATELY, THEN A CLEAN
+PASS** (this project's own rule: one passing test proves nothing about the
+other two): four hand-built report fixtures (G1-miss, G2-miss, G3-miss,
+all-pass) run live through `scripts/release_gate.py`, watched exiting 1,
+1, 1, then 0, each naming the right failing question id. A G3-only miss
+cannot be produced through the real pipeline at all (`Answer.__post_init__`
+refuses a sourceless `kind=ANSWER` `Answer`), which is exactly why the gate
+reads raw report fields instead of the report's `passed` flag.
+
+Gate on this branch: `uv run ruff check .` exit 0; `uv run pytest`
+**665 passed / 2 skipped** in 163.17s on this branch -- this story adds 12
+tests (`tests/unit/test_release_gate.py`), so 665 minus those 12 implies
+653 at `8d89e94`; not independently re-measured at that commit before
+branching, so take the 653 as a derived number, not a second measurement.
+Gitleaks not run: still absent on this machine (MB's clone), same as every
+other entry above. STILL OWED before merge: the rule-5 review pass.
+
+**Note on ownership:** BUILD-PLAN lists ST-33 as YL's row; this session
+built it on MB's clone (git identity `meriem-mb`), same pattern already
+recorded for ST-28 and ST-32. Recorded per the team rule that the
+recorded owner and actual author can drift.
+
 **UPDATE 2026-09-05: RAGAS DROPPED, BY HUMAN DECISION, NOT AN ESCALATION
 ANSWER.** G1/relevancy now run on `evaluation.scoring.LLMJudgeScorer`, our
 own model judging its own answer through `prompts/eval-judge`, not RAGAS.
