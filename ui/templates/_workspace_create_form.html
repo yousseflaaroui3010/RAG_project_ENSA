@@ -1,0 +1,39 @@
+{#
+  The guided-creation form (UX spec 7.2, 7.3): "three fields: name, folder
+  path, optional legal flag." Shared between the Empty state (where this
+  is the ONLY content on the screen, "the app's first-run screen") and the
+  List state (where it is one action among several), so the two cannot
+  drift into two different sets of fields.
+#}
+<form class="ws-form" method="post" action="/workspaces">
+  {% if form_error %}
+    <p class="form-error" role="alert">{{ form_error }}</p>
+  {% endif %}
+  <div class="ws-form__row">
+    <label class="ws-form__label" for="ws-name">Workspace name</label>
+    <input class="ws-form__input" id="ws-name" name="name" type="text" required
+           minlength="{{ name_min_length }}" maxlength="{{ name_max_length }}"
+           value="{{ (form_values.name if form_values else '') }}"
+           placeholder="e.g. HR policies">
+  </div>
+  <div class="ws-form__row">
+    <label class="ws-form__label" for="ws-folder">Folder path</label>
+    <input class="ws-form__input mono" id="ws-folder" name="folder_path" type="text" required
+           value="{{ (form_values.folder_path if form_values else '') }}"
+           placeholder="e.g. C:\Documents\HR">
+  </div>
+  <div class="ws-form__row ws-form__row--check">
+    <input id="ws-legal" name="legal_flag" type="checkbox"
+           {% if form_values and form_values.legal_flag %}checked{% endif %}>
+    <label for="ws-legal">This workspace holds legal content</label>
+  </div>
+  {#
+    UX spec 7.2: "a one-line explanation of what it does... It does not
+    block deletion or restrict access, and the label must not imply that
+    it does." Stated once here rather than left to the checkbox label to
+    imply more than it means.
+  #}
+  <p class="muted">Adds a disclaimer line to every answer from this
+    workspace. It does not restrict access or block deletion.</p>
+  <button class="btn btn--primary" type="submit">Create workspace</button>
+</form>

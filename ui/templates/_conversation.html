@@ -38,8 +38,9 @@
       <h2>Nothing to answer from yet</h2>
       <p>{{ active.name }} has no synced documents, so Sanad has nothing to
          read. Point the workspace at a folder and run Sync.</p>
-      <p class="muted">Sync lives on the Workspaces screen (ST-28), which is
-         not built yet.</p>
+      <p class="muted">
+        <a href="/workspaces?ws={{ active.id }}">Run Sync on the Workspaces screen</a>.
+      </p>
     </div>
 
   {% elif state == ScreenState.EMPTY %}

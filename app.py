@@ -25,6 +25,9 @@ the real object the graph returned.
 from __future__ import annotations
 
 import contextlib
+import logging
+import sqlite3
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,14 +40,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import sync
 import vector_store
+import workspaces
 from agent.ports import AgentPorts
 from config import get_settings
 from db import repo
-from ui import screen
+from ui import screen, workspaces_screen
 from ui.conversation import Conversation, MessageKind
 from ui.ports import build_default_ports
 from ui.runs import Run
+
+logger = logging.getLogger(__name__)
 
 HERE = Path(__file__).resolve().parent
 TEMPLATES = HERE / "ui" / "templates"
@@ -83,6 +90,22 @@ class Runtime:
     conversations: dict[str, Conversation] = field(default_factory=dict)
     active_workspace_id: str | None = None
     client: Any = None
+    # ST-28, S2. Sync has no per-request object the way chat's `Run` is one
+    # (sync_workspace is one blocking call handed to a background thread,
+    # not something the request that started it keeps a handle on), so the
+    # two facts a render needs that are not already in the registry live
+    # here, keyed by workspace, exactly like `conversations` above.
+    # `last_sync_run_id` is set from the `SyncReport.sync_run_id` the
+    # background thread's own call returns, which is what makes the
+    # finished report reachable even when nobody polled while it was
+    # running (a small corpus can finish before any request ever sees it
+    # as running -- `repo.get_running_sync_run`'s `finished_at IS NULL`
+    # query would otherwise be the only way to learn the id, and it stops
+    # answering the instant the run ends). Lost on a server restart, which
+    # is recorded rather than hidden -- see `ui/workspaces_screen.py` and
+    # BUILD-STATE.
+    sync_errors: dict[str, str] = field(default_factory=dict)
+    last_sync_run_id: dict[str, str] = field(default_factory=dict)
 
     def ports(self) -> AgentPorts:
         if self.ports_factory is None:
@@ -165,6 +188,7 @@ def _context(runtime: Runtime, request: Request) -> dict:
     return {
         "request": request,
         "dir": _direction(request),
+        "current_screen": "chat",
         # UX spec 4: "Changing it clears nothing and interrupts nothing,
         # but the chat area shows a one-line notice that the conversation
         # context has moved."
@@ -192,6 +216,112 @@ def _context(runtime: Runtime, request: Request) -> dict:
             if state is screen.ScreenState.NO_DOCUMENTS
             else ""
         ),
+    }
+
+
+def _ws_selected_id(
+    runtime: Runtime,
+    request: Request,
+    options: list[screen.WorkspaceOption],
+    *,
+    override: str | None = None,
+) -> str | None:
+    """Which workspace S2's detail region shows.
+
+    `override` wins when a route already knows the answer (a rename or a
+    legal-flag POST re-rendering its own workspace on a validation
+    failure, without a redirect to carry `?ws=` on the URL). Otherwise
+    `?ws=` on the URL wins, then the shell's active workspace, then the
+    first one -- the same fallback order `_active` uses for the shell
+    selector, so the two screens never show two different "current"
+    workspaces from the same state."""
+    if override and any(opt.id == override for opt in options):
+        return override
+    requested = request.query_params.get("ws")
+    if requested and any(opt.id == requested for opt in options):
+        return requested
+    if runtime.active_workspace_id and any(
+        opt.id == runtime.active_workspace_id for opt in options
+    ):
+        return runtime.active_workspace_id
+    return options[0].id if options else None
+
+
+def _ws_context(
+    runtime: Runtime, request: Request, *, selected_override: str | None = None
+) -> dict:
+    """Everything one render of S2 needs, assembled once -- the full page
+    and the polled detail partial share it, for the same reason `_context`
+    is shared on S1: two context functions is how a stage and a report
+    disagree about which state they are in.
+
+    THE PROGRESS COUNTER IS A COUNT, NOT A FRACTION. `list_sync_items`
+    tells us how many files a running sync has already committed a row
+    for, which is real and never faked -- but not which one, because its
+    own order is by file_name (UX spec 7.2's reading order), not the order
+    files were processed in, and not how many are left, because that would
+    mean re-running the folder scan ourselves while the real one is still
+    going. "N files processed so far" is the whole honest sentence
+    available; see design principle 3."""
+    options = screen.workspace_options(db_path=runtime.db_path)
+    selected_id = _ws_selected_id(runtime, request, options, override=selected_override)
+    selected: workspaces.Workspace | None = None
+    running: sqlite3.Row | None = None
+    running_count = 0
+    rows: list[workspaces_screen.FileRow] = []
+    report_finished_at: str | None = None
+
+    if selected_id is not None:
+        selected = workspaces.get_workspace(workspace_id=selected_id, db_path=runtime.db_path)
+        with repo.session(runtime.db_path) as conn:
+            running = repo.get_running_sync_run(conn, selected_id)
+            if running is not None:
+                # Cache it NOW, while the row is still findable by the
+                # `finished_at IS NULL` query -- once it finishes this is
+                # the only place its id survives (see the Runtime field).
+                runtime.last_sync_run_id[selected_id] = running["id"]
+                running_count = len(repo.list_sync_items(conn, running["id"]))
+            else:
+                last_id = runtime.last_sync_run_id.get(selected_id)
+                last_run = repo.get_sync_run(conn, last_id) if last_id else None
+                if last_run is not None and last_run["finished_at"] is not None:
+                    report_finished_at = last_run["finished_at"]
+                    rows = workspaces_screen.sort_rows(
+                        workspaces_screen.file_rows(
+                            folder_path=selected.folder_path,
+                            items=repo.list_sync_items(conn, last_id),
+                        ),
+                        sort=request.query_params.get("sort"),
+                        direction=request.query_params.get("dir", "asc"),
+                    )
+
+    return {
+        "request": request,
+        "dir": _direction(request),
+        "current_screen": "workspaces",
+        # base.html's <noscript> refresh (UX spec 6.3's no-JS path) is keyed
+        # on this same name for S1; a Sync in flight is the same kind of
+        # fact for S2, so it reuses the hook rather than teaching base.html
+        # a second word for one idea.
+        "busy": running is not None,
+        "active": _active(runtime),
+        "workspaces": options,
+        "state": workspaces_screen.screen_state(workspace_count=len(options)),
+        "WorkspaceScreenState": workspaces_screen.WorkspaceScreenState,
+        "selected": selected,
+        "selected_id": selected_id,
+        "running": running,
+        "running_count": running_count,
+        "sync_blocked": request.query_params.get("sync_blocked") == "1",
+        "sync_error": runtime.sync_errors.get(selected_id) if selected_id else None,
+        "file_rows": rows,
+        "sort": request.query_params.get("sort"),
+        "sort_dir": request.query_params.get("dir", "asc"),
+        "report_finished_at": report_finished_at,
+        "form_error": None,
+        "form_values": None,
+        "name_min_length": get_settings().workspace_name_min_length,
+        "name_max_length": get_settings().workspace_name_max_length,
     }
 
 
@@ -272,10 +402,12 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def chat(request: Request) -> HTMLResponse:
-        """S1. Also the landing screen, which UX spec 4 only makes S2 when
-        no workspace exists -- and the no-workspace state is rendered
-        here, with navigation to S1 disabled and the reason stated,
-        because S2 itself arrives with ST-28."""
+        """S1. UX spec 4 / acceptance criterion 1: with no workspace at
+        all, S2 is the landing screen -- so this redirects there rather
+        than rendering a local stand-in, now that ST-28 gives S2 somewhere
+        real to send the operator."""
+        if _active(runtime) is None:
+            return RedirectResponse("/workspaces", status_code=SEE_OTHER)
         return render(request)
 
     @app.get("/chat/messages", response_class=HTMLResponse)
@@ -371,6 +503,163 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         return templates.TemplateResponse(
             request, "passage.html", {**_context(runtime, request), "card": card}
         )
+
+    @app.get("/workspaces", response_class=HTMLResponse)
+    def workspaces_screen_route(request: Request) -> HTMLResponse:
+        """S2 (ST-28): the workspace list, the detail region, Sync."""
+        return templates.TemplateResponse(
+            request, "workspaces.html", _ws_context(runtime, request)
+        )
+
+    @app.get("/workspaces/panel", response_class=HTMLResponse)
+    def workspaces_panel(request: Request) -> HTMLResponse:
+        """The detail region alone, for the poll to swap in while a Sync
+        runs -- the same reason `/chat/messages` exists for S1: one
+        template renders both the full page and the poll target, so a
+        report cannot look different depending on how it arrived."""
+        return templates.TemplateResponse(
+            request, "_workspace_detail.html", _ws_context(runtime, request)
+        )
+
+    @app.post("/workspaces")
+    async def create_workspace_route(request: Request) -> Response:
+        form = await _form(request)
+        submitted = {
+            "name": form.get("name", ""),
+            "folder_path": form.get("folder_path", ""),
+            "legal_flag": form.get("legal_flag") == "on",
+        }
+        try:
+            created = workspaces.create_workspace(db_path=runtime.db_path, **submitted)
+        except workspaces.WorkspaceError as exc:
+            return templates.TemplateResponse(
+                request,
+                "workspaces.html",
+                {
+                    **_ws_context(runtime, request),
+                    "form_error": str(exc),
+                    "form_values": submitted,
+                },
+                status_code=422,
+            )
+        runtime.active_workspace_id = created.id
+        return RedirectResponse(f"/workspaces?ws={created.id}", status_code=SEE_OTHER)
+
+    @app.post("/workspaces/{workspace_id}/rename")
+    async def rename_workspace_route(request: Request, workspace_id: str) -> Response:
+        form = await _form(request)
+        try:
+            workspaces.rename_workspace(
+                workspace_id=workspace_id,
+                new_name=form.get("name", ""),
+                db_path=runtime.db_path,
+            )
+        except workspaces.WorkspaceError as exc:
+            return templates.TemplateResponse(
+                request,
+                "workspaces.html",
+                {
+                    **_ws_context(runtime, request, selected_override=workspace_id),
+                    "form_error": str(exc),
+                },
+                status_code=422,
+            )
+        return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
+
+    @app.post("/workspaces/{workspace_id}/legal-flag")
+    async def legal_flag_route(request: Request, workspace_id: str) -> Response:
+        form = await _form(request)
+        try:
+            workspaces.set_legal_flag(
+                workspace_id=workspace_id,
+                legal_flag=form.get("legal_flag") == "on",
+                db_path=runtime.db_path,
+            )
+        except workspaces.WorkspaceNotFoundError:
+            pass
+        return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
+
+    @app.get("/workspaces/{workspace_id}/delete", response_class=HTMLResponse)
+    def confirm_delete_workspace(request: Request, workspace_id: str) -> Response:
+        """The no-JS `ConfirmDialog` (UX spec 5, 7.2): a real page, so a
+        destructive action always needs a deliberate second step even with
+        scripting off, never a hand-rolled focus trap that only works with
+        it on."""
+        try:
+            target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
+        except workspaces.WorkspaceNotFoundError:
+            return RedirectResponse("/workspaces", status_code=SEE_OTHER)
+        return templates.TemplateResponse(
+            request,
+            "workspace_delete_confirm.html",
+            {**_ws_context(runtime, request), "target": target},
+        )
+
+    @app.post("/workspaces/{workspace_id}/delete")
+    def delete_workspace_route(request: Request, workspace_id: str) -> Response:
+        try:
+            sync.delete_workspace(
+                workspace_id=workspace_id, db_path=runtime.db_path, client=runtime.client
+            )
+        except workspaces.WorkspaceNotFoundError:
+            pass
+        runtime.sync_errors.pop(workspace_id, None)
+        runtime.last_sync_run_id.pop(workspace_id, None)
+        runtime.conversations.pop(workspace_id, None)
+        if runtime.active_workspace_id == workspace_id:
+            runtime.active_workspace_id = None
+        return RedirectResponse("/workspaces", status_code=SEE_OTHER)
+
+    @app.post("/workspaces/{workspace_id}/sync")
+    def start_sync_route(request: Request, workspace_id: str) -> Response:
+        """Start a Sync in the background and return immediately, mirroring
+        `ui.runs.Run.start` -- the request thread never blocks for the
+        length of a run.
+
+        THE DOUBLE-SYNC CHECK IS HERE, BEFORE THE THREAD STARTS, on
+        purpose (F-02, UX spec 7.3: "blocked with a message, first run
+        continues"). `sync_workspace` itself refuses a second concurrent
+        run too (`SyncInProgressError`), but that refusal would fire
+        inside the background thread where nothing reads it back to this
+        request -- this pre-check is what turns "blocked" into a message
+        the operator who clicked Sync actually sees. The tiny window
+        between this read and the thread's own claim is the same one
+        `sync._claim_sync_run`'s docstring already names and accepts."""
+        with repo.session(runtime.db_path) as conn:
+            running = repo.get_running_sync_run(conn, workspace_id)
+        if running is not None:
+            return RedirectResponse(
+                f"/workspaces?ws={workspace_id}&sync_blocked=1", status_code=SEE_OTHER
+            )
+        runtime.sync_errors.pop(workspace_id, None)
+
+        def _work() -> None:
+            try:
+                report = sync.sync_workspace(
+                    workspace_id=workspace_id,
+                    db_path=runtime.db_path,
+                    client=runtime.client,
+                )
+            except Exception as exc:  # noqa: BLE001 -- mirrors _start's own catch-all
+                # PRD section 11: "folder missing or unreadable shows the
+                # exact path plus a fix hint" -- `FolderNotFoundError`'s
+                # own message already carries both, so it is shown as-is
+                # rather than re-worded here.
+                logger.exception("sync failed for workspace %s", workspace_id)
+                runtime.sync_errors[workspace_id] = str(exc)
+            else:
+                # THE LOAD-BEARING LINE, not a nicety: `sync_workspace`
+                # hands back its own `sync_run_id` on the SyncReport it
+                # returns, so the finished report is reachable even when
+                # nobody polled while it was running (a small corpus can
+                # finish before any request ever observes it as running,
+                # which is exactly the gap a poll-only cache would have
+                # -- proven by a real run in
+                # tests/integration/test_s2_workspaces_screen.py).
+                runtime.last_sync_run_id[workspace_id] = report.sync_run_id
+
+        threading.Thread(target=_work, daemon=True, name="sanad-sync").start()
+        return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
 
     return app
 

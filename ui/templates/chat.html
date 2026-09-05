@@ -14,14 +14,20 @@
 
 {% block main %}
 {% if state == ScreenState.NO_WORKSPACE %}
-  {# UX spec 4's empty state. S2 is the landing screen and it arrives with
-     ST-28, so this states the next step rather than linking into nothing. #}
+  {#
+    UX spec 4's empty state. `/` itself redirects to `/workspaces` when no
+    workspace exists (acceptance criterion 1), so a browser never actually
+    lands here -- this stays as a defensive render rather than dead
+    markup, and its copy is kept truthful (ST-28 is built) in case some
+    future path reaches S1 directly without going through `/` first.
+  #}
   <section class="panel panel--empty">
     <h1>No workspace yet</h1>
     <p>Sanad answers from documents you have grouped into a workspace, so
        there is nothing to ask about until one exists.</p>
-    <p class="muted">Creating a workspace is the Workspaces screen's job,
-       and that screen is not built yet (ST-28).</p>
+    <p class="muted">
+      <a href="/workspaces">Create one on the Workspaces screen</a>.
+    </p>
   </section>
 {% else %}
   <div class="chat">

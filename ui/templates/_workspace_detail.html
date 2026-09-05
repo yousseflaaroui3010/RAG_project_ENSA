@@ -1,0 +1,116 @@
+{#
+  The workspace detail region (UX spec 7.1-7.3). Rendered inside
+  workspaces.html AND alone at /workspaces/panel for the poll to swap in
+  while a Sync runs -- one template for both, the same reason
+  _conversation.html gives: a report cannot look different depending on
+  how it arrived.
+#}
+<section class="ws-detail" aria-label="Workspace detail">
+  {% if not selected %}
+    <p class="muted">Pick a workspace from the list to see its detail.</p>
+  {% else %}
+    <div class="ws-detail__head">
+      <h2>{{ selected.name }}</h2>
+      {% if selected.legal_flag %}
+        <span class="marker" title="This workspace is flagged as legal content">Legal</span>
+      {% endif %}
+    </div>
+    <p class="mono ws-detail__path">{{ selected.folder_path }}</p>
+
+    <details class="ws-detail__settings">
+      <summary>Rename, legal flag, delete</summary>
+
+      <form class="ws-form" method="post" action="/workspaces/{{ selected.id }}/rename">
+        <label class="ws-form__label" for="rename-name">Workspace name</label>
+        <div class="ws-form__row">
+          <input class="ws-form__input" id="rename-name" name="name" type="text" required
+                 minlength="{{ name_min_length }}" maxlength="{{ name_max_length }}"
+                 value="{{ selected.name }}">
+          <button class="btn btn--quiet" type="submit">Rename</button>
+        </div>
+      </form>
+
+      <form class="ws-form" method="post" action="/workspaces/{{ selected.id }}/legal-flag">
+        <div class="ws-form__row ws-form__row--check">
+          <input id="legal-{{ selected.id }}" name="legal_flag" type="checkbox"
+                 {% if selected.legal_flag %}checked{% endif %}>
+          <label for="legal-{{ selected.id }}">This workspace holds legal content</label>
+        </div>
+        {#
+          UX spec 7.2, verbatim requirement: the toggle's own label must
+          not imply it does more than it does.
+        #}
+        <p class="muted">Adds a disclaimer line to every answer from this
+          workspace. It does not restrict access or block deletion.</p>
+        <button class="btn btn--quiet" type="submit">Save</button>
+      </form>
+
+      {#
+        UX spec 5, 7.2: ConfirmDialog, destructive actions only. The no-JS
+        path IS the whole path here (see app.py's confirm_delete_workspace)
+        -- a real intermediate page rather than an overlay, so a
+        destructive action always costs a deliberate second step with
+        scripting on or off.
+      #}
+      <a class="btn btn--quiet" href="/workspaces/{{ selected.id }}/delete">Delete workspace…</a>
+    </details>
+
+    <div class="ws-sync">
+      {% if sync_blocked %}
+        {# F-02 / UX spec 7.3: "blocked with a message stating the first
+           run continues." #}
+        <p class="notice" role="status">
+          A Sync is already running for this workspace; it keeps going, and
+          this new request was not started.
+        </p>
+      {% endif %}
+
+      {% if running %}
+        {#
+          UX spec 6.3's stage-hint idiom, reused for S2 (design principle
+          3: never fake progress). The count is real, read off
+          `sync_item` rows already committed by the run in flight -- see
+          `ui/workspaces_screen.py` for why it is a count and not a
+          fraction.
+        #}
+        <div class="stage" role="status" aria-live="polite"
+             data-sync-progress data-workspace-id="{{ selected.id }}">
+          <span class="stage__dot" aria-hidden="true"></span>
+          <span class="stage__label">
+            {% if running_count %}
+              {{ running_count }} file{{ '' if running_count == 1 else 's' }} processed so far
+            {% else %}
+              Scanning the workspace folder…
+            {% endif %}
+          </span>
+        </div>
+        <p class="muted">Started at {{ running.started_at }}.</p>
+      {% else %}
+        <form method="post" action="/workspaces/{{ selected.id }}/sync">
+          <button class="btn btn--primary" type="submit">Run Sync</button>
+        </form>
+      {% endif %}
+
+      {% if sync_error %}
+        {#
+          UX spec 11 "Folder missing or unreadable": `ErrorPanel` with the
+          exact path and a fix hint -- `FolderNotFoundError`'s own message
+          (change_detection.py) already carries both, printed as-is.
+        #}
+        <div class="panel panel--error" role="alert">
+          <p class="error__sentence">Sync could not run.</p>
+          <p class="error__value mono">{{ sync_error }}</p>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if running %}
+      <p class="muted">The last sync report will appear here once this run finishes.</p>
+    {% elif file_rows %}
+      <p class="muted">Finished at {{ report_finished_at }}.</p>
+      {% include "_file_table.html" %}
+    {% elif not sync_error %}
+      <p class="muted">This workspace has not been synced yet.</p>
+    {% endif %}
+  {% endif %}
+</section>

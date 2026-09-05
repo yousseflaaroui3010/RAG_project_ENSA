@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Workspaces — Sanad{% endblock %}
+
+{#
+  S2, Workspaces and Sync (UX spec 7, PRD F-01/F-02).
+
+  Regions, in 7.1's order: shell header (base.html), workspace list on the
+  left rail, workspace detail as the main region.
+#}
+
+{% block main %}
+{% if state == WorkspaceScreenState.NO_WORKSPACES %}
+  {#
+    UX spec 7.3: "No workspaces. Guided creation... the app's first-run
+    screen and the only entry point when nothing exists." Acceptance
+    criterion 1 is what sends every visitor here when the registry starts
+    empty (app.py's `chat()` redirects `/` -> `/workspaces`).
+  #}
+  <section class="panel panel--empty">
+    <h1>Create your first workspace</h1>
+    <p>Sanad answers from documents grouped into a workspace. There is
+       nothing to sync or ask about until one exists.</p>
+    {% include "_workspace_create_form.html" %}
+  </section>
+{% else %}
+  <div class="workspaces">
+    <aside class="ws-list" aria-label="Workspaces">
+      <h1 class="ws-list__title">Workspaces</h1>
+      <ul class="ws-list__items">
+        {% for option in workspaces %}
+          <li>
+            <a class="ws-list__item{{ ' is-current' if selected_id == option.id else '' }}"
+               href="/workspaces?ws={{ option.id }}"
+               {% if selected_id == option.id %}aria-current="true"{% endif %}>
+              {{ option.name }}
+              {% if option.legal_flag %}<span class="marker">Legal</span>{% endif %}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+      <details class="ws-list__new">
+        <summary>New workspace</summary>
+        {% include "_workspace_create_form.html" %}
+      </details>
+    </aside>
+
+    {% include "_workspace_detail.html" %}
+  </div>
+{% endif %}
+{% endblock %}

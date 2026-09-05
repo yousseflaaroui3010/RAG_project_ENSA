@@ -326,6 +326,59 @@ copied.
 
 ## Now
 
+**ST-28, S2 WORKSPACES AND SYNC, BUILT on `feat/S2-ST-28-workspaces-screen`
+cut from main at b04e41d, 2026-09-05. NOT MERGED, NOT REVIEWED.** Owner on
+BUILD-PLAN is YL; built by MB this session -- noted per the team rule, not
+hidden. List + detail, create/rename/legal-flag/delete (ConfirmDialog as a
+real confirm page, no native `<dialog>` -- scope cut, see DECISIONS), Sync
+as a background thread polled the way ST-27's chat stage is, the six-status
+FileTable with real keyboard-sortable headers, double-sync blocked with a
+message, folder-missing shown with the exact path. `/` now redirects to
+`/workspaces` when no workspace exists (criterion 1) instead of chat.html's
+old stub.
+
+ALSO NOTED, not hidden: the `ProgressBar` component (UX spec 5, 7.2) is
+built here as S1's own stage-hint shape (a pulsing dot plus text, reused
+verbatim) rather than a visual fill bar, because a fill needs a fraction
+and the only honest number available is a running COUNT (see DECISIONS,
+2026-09-05) -- so UX spec 7.5's "progress fills right to left" has
+nothing to fill and is not exercised by this screen. If a later story adds
+a real total (re-scanning the folder ourselves is not it -- see
+DECISIONS), a fill bar and its RTL direction become checkable then.
+
+PARKED, not invented: UX spec 7.2's Sync **cancel** action -- `sync.py` has
+no cancel checkpoint anywhere and adding one collides with its own written
+invariant "one report row per file, always" (a cancelled file gets none),
+which is a call for whoever owns `sync.py` next, not this story. UX spec
+7.3's "workspace over the soft cap" warning -- grepped, no cap exists
+anywhere in config.py/change_detection.py/sync.py to back it. Both named in
+`ui/workspaces_screen.py` and the relevant templates, not silently dropped.
+
+GATE STEPS 1-3 BY HAND, in gate.yml order, exit codes read from `$?`:
+`uv sync --frozen` clean (170 packages), `uv run ruff check .` **exit 0**,
+`uv run pytest` **643 passed / 2 skipped** in 121.73s -- up from main's own
+count by 18 (11 new unit tests for `ui/workspaces_screen.py`, 7 new
+integration tests driving the real app through `TestClient`, real Qdrant,
+real chunking, fake encoders only). **STEP 4, GITLEAKS, NOT RUN** -- not on
+PATH, no WinGet Links folder on this machine, same as every other MB-clone
+entry above.
+
+PROVEN BY RUNNING IT, not just typechecked: the integration suite forces a
+genuine file failure (one file's chunking monkeypatched to raise) inside a
+real `sync_workspace` call and asserts the OTHER two files (Added, Skipped)
+still land in the same report -- the exit gate's own sentence, "failed file
+never blocks the batch", checked against real code rather than trusted from
+sync.py's own tests. Also proven live: the no-workspace redirect, the
+double-sync block (a running `sync_run` row seeded directly, since
+TestClient calls are sequential and cannot race for real), the folder-
+missing error's exact path, and delete producing an empty registry.
+
+STILL OWED before merge: the rule-5 review pass (this branch has none yet),
+and BUILD-PLAN's owner field for ST-28 (recorded here, not corrected there
+without asking).
+
+Previous:
+
 **THE ST-21 AND ST-23 REVIEWS ARE PAID, 2026-09-03. ST-21 CAME BACK CLEAN;
 ST-23 DID NOT.** That is two of the four unpaid reviews closed, and the
 remaining list is now **ST-19 and ST-29's in-scope halves** (see the entry

@@ -1,0 +1,53 @@
+{#
+  The FileTable component (UX spec 5, 7.2, 7.4): "name (mono), type, size,
+  status, reason; sortable; keyboard navigable."
+
+  SORTING IS A REAL NAVIGATION, not a script. Each header is a plain link
+  that changes `?sort=` and `?dir=` and reloads -- so the table sorts with
+  scripting off exactly as it does with it on, and `aria-sort` on the
+  active header is always true because it was set by the same request that
+  rendered the rows, never guessed client-side.
+
+  ONE ROW COSTS ONE FILE, NEVER THE BATCH (F-02 criterion 3, the exit
+  gate's own sentence). A Failed row sits beside Added, Changed and the
+  rest with nothing that singles it out structurally -- the same table,
+  same columns, one differing status cell -- because a failure that
+  visually breaks the table would look like it broke the run.
+#}
+{% macro _header(key, label) %}
+  {% set is_active = sort == key %}
+  {% set next_dir = 'desc' if (is_active and sort_dir == 'asc') else 'asc' %}
+  <th scope="col" {% if is_active %}aria-sort="{{ 'descending' if sort_dir == 'desc' else 'ascending' }}"{% endif %}>
+    <a class="file-table__sort" href="/workspaces?ws={{ selected.id }}&amp;sort={{ key }}&amp;dir={{ next_dir }}">
+      {{ label }}{% if is_active %} <span aria-hidden="true">{{ '▾' if sort_dir == 'asc' else '▴' }}</span>{% endif %}
+    </a>
+  </th>
+{% endmacro %}
+<table class="file-table">
+  <caption class="sources__title">Last sync report</caption>
+  <thead>
+    <tr>
+      {{ _header('name', 'Name') }}
+      {{ _header('type', 'Type') }}
+      {{ _header('size', 'Size') }}
+      {{ _header('status', 'Status') }}
+      {{ _header('reason', 'Reason') }}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in file_rows %}
+      <tr>
+        <td class="mono">{{ row.file_name }}</td>
+        <td>{{ row.file_type }}</td>
+        <td>{{ row.size_label }}</td>
+        <td>
+          <span class="status-pill">
+            <span class="status-dot status-dot--{{ row.role }} status-dot--{{ row.shape }}" aria-hidden="true"></span>
+            {{ row.status_label }}
+          </span>
+        </td>
+        <td>{{ row.reason }}</td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
