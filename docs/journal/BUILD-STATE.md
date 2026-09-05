@@ -326,16 +326,30 @@ copied.
 
 ## Now
 
+**UPDATE 2026-09-05: RAGAS DROPPED, BY HUMAN DECISION, NOT AN ESCALATION
+ANSWER.** G1/relevancy now run on `evaluation.scoring.LLMJudgeScorer`, our
+own model judging its own answer through `prompts/eval-judge`, not RAGAS.
+`ragas` is removed from `pyproject.toml`; `uv lock` dropped 29 packages.
+Full change-request row (what the signed doc said, why it can't hold, what
+replaces it, what is lost): DECISIONS.md, 2026-09-05. G2/G3 stay
+deterministic, no model involved. Gate: `uv run ruff check .` exit 0,
+`uv run pytest` **635 passed / 2 skipped** on this branch.
+
 **ST-32 EVALUATION RUNNER BUILT, 2026-09-05, ON BRANCH
 `feat/S3-ST-32-evaluation-runner` (NOT MERGED).** `evaluation/{golden,capture,
 scoring,runner}.py` + `scripts/run_evaluation.py`: loads the golden set, runs
 each question through the real product via `ui.ports` (the decided
 composition root), captures the sections the writer actually read by reusing
 `ui.runs.Run.observed`, judges G2/G3 directly, writes the dated JSON report
-plus `eval_run`/`eval_result` rows in one call. Proven on a fake `Scorer`,
-9 tests, happy + failure paths (`tests/unit/test_evaluation_runner.py`).
+plus `eval_run`/`eval_result` rows in one call. Proven on a fake `Scorer`
+and, for the judge itself, on `tests.fake_chat.ScriptedChat` -- 10 tests,
+happy + failure paths (`tests/unit/test_evaluation_runner.py`).
 
-**BLOCKED, ESCALATED, NOT CODED AROUND: RAGAS 0.4.3 CANNOT BE IMPORTED.**
+**[SUPERSEDED by the update at the top of this section, 2026-09-05: the
+human decided to drop RAGAS rather than wait on it. The paragraph below is
+kept for the evidence it recorded, not as the current state.]**
+
+RAGAS 0.4.3 CANNOT BE IMPORTED, escalated rather than coded around.
 Verified by running it, not from docs: `import ragas` raises
 `ModuleNotFoundError` against this project's pinned `langchain-community`
 (0.4.2) -- `ragas/llms/base.py` imports `langchain_community.chat_models.
@@ -346,20 +360,22 @@ wants a provider-native client (`litellm` for Gemini, undeclared) rather than
 nothing has verified against the local e5 embedder. `build_ragas_scorer()`
 raises `ScorerUnavailableError` naming all three, mirroring `ChatUnavailable
 Error`'s pattern -- see `evaluation/scoring.py` and DECISIONS.md 2026-09-05
-for the numbered options. **The CLI command therefore cannot yet produce a
-real report; the machinery around it is complete and tested.**
+for the numbered options -- **this is the paragraph the update above
+supersedes; RAGAS is now removed rather than waited on, see there.**
 
-ALSO FOUND: uncommitted, unrelated WIP already sitting on `main` before this
-branch was cut -- `app.py`, `ui/workspaces_screen.py`, three templates
-(ST-28, S2 workspaces screen, incomplete: `workspaces.html` does not exist
-yet). Left untouched and unstaged; not this story's to fix or commit.
+ALSO FOUND, mid-session: `feat/S2-ST-28-workspaces-screen` was being built
+concurrently in the SAME working directory, uncommitted, and briefly moved
+this branch's own checkout out from under this story. No work was lost
+(git worktree used to finish this branch in isolation) and nothing of
+ST-28's was touched, staged, or reverted. ST-28 has since finished and
+committed on its own branch.
 
-Gate on this branch: `uv run ruff check .` exit 0 on every file this story
-touched (one pre-existing E501 in `app.py` belongs to the WIP above, not to
-this story); `uv run pytest` **634 passed / 2 skipped**, up from 625 on
-main -- 9 new tests. `.env.example` updated for the one new setting
-(`EVAL_GROUNDEDNESS_THRESHOLD`); `test_every_setting_is_documented_in_env_
-example` was red before that fix and green after.
+Gate on this branch, final: `uv run ruff check .` exit 0; `uv run pytest`
+**635 passed / 2 skipped**, up from 625 on main -- 10 new tests. `ragas`
+removed from `pyproject.toml`, `uv lock` dropped 29 packages, `uv sync
+--frozen` reinstalls clean without it. `.env.example` updated for the one
+new setting (`EVAL_GROUNDEDNESS_THRESHOLD`); `test_every_setting_is_
+documented_in_env_example` was red before that fix and green after.
 
 **Note on ownership:** BUILD-PLAN lists ST-32 as YL's row; this session
 built it on MB's clone at the orchestrator's explicit direction. Recorded

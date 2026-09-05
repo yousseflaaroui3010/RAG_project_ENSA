@@ -2,11 +2,12 @@
 
 Real credits are never spent by this file (docs/phase2/CLAUDE.md: no API
 keys in tests). Every port is a scripted fake, exactly like
-`tests/unit/test_agent_graph.py`'s `_ports()`, and `FakeScorer` satisfies
-`evaluation.scoring.Scorer` with no RAGAS import anywhere in this module
--- proving the runner, the capture seam, and the DB/report persistence
-end to end while `evaluation.scoring.build_ragas_scorer` stays the one
-thing this story could not prove live (see that module's docstring).
+`tests/unit/test_agent_graph.py`'s `_ports()`; `FakeScorer` satisfies
+`evaluation.scoring.Scorer` with no model call at all, proving the runner,
+the capture seam, and the DB/report persistence end to end. The judge
+itself (`evaluation.scoring.LLMJudgeScorer`) is proven separately below
+against `tests.fake_chat.ScriptedChat`, the project's standard scripted
+double (docs/phase2/CLAUDE.md: "no API keys in tests, fixtures, or CI").
 """
 
 from __future__ import annotations
@@ -21,7 +22,8 @@ from db import repo
 from evaluation.capture import ask_and_capture
 from evaluation.golden import GoldenRow, load_golden_set
 from evaluation.runner import run_evaluation
-from evaluation.scoring import ScoreResult, ScorerUnavailableError, build_ragas_scorer
+from evaluation.scoring import JudgeReplyError, LLMJudgeScorer, ScoreResult
+from tests.fake_chat import ScriptedChat
 from vector_store import SearchHit
 
 IN_QUESTION = "Quelle est la duree de la periode d'essai ?"
@@ -165,12 +167,38 @@ def test_capture_records_the_error_instead_of_raising():
 # --- evaluation.scoring ----------------------------------------------------
 
 
-def test_build_ragas_scorer_raises_until_the_dependency_is_resolved():
-    """This assertion is currently TRUE, not aspirational: `import ragas`
-    itself fails on this project's pinned langchain-community (see
-    evaluation/scoring.py's docstring). Proven by running it, not assumed."""
-    with pytest.raises(ScorerUnavailableError, match="ragas"):
-        build_ragas_scorer()
+def test_llm_judge_scorer_parses_the_two_scores_in_either_order():
+    """Order-independent by design (evaluation/scoring.py's `_GROUNDEDNESS`
+    / `_RELEVANCY` docstring): a model naming RELEVANCY first must parse
+    the same as one naming GROUNDEDNESS first, and the prompt sent is the
+    registry entry, not an inline string."""
+    chat = ScriptedChat("RELEVANCY: 0.80\nGROUNDEDNESS: 0.95")
+    scorer = LLMJudgeScorer(chat)
+
+    result = scorer.score(
+        question=IN_QUESTION, answer_text=ANSWER_TEXT, contexts=(PARENT_TEXT,)
+    )
+
+    assert result == ScoreResult(groundedness=0.95, relevancy=0.80)
+    system, user = chat.calls[0]
+    assert "GROUNDEDNESS" in system  # came from prompts/eval-judge/PROMPT.md
+    assert IN_QUESTION in user
+    assert ANSWER_TEXT in user
+    assert PARENT_TEXT in user
+
+
+def test_llm_judge_scorer_raises_loudly_on_an_unparseable_reply():
+    """A confused reply must never be silently read as a score -- the same
+    rule `agent.grading.GraderReplyError` enforces for the relevance
+    grader, and for the same reason: a 0.00-1.00 number looks exactly as
+    confident whether or not anything computed it."""
+    chat = ScriptedChat("I cannot judge this without more context.")
+    scorer = LLMJudgeScorer(chat)
+
+    with pytest.raises(JudgeReplyError, match="GROUNDEDNESS"):
+        scorer.score(
+            question=IN_QUESTION, answer_text=ANSWER_TEXT, contexts=(PARENT_TEXT,)
+        )
 
 
 # --- evaluation.runner: happy path -----------------------------------------

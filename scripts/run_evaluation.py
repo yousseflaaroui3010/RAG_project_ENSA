@@ -3,30 +3,34 @@
     uv run python scripts/run_evaluation.py --workspace-id <id>
 
 Spends real model credits -- one chat call per question the graph answers,
-plus RAGAS's own judge calls -- so ADR-12 keeps this a manual, by-hand
-command, never something CI runs on its own. `--workspace-id` must already
-exist in the registry database (`db.repo.list_workspaces` lists them).
+plus one judge call per answered question (`evaluation.scoring.
+LLMJudgeScorer`) -- so ADR-12 keeps this a manual, by-hand command, never
+something CI runs on its own. `--workspace-id` must already exist in the
+registry database (`db.repo.list_workspaces` lists them).
 
-THIS COMMAND CANNOT PRODUCE A REAL REPORT YET. `evaluation.scoring.
-build_ragas_scorer` always raises `ScorerUnavailableError`: ragas 0.4.3
-cannot even be imported against this project's pinned langchain-community,
-and even past that there are two unmade decisions about which adapter
-carries this project's Gemini model and its local embedder into RAGAS. See
-that module's docstring and docs/journal/BUILD-STATE.md's ST-32 entry.
-Checking that FIRST, before opening the Qdrant store, means a run that
-cannot be scored never spends a single model credit finding that out.
+ONE MODEL, TWO JOBS. `build_chat_model()` is called exactly once here and
+handed to both `ui.ports.build_ports` (the answering path) and
+`evaluation.scoring.build_llm_judge_scorer` (the judge) -- the same
+configured model does both, rather than two separately-built clients that
+could silently drift onto different settings.
+
+G1's number here is NOT RAGAS. `evaluation/scoring.py`'s module docstring
+and docs/journal/DECISIONS.md (2026-09-05) record why: ragas 0.4.3 cannot
+be imported against this project's dependencies at all, and the report
+this command writes says so in its own words rather than implying an
+equivalence nothing here has (see `evaluation.runner.EvalReport`).
 """
 
 from __future__ import annotations
 
 import argparse
-import sys
 from collections.abc import Sequence
 
 import vector_store
+from agent.chat import ChatUnavailableError, build_chat_model
 from evaluation.runner import run_evaluation
-from evaluation.scoring import ScorerUnavailableError, build_ragas_scorer
-from ui.ports import build_default_ports
+from evaluation.scoring import build_llm_judge_scorer
+from ui.ports import build_ports
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -37,18 +41,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        scorer = build_ragas_scorer()
-    except ScorerUnavailableError as exc:
-        print(f"cannot run the evaluation: {exc}", file=sys.stderr)
+        model = build_chat_model()
+    except ChatUnavailableError as exc:
+        print(f"cannot run the evaluation: {exc}")
         return 1
 
+    scorer = build_llm_judge_scorer(model)
+
     with vector_store.open_store() as client:
-        ports = build_default_ports(client)
+        ports = build_ports(client, model)
         report = run_evaluation(workspace_id=args.workspace_id, ports=ports, scorer=scorer)
 
     print(f"report written to {report.report_path}")
     print(
         f"groundedness={report.groundedness} relevancy={report.relevancy} "
+        f"(both judged by our own model, not an independent metric -- see "
+        f"evaluation/scoring.py) "
         f"refusals={report.refusal_pass}/{report.refusal_total} "
         f"sources={report.sources_pass}/{report.sources_total} "
         f"passed={report.passed}"
