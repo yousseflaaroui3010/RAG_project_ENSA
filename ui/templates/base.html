@@ -56,7 +56,8 @@
 
       <nav class="shell__nav" aria-label="Screens">
         {% if workspaces %}
-          <a class="shell__link is-current" href="/" aria-current="page">Chat</a>
+          <a class="shell__link{{ ' is-current' if current_screen == 'chat' else '' }}"
+             href="/" {% if current_screen == 'chat' %}aria-current="page"{% endif %}>Chat</a>
         {% else %}
           {#
             Acceptance criterion 1: with no workspace, navigation to S1 is
@@ -67,11 +68,13 @@
           <span class="shell__link is-disabled" aria-disabled="true"
                 title="Create a workspace before asking questions">Chat</span>
         {% endif %}
-        {# S2 arrives with ST-28 and S3 with ST-34. Named but not linked,
-           because a link to a route that does not exist is a 404 dressed
-           as navigation. #}
-        <span class="shell__link is-disabled" aria-disabled="true"
-              title="The Workspaces screen is not built yet (ST-28)">Workspaces</span>
+        {# S2 (ST-28): always a real link, empty registry included -- it is
+           the app's own first-run screen (UX spec 7.3), so it cannot wait
+           behind the workspace it exists to create. #}
+        <a class="shell__link{{ ' is-current' if current_screen == 'workspaces' else '' }}"
+           href="/workspaces" {% if current_screen == 'workspaces' %}aria-current="page"{% endif %}>Workspaces</a>
+        {# S3 arrives with ST-34. Named but not linked, because a link to a
+           route that does not exist is a 404 dressed as navigation. #}
         <span class="shell__link is-disabled" aria-disabled="true"
               title="The Reports screen is not built yet (ST-34)">Reports</span>
       </nav>
