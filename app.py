@@ -46,7 +46,7 @@ import workspaces
 from agent.ports import AgentPorts
 from config import get_settings
 from db import repo
-from ui import screen, workspaces_screen
+from ui import reports_screen, screen, workspaces_screen
 from ui.conversation import Conversation, MessageKind
 from ui.ports import build_default_ports
 from ui.runs import Run
@@ -323,6 +323,36 @@ def _ws_context(
         "name_min_length": get_settings().workspace_name_min_length,
         "name_max_length": get_settings().workspace_name_max_length,
     }
+
+
+def _reports_context(runtime: Runtime, request: Request) -> dict:
+    """Everything one render of S3 needs -- read-only, so there is no poll
+    target to share this with the way `_context`/`_ws_context` share
+    theirs with `_conversation.html`/`_workspace_detail.html`; see
+    `ui/reports_screen.py` for why this screen has no Loading state to
+    keep in step with a partial."""
+    reports = reports_screen.list_reports(db_path=runtime.db_path)
+    return {
+        "request": request,
+        "dir": _direction(request),
+        "current_screen": "reports",
+        "busy": False,
+        "workspaces": screen.workspace_options(db_path=runtime.db_path),
+        "active": _active(runtime),
+        "state": reports_screen.screen_state(report_count=len(reports)),
+        "ReportsScreenState": reports_screen.ReportsScreenState,
+        "reports": reports,
+    }
+
+
+_SLUG_UNSAFE = "\"'\\/:*?<>|\n\r\t "
+
+
+def _slug(value: str) -> str:
+    """A filename-safe stand-in for whatever the workspace was named --
+    Content-Disposition's `filename=` breaks on quotes and path
+    separators, and a workspace name is operator-chosen free text."""
+    return "".join("-" if ch in _SLUG_UNSAFE else ch for ch in value) or "report"
 
 
 async def _form(request: Request) -> dict[str, str]:
@@ -660,6 +690,52 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
         threading.Thread(target=_work, daemon=True, name="sanad-sync").start()
         return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
+
+    @app.get("/reports", response_class=HTMLResponse)
+    def reports_route(request: Request) -> HTMLResponse:
+        """S3 (ST-34): the list of evaluation runs `scripts/run_evaluation.py`
+        has already written. Read-only -- see ui/reports_screen.py for why
+        there is no "run now" action here."""
+        return templates.TemplateResponse(
+            request, "reports.html", _reports_context(runtime, request)
+        )
+
+    @app.get("/reports/{eval_run_id}", response_class=HTMLResponse)
+    def report_detail_route(request: Request, eval_run_id: str) -> HTMLResponse:
+        detail = reports_screen.report_detail(eval_run_id, db_path=runtime.db_path)
+        return templates.TemplateResponse(
+            request,
+            "report_detail.html",
+            {
+                **_reports_context(runtime, request),
+                "detail": detail,
+                "eval_run_id": eval_run_id,
+            },
+            status_code=404 if detail is None else 200,
+        )
+
+    @app.get("/reports/{eval_run_id}/export")
+    def report_export_route(eval_run_id: str) -> Response:
+        """UX spec 8.2: "the action states what it produces before it
+        runs" -- report_detail.html's link says "Markdown for the report
+        annex" before this is ever followed; this route only produces
+        exactly that. A plain link with no JavaScript (CR-02): the
+        browser's own download handling is the whole delivery mechanism."""
+        detail = reports_screen.report_detail(eval_run_id, db_path=runtime.db_path)
+        if detail is None:
+            return Response(
+                f"No such report: {eval_run_id}",
+                status_code=404,
+                media_type="text/plain; charset=utf-8",
+            )
+        body = reports_screen.export_markdown(detail)
+        run_at_safe = detail.summary.run_at.replace(":", "-")
+        filename = f"sanad-eval-{_slug(detail.summary.workspace_name)}-{run_at_safe}.md"
+        return Response(
+            body,
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     return app
 

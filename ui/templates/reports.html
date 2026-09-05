@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Reports — Sanad{% endblock %}
+
+{#
+  S3, Reports (UX spec 8, PRD F-08). Read-only over runs
+  `scripts/run_evaluation.py` already wrote -- see ui/reports_screen.py
+  for why this screen has no "run now" action and no Loading state.
+#}
+
+{% block main %}
+{% if state == ReportsScreenState.NO_REPORTS %}
+  {#
+    UX spec 8.3: "No reports yet, with one line pointing to how to run an
+    evaluation." Points at the command rather than offering a button,
+    because there is no button -- see ui/reports_screen.py's module
+    docstring.
+  #}
+  <section class="panel panel--empty">
+    <h1>No evaluation reports yet</h1>
+    <p>Reports appear here once the golden-set evaluation has run at
+       least once. Run it from a terminal:</p>
+    <p class="mono">uv run python scripts/run_evaluation.py --workspace-id &lt;id&gt;</p>
+  </section>
+{% else %}
+  <section aria-label="Evaluation reports">
+    <h1>Reports</h1>
+    <table class="file-table">
+      <caption class="sources__title">Evaluation runs</caption>
+      <thead>
+        <tr>
+          <th scope="col">Date</th>
+          <th scope="col">Workspace</th>
+          <th scope="col">Groundedness</th>
+          <th scope="col">Refusals</th>
+          <th scope="col">Sources</th>
+          <th scope="col">Outcome</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in reports %}
+          <tr>
+            <td class="mono">
+              <a href="/reports/{{ r.id }}"
+                 aria-label="Open the {{ r.run_at }} report for {{ r.workspace_name }}">{{ r.run_at }}</a>
+            </td>
+            <td>{{ r.workspace_name }}</td>
+            <td class="mono">{{ r.groundedness_label }}</td>
+            <td class="mono">{{ r.refusal_pass }}/{{ r.refusal_total }}</td>
+            <td class="mono">{{ r.sources_pass }}/{{ r.sources_total }}</td>
+            <td>
+              <span class="status-pill">
+                <span class="status-dot status-dot--{{ 'positive' if r.passed else 'danger' }} status-dot--{{ 'filled-circle' if r.passed else 'filled-square' }}" aria-hidden="true"></span>
+                {{ 'Pass' if r.passed else 'Fail' }}
+              </span>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endif %}
+{% endblock %}
