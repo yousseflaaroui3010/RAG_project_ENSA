@@ -326,6 +326,45 @@ copied.
 
 ## Now
 
+**ST-32 EVALUATION RUNNER BUILT, 2026-09-05, ON BRANCH
+`feat/S3-ST-32-evaluation-runner` (NOT MERGED).** `evaluation/{golden,capture,
+scoring,runner}.py` + `scripts/run_evaluation.py`: loads the golden set, runs
+each question through the real product via `ui.ports` (the decided
+composition root), captures the sections the writer actually read by reusing
+`ui.runs.Run.observed`, judges G2/G3 directly, writes the dated JSON report
+plus `eval_run`/`eval_result` rows in one call. Proven on a fake `Scorer`,
+9 tests, happy + failure paths (`tests/unit/test_evaluation_runner.py`).
+
+**BLOCKED, ESCALATED, NOT CODED AROUND: RAGAS 0.4.3 CANNOT BE IMPORTED.**
+Verified by running it, not from docs: `import ragas` raises
+`ModuleNotFoundError` against this project's pinned `langchain-community`
+(0.4.2) -- `ragas/llms/base.py` imports `langchain_community.chat_models.
+vertexai.ChatVertexAI`, which that version no longer has (upstream bug,
+ragas issues #2741/#2745/#2753). Past that, ragas 0.4.x's current metric API
+wants a provider-native client (`litellm` for Gemini, undeclared) rather than
+`agent.chat.ChatModel`, and `AnswerRelevancy` needs an embeddings client
+nothing has verified against the local e5 embedder. `build_ragas_scorer()`
+raises `ScorerUnavailableError` naming all three, mirroring `ChatUnavailable
+Error`'s pattern -- see `evaluation/scoring.py` and DECISIONS.md 2026-09-05
+for the numbered options. **The CLI command therefore cannot yet produce a
+real report; the machinery around it is complete and tested.**
+
+ALSO FOUND: uncommitted, unrelated WIP already sitting on `main` before this
+branch was cut -- `app.py`, `ui/workspaces_screen.py`, three templates
+(ST-28, S2 workspaces screen, incomplete: `workspaces.html` does not exist
+yet). Left untouched and unstaged; not this story's to fix or commit.
+
+Gate on this branch: `uv run ruff check .` exit 0 on every file this story
+touched (one pre-existing E501 in `app.py` belongs to the WIP above, not to
+this story); `uv run pytest` **634 passed / 2 skipped**, up from 625 on
+main -- 9 new tests. `.env.example` updated for the one new setting
+(`EVAL_GROUNDEDNESS_THRESHOLD`); `test_every_setting_is_documented_in_env_
+example` was red before that fix and green after.
+
+**Note on ownership:** BUILD-PLAN lists ST-32 as YL's row; this session
+built it on MB's clone at the orchestrator's explicit direction. Recorded
+per the team rule that the recorded owner and actual author can drift.
+
 **THE ST-21 AND ST-23 REVIEWS ARE PAID, 2026-09-03. ST-21 CAME BACK CLEAN;
 ST-23 DID NOT.** That is two of the four unpaid reviews closed, and the
 remaining list is now **ST-19 and ST-29's in-scope halves** (see the entry
@@ -2565,6 +2604,14 @@ NONE of this blocks ST-27/ST-28 -- they are fixes to a reference, not to
 shipped code. Fix them in the design, or accept each one in writing.
 
 ## Next (ordered queue, top 3 only)
+
+**UPDATE 2026-09-05: ENTRY 1 IS NO LONGER "NOT STARTED".** See the top of
+"Now" above -- the runner is built and tested on a fake scorer, on branch
+`feat/S3-ST-32-evaluation-runner`, not merged. What is left of entry 1: get
+a real `.env` key (blocker below, unowned by any agent), resolve the RAGAS
+dependency escalation, then run it live and let ST-33/ST-36 follow. The
+survey text below is kept as-is; it was accurate the day it was written and
+is superseded, not wrong.
 
 REWRITTEN 2026-09-03 after #74 merged. Entry C below is done, so the queue
 is now unambiguous and has one name at the top of it:
