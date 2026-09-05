@@ -39,6 +39,16 @@
   --notice: #8A5A00;          /* floor 4.5:1 -- refusal border and lead */
   --danger: #A3271B;          /* floor 4.5:1 -- error panel only */
 
+  /* The other four of 3.5's six sync-status roles (S2, ST-28). `neutral`
+     and `neutral-strong` are deliberately the SAME values as `text-muted`
+     and `text` above -- a status role need not be a new hue, only a role
+     the six-row table can point at, and shape plus label already carry
+     the distinction colour alone is banned from carrying (criterion 10). */
+  --positive: #1E7A34;        /* floor 4.5:1 -- Added */
+  --warning: #8A3D00;         /* floor 4.5:1 -- Skipped */
+  --neutral: #5A626D;         /* floor 4.5:1 -- Unchanged; = text-muted */
+  --neutral-strong: #16191D;  /* floor 4.5:1 -- Removed; = text */
+
   /* 3.1 Layout. */
   --shell-max: 1280px;
   --prose-max: 68ch;
@@ -87,6 +97,10 @@
     --focus: #3BC9DB;
     --notice: #E3B341;
     --danger: #F1958A;
+    --positive: #4CAF63;
+    --warning: #E8963D;
+    --neutral: #9AA2AE;
+    --neutral-strong: #E8EAED;
   }
 }
 
@@ -101,6 +115,10 @@
   --focus: #3BC9DB;
   --notice: #E3B341;
   --danger: #F1958A;
+  --positive: #4CAF63;
+  --warning: #E8963D;
+  --neutral: #9AA2AE;
+  --neutral-strong: #E8EAED;
 }
 
 /* ---- Base ---------------------------------------------------------- */
@@ -497,6 +515,142 @@ input[type="text"]:disabled, select:disabled, button:disabled {
     background: var(--surface);
     border: 3px solid var(--accent);
   }
+}
+
+/* ---- Notice banner (the "moved" message on S1, sync-blocked on S2) - */
+
+/*
+  Was used (class="notice") on S1's "moved" message since ST-27 with no
+  rule to back it -- an unstyled paragraph, found while adding S2's own
+  use of the same class rather than inventing a second one. Fixed here
+  rather than filed separately (boy-scout rule): same left-rule treatment
+  as .disclaimer, which already carries this exact meaning ("something
+  changed, nothing failed").
+*/
+.notice {
+  max-width: var(--prose-max);
+  margin: 0 0 var(--space-16);
+  padding: var(--space-8) var(--space-12);
+  border-left: 3px solid var(--notice);
+  background: var(--surface-raised);
+  font-size: var(--size-meta);
+  line-height: 1.45;
+}
+
+.form-error {
+  color: var(--danger);
+  font-weight: 600;
+  margin: 0 0 var(--space-12);
+}
+
+/* ---- S2 Workspaces and Sync (UX spec 7) ----------------------------- */
+
+.workspaces {
+  display: grid;
+  grid-template-columns: var(--rail) minmax(0, 1fr);
+  gap: var(--space-24);
+  align-items: start;
+}
+@media (max-width: 1023px) {
+  .workspaces { grid-template-columns: minmax(0, 1fr); }
+}
+
+.ws-list__title { margin: 0 0 var(--space-16); }
+.ws-list__items {
+  list-style: none;
+  margin: 0 0 var(--space-16);
+  padding: 0;
+  display: grid;
+  gap: var(--space-8);
+}
+.ws-list__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  text-decoration: none;
+}
+/* UX spec 3.4: "the selected workspace" is named as one of the places
+   border-strong's 3:1 floor is required because a border is the only
+   thing marking the boundary/state -- so the current item's border is
+   what carries "selected", not colour, and aria-current carries it to
+   assistive tech. */
+.ws-list__item.is-current {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  font-weight: 600;
+}
+
+.ws-list__new summary,
+.ws-detail__settings summary {
+  cursor: pointer;
+  color: var(--accent);
+  margin-bottom: var(--space-12);
+}
+
+.ws-detail__head { display: flex; align-items: baseline; gap: var(--space-12); margin-bottom: var(--space-4); }
+.ws-detail__head h2 { margin: 0; }
+.ws-detail__path { color: var(--text-muted); margin: 0 0 var(--space-16); }
+.ws-detail__settings { margin-bottom: var(--space-24); }
+
+.ws-form { max-width: var(--prose-max); margin-bottom: var(--space-16); }
+.ws-form__label { display: block; font-size: var(--size-meta); color: var(--text-muted); margin-bottom: var(--space-4); }
+.ws-form__row { display: flex; gap: var(--space-8); align-items: center; margin-bottom: var(--space-12); }
+.ws-form__row--check { gap: var(--space-8); }
+.ws-form__input { flex: 1; }
+
+.ws-sync { max-width: var(--prose-max); margin: var(--space-16) 0; }
+.ws-sync .stage { margin-bottom: var(--space-12); }
+
+/* ---- FileTable (UX spec 5, 7.2, 7.4) --------------------------------- */
+
+.file-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-12);
+}
+.file-table th, .file-table td {
+  text-align: start;
+  padding: var(--space-8) var(--space-12);
+  border-bottom: 1px solid var(--border);
+}
+.file-table__sort {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+.file-table__sort:hover { color: var(--accent); }
+
+/* Six statuses, shape plus label plus colour (3.5): the ROLE class sets
+   the colour via `color`, the SHAPE class draws with `currentColor`, so
+   neither can be applied without the other going along -- exactly what
+   "any one of the three can be removed and the table still reads" needs,
+   since the text label sits right beside this and never depends on it. */
+.status-pill { display: inline-flex; align-items: center; gap: var(--space-8); }
+.status-dot { width: 10px; height: 10px; display: inline-block; }
+
+.status-dot--positive { color: var(--positive); }
+.status-dot--notice { color: var(--notice); }
+.status-dot--neutral { color: var(--neutral); }
+.status-dot--danger { color: var(--danger); }
+.status-dot--neutral-strong { color: var(--neutral-strong); }
+.status-dot--warning { color: var(--warning); }
+
+.status-dot--filled-circle { background: currentColor; border-radius: 50%; }
+.status-dot--hollow-circle { border: 2px solid currentColor; border-radius: 50%; }
+.status-dot--filled-square { background: currentColor; }
+.status-dot--hollow-square { border: 2px solid currentColor; }
+.status-dot--dash { background: currentColor; height: 2px; margin-block-start: 4px; border-radius: 1px; }
+/* Known, minor RTL gap: a physical direction rather than a logical one,
+   left because the shape is decorative (shape + label + colour already
+   carry the status three ways over) and a logical gradient keyword is
+   not the reliable cross-browser choice a floor-4.5:1 text colour is. */
+.status-dot--half-circle {
+  border-radius: 50%;
+  background: linear-gradient(to right, currentColor 50%, transparent 50%);
 }
 
 /* ---- Below 768px (3.1) --------------------------------------------- */

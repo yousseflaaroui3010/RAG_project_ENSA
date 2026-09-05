@@ -43,6 +43,15 @@ FLOORS = {
     "focus": 3.0,
     "notice": 4.5,
     "danger": 4.5,
+    # S2's other four status roles (UX spec 3.5, ST-28): Added, Skipped,
+    # Unchanged and Removed. Held to the same 4.5:1 floor as notice/danger
+    # rather than 1.4.11's 3:1 non-text floor, for consistency with those
+    # two and because a future use of the role as text (not only the
+    # status dot) should not need a second, lower-floor colour.
+    "positive": 4.5,
+    "warning": 4.5,
+    "neutral": 4.5,
+    "neutral-strong": 4.5,
 }
 
 

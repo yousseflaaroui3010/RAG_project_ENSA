@@ -136,6 +136,73 @@
   }
   wirePassages(document);
 
+  /* ---- S2 Sync progress: poll the real count (UX spec 7.2, 7.4) ----- */
+
+  /*
+    Placed BEFORE the S1-only early return just below (this file is
+    loaded on every screen, and /workspaces has no `[data-stage]` /
+    `[data-transcript]` for that guard to find). Same idiom as the chat
+    poll further down, and the same reason it exists: the <noscript>
+    meta-refresh in base.html already keeps a no-JS page true every 2
+    seconds, so this only has to stop the SAME page reloading out from
+    under the reader. "Progress is announced at meaningful intervals
+    rather than on every tick" (7.4) is why this polls every 2000ms rather
+    than chat's 700ms -- a file count changes far less often than a token
+    stream, and re-announcing an unchanged number would be noise.
+  */
+  var syncBlock = document.querySelector("[data-sync-progress]");
+  if (syncBlock) {
+    var workspaceId = syncBlock.getAttribute("data-workspace-id");
+    var SYNC_POLL_MS = 2000;
+
+    function syncTick() {
+      fetch(
+        "/workspaces/panel?ws=" + encodeURIComponent(workspaceId || ""),
+        { headers: { "X-Requested-With": "fetch" } }
+      )
+        .then(function (response) {
+          return response.ok ? response.text() : null;
+        })
+        .then(function (html) {
+          if (html === null) {
+            window.setTimeout(syncTick, SYNC_POLL_MS);
+            return;
+          }
+          var fresh = new DOMParser().parseFromString(html, "text/html");
+          var freshProgress = fresh.querySelector("[data-sync-progress]");
+          if (!freshProgress) {
+            // The run finished: the report (or an error panel) replaced
+            // it server-side. Swap the whole detail region in once,
+            // rather than diffing a shape that has now changed under us.
+            var freshDetail = fresh.querySelector(".ws-detail");
+            var liveDetail = document.querySelector(".ws-detail");
+            if (freshDetail && liveDetail) {
+              liveDetail.replaceWith(document.importNode(freshDetail, true));
+            } else {
+              window.location.reload();
+            }
+            return;
+          }
+          var freshLabel = freshProgress.querySelector(".stage__label");
+          var label = syncBlock.querySelector(".stage__label");
+          if (
+            label &&
+            freshLabel &&
+            label.textContent.trim() !== freshLabel.textContent.trim()
+          ) {
+            label.textContent = freshLabel.textContent.trim();
+          }
+          window.setTimeout(syncTick, SYNC_POLL_MS);
+        })
+        .catch(function () {
+          // A failed poll is not a failed Sync: the run continues on the
+          // server regardless of whether this tab heard back.
+          window.setTimeout(syncTick, SYNC_POLL_MS);
+        });
+    }
+    window.setTimeout(syncTick, SYNC_POLL_MS);
+  }
+
   /* ---- Loading: poll the real stage (UX spec 6.3) ------------------ */
 
   /*
