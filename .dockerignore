@@ -1,0 +1,33 @@
+# Keep the build context small and the image clean. Anything here is
+# either rebuilt inside the image, machine-specific, or a secret.
+
+.git
+.github
+.venv
+.pytest_cache
+.ruff_cache
+__pycache__
+**/__pycache__
+*.pyc
+
+# Stateful and git-ignored on the host too. The container gets its own
+# volume at /app/data; copying a laptop's index into the image would bake
+# one machine's workspace into every deploy.
+data/
+
+# ...EXCEPT the source documents. A deployed instance has no folder to
+# point a workspace at and no upload button, so without these it comes up
+# empty and cannot be given anything. They are copied to /app/seed-corpus,
+# never into the volume -- see the Dockerfile. Three PDFs, ~1.8 MB.
+!data/corpus/
+
+# Secrets never enter an image layer. Compose passes .env at run time via
+# env_file; Railway passes the same keys as service variables.
+.env
+.env.*
+
+# Not needed at run time.
+docs/
+tests/
+.claude/
+claude-setup.zip

@@ -1,0 +1,32 @@
+# ST-05: the local-first case (ADR-10). `docker compose up` serves Sanad
+# on http://127.0.0.1:8000 with the documents, the registry and the index
+# kept in a named volume so a rebuild does not lose an indexed workspace.
+#
+# The published port is bound to 127.0.0.1 ON THE HOST, not 0.0.0.0. That
+# is deliberate and it is the same rule app.py states for itself: there is
+# no authentication on any route (ADR-13 / LD-07). Publishing this on a
+# LAN hands every document in the workspace to anyone on that network.
+
+services:
+  sanad:
+    build: .
+    image: sanad:local
+    # host:container -- 127.0.0.1 on the host side keeps it off the LAN.
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Inside the container the app must bind all interfaces, or the
+      # published port above reaches nothing. The host-side bind above is
+      # what actually limits who can connect.
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "8000"
+    volumes:
+      # Everything git-ignored and stateful: the corpus, sanad.db, the
+      # Qdrant collection, the parent store, the evaluation reports.
+      - sanad-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  sanad-data:

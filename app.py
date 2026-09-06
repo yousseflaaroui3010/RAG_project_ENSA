@@ -47,6 +47,7 @@ from agent.ports import AgentPorts
 from config import get_settings
 from db import repo
 from ui import reports_screen, screen, workspaces_screen
+from ui.access_gate import AccessGate
 from ui.conversation import Conversation, MessageKind
 from ui.ports import build_default_ports
 from ui.runs import Run
@@ -424,6 +425,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     app = FastAPI(title="Sanad", lifespan=lifespan)
     app.state.runtime = runtime
+
+    # Installed ALWAYS, active only when a password is configured. Adding
+    # it unconditionally is the point: a gate you have to remember to
+    # switch on at deploy time is a gate that gets forgotten exactly once.
+    # With `access_password` empty -- the default, and what every test and
+    # every laptop gets -- this middleware passes every request straight
+    # through, so ADR-13's local-first behaviour is unchanged.
+    app.add_middleware(AccessGate, password=get_settings().access_password)
+
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     templates = Jinja2Templates(directory=str(TEMPLATES))
 

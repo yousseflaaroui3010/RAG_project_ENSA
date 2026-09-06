@@ -182,6 +182,15 @@ class Settings(BaseSettings):
     server_host: str = "127.0.0.1"
     server_port: int = 8000
 
+    # Shared password in front of every route, for a PUBLISHED container
+    # only. Empty is the default and means NO GATE, so the local-first
+    # behaviour ADR-13 describes is exactly unchanged; see
+    # ui/access_gate.py for what this does and, more importantly, what it
+    # does not do. Set it whenever `server_host` is not a loopback
+    # address, because at that point "no authentication" stops being a
+    # design decision and becomes an open door.
+    access_password: str = ""
+
     # --- Workspace validation (ST-11) ---
     # Mirrors docs/phase2/openapi.yaml WorkspaceCreate/WorkspaceUpdate
     # `name` constraints (minLength/maxLength). Read from here in
