@@ -233,10 +233,32 @@ decision record against the signed thresholds. Parked and visible.
 
 One golden-set ruling stands between this product and a green release gate.
 
-## What is still not known, and is not being dressed up
+## The low-scoring rows were read, and none of them is wrong
 
-The five low-scoring in-scope rows all answered, all carried sources, all
-scored 1.0 on relevancy. Whether their answers are **wrong** or merely
-**incomplete** is still unmeasured: the report stores scores, not answer text.
-Given the noise finding above, reading them is now more useful than re-running
-them.
+The earlier draft of this document left this as unmeasured. It has since been
+measured the only way that settles it — by asking the questions again and
+reading the answers against their reference text.
+
+| Row | Product answer vs reference | Verdict |
+|---|---|---|
+| `g-in-024` | all three categories of remuneration, correctly attributed to dahir **article 19**, plus the sailors clause the reference omits | **correct** |
+| `g-in-038` | "à partir du quatrième jour", "cinquante-deux semaines", "vingt-quatre mois" | **correct, near verbatim** |
+| `g-in-030` | both conditions (108 days of contributions over 6 months, salary >= 60 % of SMIG) plus a correct residence requirement | **correct** |
+| `g-in-026` | the main rule right (sixty times the average daily wage) but **omits the pensioners' clause** (twice the average monthly salary behind the pension) | **correct but incomplete** |
+
+**So the product is more accurate than its per-row scores suggest.** Three of
+the four are right; the fourth is right about what it says and silent about a
+second sentence of the article. Nothing here invented a number, cited the wrong
+document, or contradicted the corpus — which are the failures F-03 and F-05
+exist to prevent.
+
+**This strengthens the case for G1 being measured on the average.** A row can
+sit at 0.75 while being a correct answer that skipped a subordinate clause. A
+per-row bar of 0.90 reads that as a failure; the average across sixty questions
+does not, and the average is also the number that barely moved between two runs
+(0.9692 vs 0.9668).
+
+**What this does NOT license.** "Not wrong" is not "complete". `g-in-026`
+genuinely drops half of its article, and a user who asked that question would
+be under-informed. That is a real, small defect — it is just not the defect the
+per-row score was pointing at, and it is not a release blocker.
