@@ -14,3 +14,16 @@ docs/journal/DECISIONS.md     merge=union
 # BUILD-STATE.md is deliberately NOT union. It is a mutable snapshot, not an
 # append-only log, so unioning it would interleave two contradictory pictures
 # of the same moment. It stays a manual resolve: rewrite it to the truth.
+
+# LINE ENDINGS FOR THINGS LINUX EXECUTES, and this is not cosmetic.
+# `docker-entrypoint.sh` runs as the container's ENTRYPOINT. Checked out on
+# Windows with git's default conversion it gains CRLF, and the kernel then
+# reads the shebang as `/bin/sh\r` and refuses to start the container with
+# "bad interpreter: /bin/sh^M". The image builds perfectly and dies on boot,
+# on ONE developer's machine only -- this repo is cloned on two, so that
+# failure would land on whichever of them git converted the file for.
+# Caught when git announced the conversion while committing ST-05.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+docker-compose.yml text eol=lf
+.dockerignore   text eol=lf
