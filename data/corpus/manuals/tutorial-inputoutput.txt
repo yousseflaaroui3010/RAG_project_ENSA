@@ -1,0 +1,547 @@
+7. Les entrées/sorties
+**********************
+
+Il existe bien des moyens de présenter les sorties d'un programme ;
+les données peuvent être affichées sous une forme lisible par un être
+humain ou sauvegardées dans un fichier pour une utilisation future. Ce
+chapitre présente quelques possibilités.
+
+
+7.1. Formatage de données
+=========================
+
+So far we've encountered two ways of writing values: *expression
+statements* and the "print()" function.  (A third way is using the
+"write()" method of file objects; the standard output file can be
+referenced as "sys.stdout". See the Library Reference for more
+information on this.)
+
+Souvent vous voudrez plus de contrôle sur le formatage de vos sorties
+et aller au delà d’un affichage de valeurs séparées par des espaces.
+Il y a plusieurs moyens de les formater.
+
+* Pour utiliser les expressions formatées, commencez une chaine de
+  caractère avec "f" ou "F" avant d’ouvrir vos guillemets doubles ou
+  triples. Dans ces chaines de caractère, vous pouvez entrer des
+  expressions Python entre les caractères "{" et "}" qui peuvent
+  contenir des variables ou des valeurs littérales.
+
+     >>> year = 2016
+     >>> event = 'Referendum'
+     >>> f'Results of the {year} {event}'
+     'Results of the 2016 Referendum'
+
+* The "str.format()" method of strings requires more manual effort.
+  You'll still use "{" and "}" to mark where a variable will be
+  substituted and can provide detailed formatting directives, but
+  you'll also need to provide the information to be formatted. In the
+  following code block there are two examples of how to format
+  variables:
+
+     >>> yes_votes = 42_572_654
+     >>> total_votes = 85_705_149
+     >>> percentage = yes_votes / total_votes
+     >>> '{:-9} YES votes  {:2.2%}'.format(yes_votes, percentage)
+     ' 42572654 YES votes  49.67%'
+
+  Notice how the "yes_votes" are padded with spaces and a negative
+  sign only for negative numbers. The example also prints "percentage"
+  multiplied by 100, with 2 decimal places and followed by a percent
+  sign (see Format specification mini-language for details).
+
+* Enfin, vous pouvez construire des concaténations de tranches de
+  chaînes vous-même, et ainsi créer n'importe quel agencement. Le type
+  des chaînes a des méthodes utiles pour aligner des chaînes dans une
+  largeur de taille fixe.
+
+Lorsque qu'un affichage basique suffit, pour afficher simplement une
+variable pour en inspecter le contenu, vous pouvez convertir n'importe
+quelle valeur en chaîne de caractères en utilisant la fonction
+"repr()" ou la fonction "str()".
+
+La fonction "str()" est destinée à représenter les valeurs sous une
+forme lisible par un être humain, alors que la fonction "repr()" est
+destinée à générer des représentations qui puissent être lues par
+l'interpréteur (ou qui lèvera une "SyntaxError" s'il n'existe aucune
+syntaxe équivalente). Pour les objets qui n'ont pas de représentation
+humaine spécifique, "str()" renvoie la même valeur que "repr()".
+Beaucoup de valeurs, comme les nombres ou les structures telles que
+les listes ou les dictionnaires, ont la même représentation en
+utilisant les deux fonctions. Les chaînes de caractères, en
+particulier, ont deux représentations distinctes.
+
+Quelques exemples :
+
+   >>> s = 'Hello, world.'
+   >>> str(s)
+   'Hello, world.'
+   >>> repr(s)
+   "'Hello, world.'"
+   >>> str(1/7)
+   '0.14285714285714285'
+   >>> x = 10 * 3.25
+   >>> y = 200 * 200
+   >>> s = 'The value of x is ' + repr(x) + ', and y is ' + repr(y) + '...'
+   >>> print(s)
+   The value of x is 32.5, and y is 40000...
+   >>> # The repr() of a string adds string quotes and backslashes:
+   >>> hello = 'hello, world\n'
+   >>> hellos = repr(hello)
+   >>> print(hellos)
+   'hello, world\n'
+   >>> # The argument to repr() may be any Python object:
+   >>> repr((x, y, ('spam', 'eggs')))
+   "(32.5, 40000, ('spam', 'eggs'))"
+
+The "string" module contains support for a simple templating approach
+based upon regular expressions, via "string.Template". This offers yet
+another way to substitute values into strings, using placeholders like
+"$x" and replacing them with values from a dictionary. This syntax is
+easy to use, although it offers much less control for formatting.
+
+
+7.1.1. Les chaines de caractères formatées (*f-strings*)
+--------------------------------------------------------
+
+Les chaines de caractères formatées (aussi appelées f-strings) vous
+permettent d’inclure la valeur d’expressions Python dans des chaines
+de caractères en les préfixant avec "f" ou "F" et écrire des
+expressions comme "{expression}".
+
+L'expression peut être suivie d'un spécificateur de format. Cela
+permet un plus grand contrôle sur la façon dont la valeur est rendue.
+L'exemple suivant arrondit pi à trois décimales après la virgule :
+
+   >>> import math
+   >>> print(f'The value of pi is approximately {math.pi:.3f}.')
+   The value of pi is approximately 3.142.
+
+Donner un entier après le "':'" indique la largeur minimale de ce
+champ en nombre de caractères. C'est utile pour faire de jolis
+tableaux
+
+   >>> table = {'Sjoerd': 4127, 'Jack': 4098, 'Dcab': 7678}
+   >>> for name, phone in table.items():
+   ...     print(f'{name:10} ==> {phone:10d}')
+   ...
+   Sjoerd     ==>       4127
+   Jack       ==>       4098
+   Dcab       ==>       7678
+
+D’autres modificateurs peuvent être utilisés pour convertir la valeur
+avant son formatage. "'!a'" applique "ascii()", "'!s'" applique
+"str()", et "'!r'" applique "repr()" :
+
+   >>> animals = 'eels'
+   >>> print(f'My hovercraft is full of {animals}.')
+   My hovercraft is full of eels.
+   >>> print(f'My hovercraft is full of {animals!r}.')
+   My hovercraft is full of 'eels'.
+
+Le spécificateur "=" peut être utilisé pour développer une expression
+en « texte de l'expression, un signe égal, puis la représentation de
+l'expression évaluée » :
+
+>>> bugs = 'roaches'
+>>> count = 13
+>>> area = 'living room'
+>>> print(f'Debugging {bugs=} {count=} {area=}')
+Debugging bugs='roaches' count=13 area='living room'
+
+Lisez self-documenting expressions pour davantage d'information sur le
+spécificateur "=". Pour une référence sur ces spécifications de
+formats, voir le guide de référence pour le Format specification mini-
+language.
+
+
+7.1.2. La méthode de chaine de caractères "format()"
+----------------------------------------------------
+
+L'utilisation de base de la méthode "str.format()" ressemble à ceci :
+
+   >>> print('We are the {} who say "{}!"'.format('knights', 'Ni'))
+   We are the knights who say "Ni!"
+
+Les accolades et les caractères à l'intérieur (appelés les champs de
+formatage) sont remplacés par les objets passés en paramètres à la
+méthode "str.format()". Un nombre entre accolades se réfère à la
+position de l'objet passé à la méthode "str.format()".
+
+   >>> print('{0} and {1}'.format('spam', 'eggs'))
+   spam and eggs
+   >>> print('{1} and {0}'.format('spam', 'eggs'))
+   eggs and spam
+
+Si des arguments nommés sont utilisés dans la méthode "str.format()",
+leurs valeurs sont utilisées en se basant sur le nom des arguments
+
+   >>> print('This {food} is {adjective}.'.format(
+   ...       food='spam', adjective='absolutely horrible'))
+   This spam is absolutely horrible.
+
+Les arguments positionnés et nommés peuvent être combinés
+arbitrairement :
+
+   >>> print('The story of {0}, {1}, and {other}.'.format('Bill', 'Manfred',
+   ...                                                    other='Georg'))
+   The story of Bill, Manfred, and Georg.
+
+Si vous avez une chaîne de formatage vraiment longue que vous ne
+voulez pas découper, il est possible de référencer les variables à
+formater par leur nom plutôt que par leur position. Utilisez
+simplement un dictionnaire et la notation entre crochets "'[]'" pour
+accéder aux clés
+
+   >>> table = {'Sjoerd': 4127, 'Jack': 4098, 'Dcab': 8637678}
+   >>> print('Jack: {0[Jack]:d}; Sjoerd: {0[Sjoerd]:d}; '
+   ...       'Dcab: {0[Dcab]:d}'.format(table))
+   Jack: 4098; Sjoerd: 4127; Dcab: 8637678
+
+Vous pouvez obtenir le même résultat en passant le dictionnaire
+"table" comme des arguments nommés en utilisant la notation "**"
+
+   >>> table = {'Sjoerd': 4127, 'Jack': 4098, 'Dcab': 8637678}
+   >>> print('Jack: {Jack:d}; Sjoerd: {Sjoerd:d}; Dcab: {Dcab:d}'.format(**table))
+   Jack: 4098; Sjoerd: 4127; Dcab: 8637678
+
+This is particularly useful in combination with the built-in function
+"vars()", which returns a dictionary containing all local variables:
+
+   >>> table = {k: str(v) for k, v in vars().items()}
+   >>> message = " ".join([f'{k}: ' + '{' + k +'};' for k in table.keys()])
+   >>> print(message.format(**table))
+   __name__: __main__; __doc__: None; __package__: None; __loader__: ...
+
+À titre d’exemple, les lignes suivantes produisent un ensemble de
+colonnes alignées de façon ordonnée donnant les entiers, leurs carrés
+et leurs cubes :
+
+   >>> for x in range(1, 11):
+   ...     print('{0:2d} {1:3d} {2:4d}'.format(x, x*x, x*x*x))
+   ...
+    1   1    1
+    2   4    8
+    3   9   27
+    4  16   64
+    5  25  125
+    6  36  216
+    7  49  343
+    8  64  512
+    9  81  729
+   10 100 1000
+
+Pour avoir une description complète du formatage des chaînes de
+caractères avec la méthode "str.format()", lisez : Format string
+syntax.
+
+
+7.1.3. Formatage de chaînes à la main
+-------------------------------------
+
+Voici le même tableau de carrés et de cubes, formaté à la main :
+
+   >>> for x in range(1, 11):
+   ...     print(repr(x).rjust(2), repr(x*x).rjust(3), end=' ')
+   ...     # Note use of 'end' on previous line
+   ...     print(repr(x*x*x).rjust(4))
+   ...
+    1   1    1
+    2   4    8
+    3   9   27
+    4  16   64
+    5  25  125
+    6  36  216
+    7  49  343
+    8  64  512
+    9  81  729
+   10 100 1000
+
+(Remarquez que l'espace séparant les colonnes vient de la manière dont
+"print()" fonctionne : il ajoute toujours des espaces entre ses
+arguments.)
+
+La méthode "str.rjust()" des chaînes de caractères justifie à droite
+une chaîne dans un champ d'une largeur donnée en ajoutant des espaces
+sur la gauche. Il existe des méthodes similaires "str.ljust()" et
+"str.center()". Ces méthodes n'écrivent rien, elles renvoient
+simplement une nouvelle chaîne. Si la chaîne passée en paramètre est
+trop longue, elle n'est pas tronquée mais renvoyée sans modification ;
+cela peut chambouler votre mise en page mais c'est souvent préférable
+à l'alternative, qui pourrait mentir sur une valeur (et si vous voulez
+vraiment tronquer vos valeurs, vous pouvez toujours utiliser une
+tranche, comme dans "x.ljust(n)[:n]").
+
+Il existe une autre méthode, "str.zfill()", qui comble une chaîne
+numérique à gauche avec des zéros. Elle comprend les signes plus et
+moins :
+
+   >>> '12'.zfill(5)
+   '00012'
+   >>> '-3.14'.zfill(7)
+   '-003.14'
+   >>> '3.14159265359'.zfill(5)
+   '3.14159265359'
+
+
+7.1.4. Anciennes méthodes de formatage de chaînes
+-------------------------------------------------
+
+The % operator (modulo) can also be used for string formatting. Given
+"format % values" (where *format* is a string), "%" conversion
+specifications in *format* are replaced with zero or more elements of
+*values*. This operation is commonly known as string interpolation.
+For example:
+
+   >>> import math
+   >>> print('The value of pi is approximately %5.3f.' % math.pi)
+   The value of pi is approximately 3.142.
+
+Vous trouvez plus d'informations dans la section Formatage de chaines
+à la printf.
+
+
+7.2. Lecture et écriture de fichiers
+====================================
+
+La fonction "open()" renvoie un *objet fichier* et est le plus souvent
+utilisée avec deux arguments positionnels et un argument nommé :
+"open(filename, mode, encoding=None)"
+
+   >>> f = open('workfile', 'w', encoding="utf-8")
+
+Le premier argument est une chaîne contenant le nom du fichier. Le
+deuxième argument est une autre chaîne contenant quelques caractères
+décrivant la façon dont le fichier est utilisé. *mode* peut être "'r'"
+quand le fichier n'est accédé qu'en lecture, "'w'" en écriture
+seulement (un fichier existant portant le même nom sera alors écrasé)
+et "'a'" ouvre le fichier en mode ajout (toute donnée écrite dans le
+fichier est automatiquement ajoutée à la fin). "'r+'" ouvre le fichier
+en mode lecture/écriture. L'argument *mode* est optionnel, sa valeur
+par défaut est "'r'".
+
+Normalement, les fichiers sont ouverts en *mode texte*, c'est-à-dire
+que vous lisez et écrivez des chaînes de caractères depuis et dans ce
+fichier, suivant un encodage donné via *encoding*. Si *encoding* n'est
+pas spécifié, l'encodage par défaut dépend de la plateforme (voir
+"open()"). UTF-8 étant le standard moderne de facto,
+"encoding="utf-8"" est recommandé à moins que vous ne sachiez que vous
+devez utiliser un autre encodage. L’ajout d’un "'b'" au mode ouvre le
+fichier en *mode binaire*. Les données en mode binaire sont lues et
+écrites sous forme d’objets "bytes". Vous ne pouvez pas spécifier
+*encoding* lorsque vous ouvrez un fichier en mode binaire.
+
+En mode texte, le comportement par défaut, à la lecture, est de
+convertir les fin de lignes spécifiques à la plateforme ("\n" sur
+Unix, "\r\n" sur Windows, etc.) en simples "\n". Lors de l'écriture,
+le comportement par défaut est d'appliquer l'opération inverse : les
+"\n" sont convertis dans leur équivalent sur la plateforme courante.
+Ces modifications effectuées automatiquement sont normales pour du
+texte mais détérioreraient des données binaires contenues dans un
+fichier de type "JPEG" ou "EXE". Soyez particulièrement attentifs à
+ouvrir ces fichiers binaires en mode binaire.
+
+C'est une bonne pratique d'utiliser le mot-clé "with" lorsque vous
+traitez des fichiers. Vous fermez ainsi toujours correctement le
+fichier, même si une exception est levée. Utiliser "with" est aussi
+beaucoup plus court que d'utiliser l'équivalent avec des blocs
+"try"…"finally" :
+
+   >>> with open('workfile', encoding="utf-8") as f:
+   ...     read_data = f.read()
+
+   >>> # We can check that the file has been automatically closed.
+   >>> f.closed
+   True
+
+Si vous n'utilisez pas le mot clé "with", vous devez appeler
+"f.close()" pour fermer le fichier, et ainsi immédiatement libérer les
+ressources qu'il utilise.
+
+Avertissement:
+
+  Appeler "f.write()" sans utiliser le mot clé "with" ni appeler
+  "f.close()" **pourrait** mener à une situation où les arguments de
+  "f.write()" ne seraient pas complètement écrits sur le disque, même
+  si le programme se termine avec succès.
+
+Après la fermeture du fichier, que ce soit *via* une instruction
+"with" ou en appelant "f.close()", toute tentative d'utilisation de
+l'objet fichier échoue systématiquement.
+
+   >>> f.close()
+   >>> f.read()
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   ValueError: I/O operation on closed file.
+
+
+7.2.1. Méthodes des objets fichiers
+-----------------------------------
+
+Les derniers exemples de cette section supposent qu'un objet fichier
+appelé "f" a déjà été créé.
+
+Pour lire le contenu d'un fichier, appelez "f.read(taille)", cette
+dernière lit une certaine quantité de données et la renvoie sous forme
+de chaîne (en mode texte) ou d'objet *bytes* (en mode binaire).
+*taille* est un argument numérique facultatif. Lorsque *taille* est
+omis ou négatif, la totalité du contenu du fichier sera lue et
+renvoyée ; c'est votre problème si le fichier est deux fois plus grand
+que la mémoire de votre machine. Sinon, au maximum *taille* caractères
+(en mode texte) ou *taille* octets (en mode binaire) sont lus et
+renvoyés. Si la fin du fichier est atteinte, "f.read()" renvoie une
+chaîne vide ("''").
+
+   >>> f.read()
+   'This is the entire file.\n'
+   >>> f.read()
+   ''
+
+"f.readline()" lit une seule ligne du fichier ; un caractère de fin de
+ligne ("\n") est laissé à la fin de la chaîne. Il n'est omis que sur
+la dernière ligne du fichier si celui-ci ne se termine pas un
+caractère de fin de ligne. Ceci permet de rendre la valeur de retour
+non ambigüe : si "f.readline()" renvoie une chaîne vide, c'est que la
+fin du fichier a été atteinte, alors qu'une ligne vide est représentée
+par "'\n'" (une chaîne de caractères ne contenant qu'une fin de
+ligne).
+
+   >>> f.readline()
+   'This is the first line of the file.\n'
+   >>> f.readline()
+   'Second line of the file\n'
+   >>> f.readline()
+   ''
+
+Pour lire ligne à ligne, vous pouvez aussi boucler sur l'objet
+fichier. C'est plus efficace en termes de gestion mémoire, plus rapide
+et donne un code plus simple :
+
+   >>> for line in f:
+   ...     print(line, end='')
+   ...
+   This is the first line of the file.
+   Second line of the file
+
+Pour construire une liste avec toutes les lignes d'un fichier, il est
+aussi possible d'utiliser "list(f)" ou "f.readlines()".
+
+"f.write(chaine)" écrit le contenu de *chaine* dans le fichier et
+renvoie le nombre de caractères écrits.
+
+   >>> f.write('This is a test\n')
+   15
+
+Les autres types doivent être convertis, soit en une chaîne (en mode
+texte), soit en objet *bytes* (en mode binaire) avant de les écrire :
+
+   >>> value = ('the answer', 42)
+   >>> s = str(value)  # convert the tuple to string
+   >>> f.write(s)
+   18
+
+"f.tell()" renvoie un entier indiquant la position actuelle dans le
+fichier, mesurée en octets à partir du début du fichier lorsque le
+fichier est ouvert en mode binaire, ou un nombre obscur en mode texte.
+
+Pour modifier la position dans le fichier, utilisez "f.seek(décalage,
+origine)". La position est calculée en ajoutant *décalage* à un point
+de référence ; ce point de référence est déterminé par l'argument
+*origine* : la valeur 0 pour le début du fichier, 1 pour la position
+actuelle et 2 pour la fin du fichier. *origine* peut être omis et sa
+valeur par défaut est 0 (Python utilise le début du fichier comme
+point de référence).
+
+   >>> f = open('workfile', 'rb+')
+   >>> f.write(b'0123456789abcdef')
+   16
+   >>> f.seek(5)      # Go to the 6th byte in the file
+   5
+   >>> f.read(1)
+   b'5'
+   >>> f.seek(-3, 2)  # Go to the 3rd byte before the end
+   13
+   >>> f.read(1)
+   b'd'
+
+Sur un fichier en mode texte (ceux ouverts sans "b" dans le mode),
+seuls les changements de position relatifs au début du fichier sont
+autorisés (sauf une exception : se rendre à la fin du fichier avec
+"seek(0, 2)") et les seules valeurs possibles pour le paramètre
+*décalage* sont les valeurs renvoyées par "f.tell()", ou zéro. Toute
+autre valeur pour le paramètre *décalage* produit un comportement
+indéfini.
+
+File objects have some additional methods, such as "isatty()" and
+"truncate()" which are less frequently used; consult the Library
+Reference for a complete guide to file objects.
+
+
+7.2.2. Sauvegarde de données structurées avec le module "json"
+--------------------------------------------------------------
+
+Strings can easily be written to and read from a file.  Numbers take a
+bit more effort, since the "read()" method only returns strings, which
+will have to be passed to a function like "int()", which takes a
+string like "'123'" and returns its numeric value 123.  When you want
+to save more complex data types like nested lists and dictionaries,
+parsing and serializing by hand becomes complicated.
+
+Plutôt que de passer son temps à écrire et déboguer du code permettant
+de sauvegarder des types de données compliqués, Python permet
+d'utiliser JSON (*JavaScript Object Notation*), un format répandu de
+représentation et d'échange de données. Le module standard appelé
+"json" peut transformer des données hiérarchisées Python en une
+représentation sous forme de chaîne de caractères. Ce processus est
+nommé *sérialiser*. Reconstruire les données à partir de leur
+représentation sous forme de chaîne est appelé *déserialiser*. Entre
+sa sérialisation et sa dé-sérialisation, la chaîne représentant les
+données peut avoir été stockée ou transmise à une autre machine.
+
+Note:
+
+  Le format JSON est couramment utilisé dans les applications modernes
+  pour échanger des données. Beaucoup de développeurs le maîtrisent,
+  ce qui en fait un format de prédilection pour l'interopérabilité.
+
+Si vous avez un objet "x", vous pouvez voir sa représentation JSON en
+tapant simplement :
+
+   >>> import json
+   >>> x = [1, 'simple', 'list']
+   >>> json.dumps(x)
+   '[1, "simple", "list"]'
+
+Une variante de la fonction "dumps()", nommée "dump()", sérialise
+simplement l'objet donné vers un *text file*. Donc si "f" est un *text
+file* ouvert en écriture, il est possible de faire :
+
+   json.dump(x, f)
+
+Pour reconstruire l'objet, si "f" est cette fois un *binary file* ou
+un *text file* ouvert en lecture :
+
+   x = json.load(f)
+
+Note:
+
+  Les fichiers JSON doivent être encodés en UTF-8. Utilisez
+  "encoding="utf-8"" lorsque vous ouvrez un fichier JSON en tant que
+  *fichier texte*, que ce soit en lecture ou en écriture.
+
+Cette méthode de sérialisation peut sérialiser des listes et des
+dictionnaires. Mais sérialiser d'autres types de données requiert un
+peu plus de travail. La documentation du module "json" explique
+comment faire.
+
+Voir aussi:
+
+  Le module "pickle"
+
+  Au contraire de JSON, *pickle* est un protocole permettant la
+  sérialisation d'objets Python arbitrairement complexes. Il est donc
+  spécifique à Python et ne peut pas être utilisé pour communiquer
+  avec d'autres langages. Il est aussi, par défaut, une source de
+  vulnérabilité : dé-sérialiser des données au format *pickle*
+  provenant d'une source malveillante et particulièrement habile peut
+  mener à exécuter du code arbitraire.

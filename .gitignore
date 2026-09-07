@@ -5,7 +5,32 @@
 secrets/
 
 # --- Runtime data, documents, and generated stores (Sanad) ---
-data/
+# `data/*` and NOT `data/`, deliberately. Git cannot re-include anything
+# inside an excluded DIRECTORY -- a `!data/corpus/` under a plain `data/`
+# rule is silently dead, which is exactly what happened on the first
+# attempt at this (`git check-ignore` still reported the PDFs ignored by
+# line 8). Excluding the CONTENTS leaves the directory itself visible, so
+# the negation below can take effect.
+data/*
+
+# ...EXCEPT the source corpus, which is INPUT rather than generated state.
+# Everything else under data/ is rebuilt by a Sync and is specific to one
+# laptop: the Qdrant collection, the SQLite registry, the parent store, the
+# evaluation reports. These three PDFs are none of those. They are the
+# documents the product answers from, they are identical on both machines,
+# and ST-07 logged their source and date.
+#
+# Un-ignored on 2026-09-06 because a deployed instance could not otherwise
+# be given any documents AT ALL. `railway up` uploads a GIT-FILTERED
+# snapshot, so a git-ignored corpus never reaches the builder -- four
+# deploys failed on exactly that. The alternative routes were worse: a
+# `.railwayignore` cannot un-ignore a git-ignored path (Railway applies
+# both), and `railway volume files upload` needs an SSH key registered to
+# the account. Committing 2.2 MB of source documents makes every deploy
+# self-contained on any machine, for both teammates, with no side channel.
+!data/corpus/
+!data/corpus/**
+
 **/qdrant_storage/
 **/parent_store/
 *.sqlite

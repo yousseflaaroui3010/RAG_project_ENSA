@@ -1,0 +1,40 @@
+# What `railway up` uploads to the build.
+#
+# WHY THIS FILE EXISTS. `railway up` honours `.gitignore`, and `data/` is
+# git-ignored on this project (the corpus, the SQLite registry, the Qdrant
+# collection, the parent store and the reports all live there). That meant
+# the three corpus PDFs never reached Railway's builder and the image failed
+# on `COPY data/corpus /app/seed-corpus` with `"/data/corpus": not found` --
+# the whole build otherwise green. Local `docker build` did not catch it,
+# because `.dockerignore` re-includes the corpus with `!data/corpus/` and
+# the local build context is the working tree, not a git-filtered upload.
+#
+# So this file takes over the decision for Railway: exclude the heavy,
+# machine-specific state under `data/`, and let `data/corpus/` through.
+
+# --- the generated state under data/, none of which belongs in an image ---
+# All of it is rebuilt by a Sync, and all of it is specific to whichever
+# laptop produced it.
+data/qdrant/
+data/parents/
+data/reports/
+data/smoke/
+data/spike-st18/
+data/sanad.db
+data/*.db
+
+# NOTE: data/corpus/ is deliberately NOT listed. It is the seed corpus the
+# container copies into the volume on first boot -- without it a deploy has
+# no documents and no way to be given any (there is no upload in the UI).
+
+# --- never upload ---
+.git/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+.env.*
+claude-setup.zip

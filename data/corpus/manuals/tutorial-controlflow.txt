@@ -1,0 +1,1178 @@
+4. D'autres outils de contrôle de flux
+**************************************
+
+En plus de l'instruction "while" qui vient d'être présentée, Python
+dispose d'autres instructions de contrôle de flux que l'on détaillera
+dans ce chapitre.
+
+
+4.1. L'instruction "if"
+=======================
+
+L'instruction "if" est sans doute la plus connue. Par exemple :
+
+   >>> x = int(input("Please enter an integer: "))
+   Please enter an integer: 42
+   >>> if x < 0:
+   ...     x = 0
+   ...     print('Negative changed to zero')
+   ... elif x == 0:
+   ...     print('Zero')
+   ... elif x == 1:
+   ...     print('Single')
+   ... else:
+   ...     print('More')
+   ...
+   More
+
+Il peut y avoir un nombre quelconque de parties "elif" et la partie
+"else" est facultative. Le mot clé "elif" est un raccourci pour *else
+if*, et permet de gagner un niveau d'indentation. Une séquence "if"
+... "elif" ... "elif" ... est par ailleurs équivalente aux
+instructions "switch" ou "case" disponibles dans d'autres langages.
+
+Pour les comparaisons avec beaucoup de constantes, ainsi que les tests
+d'appartenance à un type ou de forme d'un attribut, l'instruction
+"match" décrite plus bas peut se révéler utile (voir L'instruction
+match).
+
+
+4.2. L'instruction "for"
+========================
+
+L'instruction "for" que propose Python est un peu différente de celle
+que l'on peut trouver en C ou en Pascal. Au lieu de toujours itérer
+sur une suite arithmétique de nombres (comme en Pascal), ou de donner
+à l'utilisateur la possibilité de définir le pas d'itération et la
+condition de fin (comme en C), l'instruction "for" en Python itère sur
+les éléments d'une séquence (qui peut être une liste, une chaîne de
+caractères…), dans l'ordre dans lequel ils apparaissent dans la
+séquence. Par exemple :
+
+   >>> # Measure some strings:
+   >>> words = ['cat', 'window', 'defenestrate']
+   >>> for w in words:
+   ...     print(w, len(w))
+   ...
+   cat 3
+   window 6
+   defenestrate 12
+
+Écrire du code qui modifie une collection tout en itérant dessus peut
+s'avérer délicat. Il est généralement plus simple de boucler sur une
+copie de la collection ou de créer une nouvelle collection :
+
+   # Create a sample collection
+   users = {'Hans': 'active', 'Éléonore': 'inactive', '景太郎': 'active'}
+
+   # Strategy:  Iterate over a copy
+   for user, status in users.copy().items():
+       if status == 'inactive':
+           del users[user]
+
+   # Strategy:  Create a new collection
+   active_users = {}
+   for user, status in users.items():
+       if status == 'active':
+           active_users[user] = status
+
+
+4.3. La fonction "range()"
+==========================
+
+Si vous devez itérer sur une suite de nombres, la fonction native
+"range()" est faite pour cela. Elle génère des suites arithmétiques :
+
+   >>> for i in range(5):
+   ...     print(i)
+   ...
+   0
+   1
+   2
+   3
+   4
+
+Le dernier élément fourni en paramètre ne fait jamais partie de la
+liste générée ; "range(10)" génère une liste de 10 valeurs, dont les
+valeurs vont de 0 à 9. Il est possible de spécifier une valeur de
+début et une valeur d'incrément différentes (y compris négative pour
+cette dernière, que l'on appelle également parfois le « pas ») :
+
+   >>> list(range(5, 10))
+   [5, 6, 7, 8, 9]
+
+   >>> list(range(0, 10, 3))
+   [0, 3, 6, 9]
+
+   >>> list(range(-10, -100, -30))
+   [-10, -40, -70]
+
+Pour itérer sur les indices d'une séquence, on peut combiner les
+fonctions "range()" et "len()" :
+
+   >>> a = ['Mary', 'had', 'a', 'little', 'lamb']
+   >>> for i in range(len(a)):
+   ...     print(i, a[i])
+   ...
+   0 Mary
+   1 had
+   2 a
+   3 little
+   4 lamb
+
+Cependant, dans la plupart des cas, il est plus pratique d'utiliser la
+fonction "enumerate()". Voyez pour cela Techniques de boucles.
+
+Une chose étrange se produit lorsqu'on affiche un *range* :
+
+   >>> range(10)
+   range(0, 10)
+
+L'objet renvoyé par "range()" se comporte presque comme une liste,
+mais ce n'en est pas une. Cet objet génère les éléments de la séquence
+au fur et à mesure de l'itération, sans réellement produire la liste
+en tant que telle, économisant ainsi de l'espace.
+
+On appelle de tels objets des *itérables*, c'est-à-dire des objets qui
+conviennent à des fonctions ou constructions qui s'attendent à quelque
+chose duquel elles peuvent tirer des éléments, successivement, jusqu'à
+épuisement. Nous avons vu que l'instruction "for" est une de ces
+constructions, et un exemple de fonction qui prend un itérable en
+paramètre est "sum()" :
+
+   >>> sum(range(4))  # 0 + 1 + 2 + 3
+   6
+
+Later we will see more functions that return iterables and take
+iterables as arguments.  In chapter Structures de données, we will
+discuss "list()" in more detail.
+
+
+4.4. Les instructions "break" et "continue"
+===========================================
+
+L'instruction "break" interrompt la boucle "for" ou "while" la plus
+profonde.
+
+   >>> for n in range(2, 10):
+   ...     for x in range(2, n):
+   ...         if n % x == 0:
+   ...             print(f"{n} equals {x} * {n//x}")
+   ...             break
+   ...
+   4 equals 2 * 2
+   6 equals 2 * 3
+   8 equals 2 * 4
+   9 equals 3 * 3
+
+L'instruction "continue" fait passer la boucle à son itération
+suivante :
+
+   >>> for num in range(2, 10):
+   ...     if num % 2 == 0:
+   ...         print(f"Found an even number {num}")
+   ...         continue
+   ...     print(f"Found an odd number {num}")
+   ...
+   Found an even number 2
+   Found an odd number 3
+   Found an even number 4
+   Found an odd number 5
+   Found an even number 6
+   Found an odd number 7
+   Found an even number 8
+   Found an odd number 9
+
+
+4.5. La clause "else" au sein des boucles
+=========================================
+
+Dans une boucle "for" ou "while", l'instruction "break" peut être
+couplée à la clause "else". Si la boucle finit sans exécuter le
+"break", alors la clause "else" s'exécute.
+
+Dans une boucle "for", la clause "else" s'exécute après l'exécution de
+la dernière itération, c'est-à-dire uniquement si la boucle n'a pas
+été interrompue.
+
+Dans une boucle "while", celle-ci est exécutée lorsque la condition
+devient fausse.
+
+Dans les deux types de boucles, la clause "else" n'est **pas**
+exécutée si la boucle a été interrompue par un "break". Bien sûr,
+d'autres façons de terminer une boucle de manière prématurée, comme
+avec "return" ou le déclenchement d'une exception, vont aussi ignorer
+l'exécution de la clause "else".
+
+Un exemple est donné dans la boucle "for" ci-dessous, qui cherche des
+nombres premiers :
+
+   >>> for n in range(2, 10):
+   ...     for x in range(2, n):
+   ...         if n % x == 0:
+   ...             print(n, 'equals', x, '*', n//x)
+   ...             break
+   ...     else:
+   ...         # loop fell through without finding a factor
+   ...         print(n, 'is a prime number')
+   ...
+   2 is a prime number
+   3 is a prime number
+   4 equals 2 * 2
+   5 is a prime number
+   6 equals 2 * 3
+   7 is a prime number
+   8 equals 2 * 4
+   9 equals 3 * 3
+
+(Oui, ce code est correct. Regardez attentivement : la clause "else"
+est rattachée à la boucle "for", et **non** à l'instruction "if".)
+
+Une façon de voir la clause "else" est de l'imaginer couplée à "if"
+dans une boucle. Lorsque la boucle s'exécute, une séquence similaire à
+"if/if/if/else" est exécutée. Le "if" étant dans la boucle il est
+exécuté un certain nombre de fois. Si sa condition est vraie, un
+"break" est déclenché. Si la condition n'est jamais vraie, la clause
+"else" en dehors de la boucle est exécutée.
+
+Lorsqu'elle utilisée dans une boucle, la clause "else" est donc plus
+proche de celle associée à une instruction "try" que de celle associée
+à une instruction "if" : la clause "else" d'une instruction "try"
+s'exécute lorsqu'aucune exception n'est déclenchée, et celle d'une
+boucle lorsqu'aucun "break" n'intervient. Pour plus d'informations sur
+l'instruction "try" et le traitement des exceptions, consultez la
+section Gestion des exceptions.
+
+
+4.6. L'instruction "pass"
+=========================
+
+L'instruction "pass" ne fait rien. Elle peut être utilisée lorsqu'une
+instruction est nécessaire pour fournir une syntaxe correcte, mais
+qu'aucune action ne doit être effectuée. Par exemple :
+
+   >>> while True:
+   ...     pass  # Busy-wait for keyboard interrupt (Ctrl+C)
+   ...
+
+On utilise couramment cette instruction pour créer des classes
+minimales :
+
+   >>> class MyEmptyClass:
+   ...     pass
+   ...
+
+Un autre cas d'utilisation du "pass" est de réserver un espace en
+phase de développement pour une fonction ou un traitement
+conditionnel, vous permettant ainsi de construire votre code à un
+niveau plus abstrait. L'instruction "pass" est alors ignorée
+silencieusement :
+
+   >>> def initlog(*args):
+   ...     pass   # Remember to implement this!
+   ...
+
+For this last case, many people use the ellipsis literal "..." instead
+of "pass". This use has no special meaning to Python, and is not part
+of the language definition (you could use any constant expression
+here), but "..." is used conventionally as a placeholder body as well.
+See L'objet points de suspension (ou ellipse).
+
+
+4.7. L'instruction "match"
+==========================
+
+A "match" statement takes an expression and compares its value to
+successive patterns given as one or more case blocks.  This is
+superficially similar to a switch statement in C, Java or JavaScript
+(and many other languages), but it's more similar to pattern matching
+in languages like Rust or Haskell. Only the first pattern that matches
+gets executed and it can also extract components (sequence elements or
+object attributes) from the value into variables. If no case matches,
+none of the branches is executed.
+
+Dans sa plus simple expression, une instruction "match" compare une
+valeur à des littéraux :
+
+   def http_error(status):
+       match status:
+           case 400:
+               return "Bad request"
+           case 404:
+               return "Not found"
+           case 418:
+               return "I'm a teapot"
+           case _:
+               return "Something's wrong with the internet"
+
+Note the last block: the "variable name" "_" acts as a *wildcard* and
+never fails to match.
+
+On peut combiner plusieurs littéraux en un seul filtre avec le signe
+"|", qui se lit OU :
+
+   case 401 | 403 | 404:
+       return "Not allowed"
+
+Les filtres peuvent prendre une forme similaire aux affectations
+multiples, et provoquer la liaison de variables :
+
+   # point is an (x, y) tuple
+   match point:
+       case (0, 0):
+           print("Origin")
+       case (0, y):
+           print(f"Y={y}")
+       case (x, 0):
+           print(f"X={x}")
+       case (x, y):
+           print(f"X={x}, Y={y}")
+       case _:
+           raise ValueError("Not a point")
+
+Observez bien cet exemple ! Le premier filtre contient simplement deux
+littéraux. C'est une sorte d'extension des filtres littéraux. Mais les
+deux filtres suivants mélangent un littéral et un nom de variable. Si
+un tel filtre réussit, il provoque l'affectation à la variable. Le
+quatrième filtre est constitué de deux variables, ce qui le fait
+beaucoup ressembler à l'affectation multiple "(x, y) = point".
+
+Si vous structurez vos données par l'utilisation de classes, vous
+pouvez former des filtres avec le nom de la classe suivi d'une liste
+d'arguments. Ces filtres sont semblables à l'appel d'un constructeur,
+et permettent de capturer des attributs :
+
+   class Point:
+       def __init__(self, x, y):
+           self.x = x
+           self.y = y
+
+   def where_is(point):
+       match point:
+           case Point(x=0, y=0):
+               print("Origin")
+           case Point(x=0, y=y):
+               print(f"Y={y}")
+           case Point(x=x, y=0):
+               print(f"X={x}")
+           case Point():
+               print("Somewhere else")
+           case _:
+               print("Not a point")
+
+Un certain nombre de classes natives, notamment les classes de
+données, prennent en charge le filtrage par arguments positionnels en
+définissant un ordre des attributs. Vous pouvez ajouter cette
+possibilité à vos propres classes en y définissant l'attribut spécial
+"__match_args__". Par exemple, le mettre à "("x", "y")" rend tous les
+filtres ci-dessous équivalents (en particulier, tous provoquent la
+liaison de l'attribut "y" à la variable "var") :
+
+   Point(1, var)
+   Point(1, y=var)
+   Point(x=1, y=var)
+   Point(y=var, x=1)
+
+Une méthode préconisée pour lire les filtres est de les voir comme une
+extension de ce que l'on peut placer à gauche du signe "=" dans une
+affectation. Cela permet de visualiser quelles variables sont liées à
+quoi. Seuls les noms simples, comme "var" ci-dessus, sont des
+variables susceptibles d'être liées à une valeur. Il n'y a jamais de
+liaison pour les noms qualifiés (avec un point, comme dans
+"truc.machin"), les noms d'attributs (tels que "x=" et "y=" dans
+l'exemple précédent) et les noms de classes (identifiés par les
+parenthèses à leur droite, comme "Point").
+
+On peut imbriquer les filtres autant que de besoin. Ainsi, on peut
+lire une courte liste de points, avec "__match_args__", comme ceci :
+
+   class Point:
+       __match_args__ = ('x', 'y')
+       def __init__(self, x, y):
+           self.x = x
+           self.y = y
+
+   match points:
+       case []:
+           print("No points")
+       case [Point(0, 0)]:
+           print("The origin")
+       case [Point(x, y)]:
+           print(f"Single point {x}, {y}")
+       case [Point(0, y1), Point(0, y2)]:
+           print(f"Two on the Y axis at {y1}, {y2}")
+       case _:
+           print("Something else")
+
+Un filtre peut comporter un "if", qui introduit ce que l'on appelle
+une garde. Si le filtre réussit, la garde est alors testée et, si elle
+s'évalue à une valeur fausse, l'exécution continue au bloc "case"
+suivant. Les variables sont liées avant l'évaluation de la garde, et
+peuvent être utilisées à l'intérieur :
+
+   match point:
+       case Point(x, y) if x == y:
+           print(f"Y=X at {x}")
+       case Point(x, y):
+           print(f"Not on the diagonal")
+
+Voici d’autres caractéristiques importantes de cette instruction :
+
+* comme dans les affectations multiples, les filtres de *n*-uplet et
+  de liste sont totalement équivalents et autorisent tous les types de
+  séquences. Exception importante, ils n'autorisent pas les itérateurs
+  ni les chaînes de caractères ;
+
+* les filtres de séquence peuvent faire intervenir l'affectation
+  étoilée : "[x, y, *reste]" ou "(x, y, *reste)" ont le même sens que
+  dans une affectation avec "=". Le nom de variable après l'étoile
+  peut aussi être l'attrape-tout "_". Ainsi, "(x, y, *_)" est un
+  filtre qui reconnaît les séquences à deux éléments ou plus, en
+  capturant les deux premiers et en ignorant le reste ;
+
+* Il existe des filtres d'association. Par exemple, le filtre
+  "{"bande_passante": b, "latence": l}" extrait les valeurs des clés
+  ""bande_passante"" et ""latence"" dans un dictionnaire.
+  Contrairement aux filtres de séquence, les clés absentes du filtre
+  sont ignorées. L'affectation double-étoilée ("**reste") fonctionne
+  aussi (cependant, "**_" serait redondant et n'est donc pas permis) ;
+
+* on peut capturer la valeur d'une partie d'un filtre avec le mot-clé
+  "as", par exemple :
+
+     case (Point(x1, y1), Point(x2, y2) as p2): ...
+
+  Ce filtre, lorsqu'il est comparé à une séquence de deux points,
+  réussit et capture le second dans la variable "p2" ;
+
+* la plupart des littéraux sont comparés par égalité. Néanmoins, les
+  singletons "True", "False" et "None" sont comparés par identité ;
+
+* Patterns may use named constants.  These must be dotted names to
+  prevent them from being interpreted as capture variables:
+
+     from enum import Enum
+     class Color(Enum):
+         RED = 'red'
+         GREEN = 'green'
+         BLUE = 'blue'
+
+     color = Color(input("Enter your choice of 'red', 'blue' or 'green': "))
+
+     match color:
+         case Color.RED:
+             print("I see red!")
+         case Color.GREEN:
+             print("Grass is green")
+         case Color.BLUE:
+             print("I'm feeling the blues :(")
+
+Pour plus d'explications et d'exemples, lire la **PEP 636** (en
+anglais), qui est écrite sous forme de tutoriel.
+
+
+4.8. Définir des fonctions
+==========================
+
+On peut créer une fonction qui écrit la suite de Fibonacci jusqu'à une
+limite imposée :
+
+   >>> def fib(n):    # write Fibonacci series less than n
+   ...     """Print a Fibonacci series less than n."""
+   ...     a, b = 0, 1
+   ...     while a < n:
+   ...         print(a, end=' ')
+   ...         a, b = b, a+b
+   ...     print()
+   ...
+   >>> # Now call the function we just defined:
+   >>> fib(2000)
+   0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597
+
+Le mot-clé "def" introduit une *définition* de fonction. Il doit être
+suivi du nom de la fonction et d'une liste, entre parenthèses, de ses
+paramètres. L'instruction qui constitue le corps de la fonction débute
+à la ligne suivante et doit être indentée.
+
+La première instruction d'une fonction peut, de façon facultative,
+être une chaîne de caractères littérale ; cette chaîne de caractères
+est alors la chaîne de documentation de la fonction, appelée
+*docstring* (consultez la section Chaînes de documentation pour en
+savoir plus). Il existe des outils qui utilisent ces chaînes de
+documentation pour générer automatiquement une documentation en ligne
+ou imprimée, ou pour permettre à l'utilisateur de naviguer de façon
+interactive dans le code ; prenez-en l'habitude, c'est une bonne
+pratique que de documenter le code que vous écrivez.
+
+*L'exécution* d'une fonction introduit un nouvel espace de nommage
+(aussi appelé table des symboles) utilisé par les variables locales de
+la fonction. Plus précisément, toutes les affectations de variables
+effectuées au sein d'une fonction stockent les valeurs dans l'espace
+de nommage local à la fonction ; en revanche, les références de
+variables sont recherchées dans l'espace de nommage local, puis dans
+les espaces de nommage des fonctions englobantes, puis dans l'espace
+de nommage global et finalement dans l'espace de nommage des
+primitives. Par conséquent, bien qu'on puisse y faire référence, il
+est impossible d'affecter une valeur à une variable globale ou à une
+variable d'une fonction englobante (sauf pour les variables globales
+désignées dans une instruction "global" et, pour les variables des
+fonctions englobantes, désignées dans une instruction "nonlocal").
+
+Les paramètres effectifs (arguments) d'une fonction sont introduits
+dans l'espace de nommage local de la fonction appelée, au moment où
+elle est appelée ; par conséquent, les passages de paramètres se font
+*par valeur*, la *valeur* étant toujours une *référence* à un objet et
+non la valeur de l'objet lui-même [1]. Lorsqu'une fonction appelle une
+autre fonction, ou s'appelle elle-même par récursion, un nouvel espace
+de nommage local est créé pour cet appel.
+
+Une définition de fonction associe un nom de fonction à un objet
+fonction dans l'espace de nommage actuel. Pour l'interpréteur, l'objet
+référencé par ce nom est une fonction définie par l'utilisateur.
+Plusieurs noms peuvent faire référence à une même fonction, ils
+peuvent alors tous être utilisés pour appeler la fonction :
+
+   >>> fib
+   <function fib at 10042ed0>
+   >>> f = fib
+   >>> f(100)
+   0 1 1 2 3 5 8 13 21 34 55 89
+
+Si vous venez d'autres langages, vous pouvez penser que "fib" n'est
+pas une fonction mais une procédure, puisqu'elle ne renvoie pas de
+résultat. En fait, même les fonctions sans instruction "return"
+renvoient une valeur, quoique ennuyeuse. Cette valeur est appelée
+"None" (c'est le nom d'une primitive). Écrire la valeur "None" est
+normalement supprimé par l'interpréteur lorsqu'il s'agit de la seule
+valeur qui doit être écrite. Vous pouvez le constater, si vous y tenez
+vraiment, en utilisant "print()" :
+
+   >>> fib(0)
+   >>> print(fib(0))
+   None
+
+Il est facile d'écrire une fonction qui renvoie une liste de la série
+de Fibonacci au lieu de l'afficher :
+
+   >>> def fib2(n):  # return Fibonacci series up to n
+   ...     """Return a list containing the Fibonacci series up to n."""
+   ...     result = []
+   ...     a, b = 0, 1
+   ...     while a < n:
+   ...         result.append(a)    # see below
+   ...         a, b = b, a+b
+   ...     return result
+   ...
+   >>> f100 = fib2(100)    # call it
+   >>> f100                # write the result
+   [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89]
+
+Cet exemple, comme d'habitude, illustre de nouvelles fonctionnalités
+de Python :
+
+* l'instruction "return" provoque la sortie de la fonction en
+  renvoyant une valeur. "return" sans expression en paramètre renvoie
+  "None". Arriver à la fin d'une fonction renvoie également "None" ;
+
+* The statement "result.append(a)" calls a *method* of the list object
+  "result".  A method is a function that 'belongs' to an object and is
+  named "obj.methodname", where "obj" is some object (this may be an
+  expression), and "methodname" is the name of a method that is
+  defined by the object's type. Different types define different
+  methods.  Methods of different types may have the same name without
+  causing ambiguity.  (It is possible to define your own object types
+  and methods, using *classes*, see Classes) The method "append()"
+  shown in the example is defined for list objects; it adds a new
+  element at the end of the list.  In this example it is equivalent to
+  "result = result + [a]", but more efficient.
+
+
+4.9. Davantage sur la définition des fonctions
+==============================================
+
+Il est également possible de définir des fonctions avec un nombre
+variable d'arguments. Trois syntaxes peuvent être utilisées,
+éventuellement combinées.
+
+
+4.9.1. Valeur par défaut des arguments
+--------------------------------------
+
+La forme la plus utile consiste à indiquer une valeur par défaut pour
+certains arguments. Ceci crée une fonction qui peut être appelée avec
+moins d'arguments que ceux présents dans sa définition. Par exemple :
+
+   def ask_ok(prompt, retries=4, reminder='Please try again!'):
+       while True:
+           reply = input(prompt)
+           if reply in {'y', 'ye', 'yes'}:
+               return True
+           if reply in {'n', 'no', 'nop', 'nope'}:
+               return False
+           retries = retries - 1
+           if retries < 0:
+               raise ValueError('invalid user response')
+           print(reminder)
+
+Cette fonction peut être appelée de plusieurs façons :
+
+* en ne fournissant que les arguments obligatoires : "ask_ok('Do you
+  really want to quit?')" ;
+
+* en fournissant une partie des arguments facultatifs : "ask_ok('OK to
+  overwrite the file?', 2)" ;
+
+* en fournissant tous les arguments : "ask_ok('OK to overwrite the
+  file?', 2, 'Come on, only yes or no!')".
+
+Cet exemple présente également le mot-clé "in". Celui-ci permet de
+tester si une séquence contient une certaine valeur.
+
+Les valeurs par défaut sont évaluées lors de la définition de la
+fonction dans la portée de la *définition*, de telle sorte que
+
+   i = 5
+
+   def f(arg=i):
+       print(arg)
+
+   i = 6
+   f()
+
+affiche "5".
+
+**Avertissement important :** la valeur par défaut n'est évaluée
+qu'une seule fois. Ceci fait une différence lorsque cette valeur par
+défaut est un objet mutable tel qu'une liste, un dictionnaire ou des
+instances de la plupart des classes. Par exemple, la fonction suivante
+accumule les arguments qui lui sont passés au fil des appels
+successifs :
+
+   def f(a, L=[]):
+       L.append(a)
+       return L
+
+   print(f(1))
+   print(f(2))
+   print(f(3))
+
+affiche
+
+   [1]
+   [1, 2]
+   [1, 2, 3]
+
+Si vous ne voulez pas que cette valeur par défaut soit partagée entre
+des appels successifs, vous pouvez écrire la fonction de cette façon :
+
+   def f(a, L=None):
+       if L is None:
+           L = []
+       L.append(a)
+       return L
+
+
+4.9.2. Les arguments nommés
+---------------------------
+
+Les fonctions peuvent également être appelées en utilisant des
+*arguments nommés* sous la forme "kwarg=value". Par exemple, la
+fonction suivante :
+
+   def parrot(voltage, state='a stiff', action='voom', type='Norwegian Blue'):
+       print("-- This parrot wouldn't", action, end=' ')
+       print("if you put", voltage, "volts through it.")
+       print("-- Lovely plumage, the", type)
+       print("-- It's", state, "!")
+
+accepte un argument obligatoire ("voltage") et trois arguments
+facultatifs ("state", "action" et "type"). Cette fonction peut être
+appelée de n'importe laquelle des façons suivantes :
+
+   parrot(1000)                                          # 1 positional argument
+   parrot(voltage=1000)                                  # 1 keyword argument
+   parrot(voltage=1000000, action='VOOOOOM')             # 2 keyword arguments
+   parrot(action='VOOOOOM', voltage=1000000)             # 2 keyword arguments
+   parrot('a million', 'bereft of life', 'jump')         # 3 positional arguments
+   parrot('a thousand', state='pushing up the daisies')  # 1 positional, 1 keyword
+
+mais tous les appels qui suivent sont incorrects :
+
+   parrot()                     # required argument missing
+   parrot(voltage=5.0, 'dead')  # non-keyword argument after a keyword argument
+   parrot(110, voltage=220)     # duplicate value for the same argument
+   parrot(actor='John Cleese')  # unknown keyword argument
+
+Dans un appel de fonction, les arguments nommés doivent suivre les
+arguments positionnés. Tous les arguments nommés doivent correspondre
+à l'un des arguments acceptés par la fonction (par exemple, "actor"
+n'est pas un argument accepté par la fonction "parrot"), mais leur
+ordre n'est pas important. Ceci inclut également les arguments
+obligatoires ("parrot(voltage=1000)" est également correct). Aucun
+argument ne peut recevoir une valeur plus d'une fois, comme l'illustre
+cet exemple incorrect du fait de cette restriction :
+
+   >>> def function(a):
+   ...     pass
+   ...
+   >>> function(0, a=0)
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   TypeError: function() got multiple values for argument 'a'
+
+Quand un dernier paramètre formel est présent sous la forme "**name",
+il reçoit un dictionnaire (voir Les types de correspondances — dict)
+contenant tous les arguments nommés à l'exception de ceux
+correspondant à un paramètre formel. Ceci peut être combiné à un
+paramètre formel sous la forme "*name" (décrit dans la section
+suivante) qui lui reçoit un n-uplet contenant les arguments
+positionnés au-delà de la liste des paramètres formels ("*name" doit
+être présent avant "**name"). Par exemple, si vous définissez une
+fonction comme ceci :
+
+   def cheeseshop(kind, *arguments, **keywords):
+       print("-- Do you have any", kind, "?")
+       print("-- I'm sorry, we're all out of", kind)
+       for arg in arguments:
+           print(arg)
+       print("-" * 40)
+       for kw in keywords:
+           print(kw, ":", keywords[kw])
+
+Elle pourrait être appelée comme ceci :
+
+   cheeseshop("Limburger", "It's very runny, sir.",
+              "It's really very, VERY runny, sir.",
+              shopkeeper="Michael Palin",
+              client="John Cleese",
+              sketch="Cheese Shop Sketch")
+
+et, bien sûr, elle affiche :
+
+   -- Do you have any Limburger ?
+   -- I'm sorry, we're all out of Limburger
+   It's very runny, sir.
+   It's really very, VERY runny, sir.
+   ----------------------------------------
+   shopkeeper : Michael Palin
+   client : John Cleese
+   sketch : Cheese Shop Sketch
+
+Notez que Python garantit que l'ordre d'affichage des arguments est le
+même que l'ordre dans lesquels ils sont fournis lors de l'appel à la
+fonction.
+
+
+4.9.3. Paramètres spéciaux
+--------------------------
+
+Par défaut, les arguments peuvent être passés à une fonction Python
+par position, ou explicitement en les nommant. Pour la lisibilité et
+la performance, il est logique de restreindre la façon dont les
+arguments peuvent être transmis afin qu'un développeur n'ait qu'à
+regarder la définition de la fonction pour déterminer si les éléments
+sont transmis par position seule, par position ou nommé, ou seulement
+nommé.
+
+Voici à quoi ressemble une définition de fonction :
+
+   def f(pos1, pos2, /, pos_or_kwd, *, kwd1, kwd2):
+         -----------    ----------     ----------
+           |             |                  |
+           |        Positional or keyword   |
+           |                                - Keyword only
+            -- Positional only
+
+où "/" et "*" sont facultatifs. S'ils sont utilisés, ces symboles
+indiquent par quel type de paramètre un argument peut être transmis à
+la fonction : position seule, position ou nommé, et seulement nommé.
+Les paramètres par mot-clé sont aussi appelés paramètres nommés.
+
+
+4.9.3.1. Les arguments positionnels-ou-nommés
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Si "/" et "*" ne sont pas présents dans la définition de fonction, les
+arguments peuvent être passés à une fonction par position ou par
+nommés.
+
+
+4.9.3.2. Paramètres positionnels uniquement
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+En y regardant de plus près, il est possible de marquer certains
+paramètres comme *positionnels uniquement*. S'ils sont marqués comme
+*positionnels uniquement*, l'ordre des paramètres est important, et
+les paramètres ne peuvent pas être transmis en tant que « arguments
+nommés ». Les paramètres « positionnels uniquement » sont placés avant
+un "/". Le "/" est utilisé pour séparer logiquement les paramètres «
+positionnels uniquement » du reste des paramètres. S'il n'y a pas de
+"/" dans la définition de fonction, il n'y a pas de paramètres «
+positionnels uniquement ».
+
+Les paramètres qui suivent le "/" peuvent être *positionnels-ou-
+nommés* ou *nommés-uniquement*.
+
+
+4.9.3.3. Arguments nommés uniquement
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Pour marquer les paramètres comme *uniquement nommés*, indiquant que
+les paramètres doivent être passés avec l'argument comme mot-clé,
+placez un "*" dans la liste des arguments juste avant le premier
+paramètre *uniquement nommé*.
+
+
+4.9.3.4. Exemples de fonctions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Considérons l'exemple suivant de définitions de fonctions en portant
+une attention particulière aux marqueurs "/" et "*" :
+
+   >>> def standard_arg(arg):
+   ...     print(arg)
+   ...
+   >>> def pos_only_arg(arg, /):
+   ...     print(arg)
+   ...
+   >>> def kwd_only_arg(*, arg):
+   ...     print(arg)
+   ...
+   >>> def combined_example(pos_only, /, standard, *, kwd_only):
+   ...     print(pos_only, standard, kwd_only)
+
+La première définition de fonction, "standard_arg", la forme la plus
+familière, n'impose aucune restriction sur la convention d'appel et
+les arguments peuvent être passés par position ou nommés :
+
+   >>> standard_arg(2)
+   2
+
+   >>> standard_arg(arg=2)
+   2
+
+La deuxième fonction "pos_only_arg" restreint le passage aux seuls
+arguments par position car il y a un "/" dans la définition de
+fonction :
+
+   >>> pos_only_arg(1)
+   1
+
+   >>> pos_only_arg(arg=1)
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   TypeError: pos_only_arg() got some positional-only arguments passed as keyword arguments: 'arg'
+
+La troisième fonction "kwd_only_arg" n'autorise que les arguments
+nommés comme l'indique le "*" dans la définition de fonction :
+
+   >>> kwd_only_arg(3)
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   TypeError: kwd_only_arg() takes 0 positional arguments but 1 was given
+
+   >>> kwd_only_arg(arg=3)
+   3
+
+Et la dernière utilise les trois conventions d'appel dans la même
+définition de fonction :
+
+   >>> combined_example(1, 2, 3)
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   TypeError: combined_example() takes 2 positional arguments but 3 were given
+
+   >>> combined_example(1, 2, kwd_only=3)
+   1 2 3
+
+   >>> combined_example(1, standard=2, kwd_only=3)
+   1 2 3
+
+   >>> combined_example(pos_only=1, standard=2, kwd_only=3)
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   TypeError: combined_example() got some positional-only arguments passed as keyword arguments: 'pos_only'
+
+Enfin, considérons cette définition de fonction qui a une collision
+potentielle entre l'argument positionnel "name" et "**kwds" qui a
+"name" comme mot-clé :
+
+   def foo(name, **kwds):
+       return 'name' in kwds
+
+Il n'y a pas d'appel possible qui renvoie "True" car le mot-clé
+"'name'" est toujours lié au premier paramètre. Par exemple :
+
+   >>> foo(1, **{'name': 2})
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   TypeError: foo() got multiple values for argument 'name'
+   >>>
+
+Mais en utilisant "/" (arguments positionnels seulement), c'est
+possible puisqu'il permet d'utiliser "name" comme argument positionnel
+et "'name'" comme mot-clé dans les arguments nommés :
+
+   >>> def foo(name, /, **kwds):
+   ...     return 'name' in kwds
+   ...
+   >>> foo(1, **{'name': 2})
+   True
+
+En d'autres termes, les noms des paramètres seulement positionnels
+peuvent être utilisés sans ambiguïté dans "**kwds".
+
+
+4.9.3.5. Récapitulatif
+~~~~~~~~~~~~~~~~~~~~~~
+
+Le cas d'utilisation détermine les paramètres à utiliser dans la
+définition de fonction :
+
+   def f(pos1, pos2, /, pos_or_kwd, *, kwd1, kwd2):
+
+Quelques conseils :
+
+* utilisez les paramètres positionnels si vous voulez que le nom des
+  paramètres soit masqué à l'utilisateur. Ceci est utile lorsque les
+  noms de paramètres n'ont pas de signification réelle, si vous voulez
+  faire respecter l'ordre des arguments lorsque la fonction est
+  appelée ou si vous avez besoin de prendre certains paramètres
+  positionnels et mots-clés arbitraires ;
+
+* utilisez les paramètres nommés lorsque les noms ont un sens et que
+  la définition de la fonction est plus compréhensible avec des noms
+  explicites ou si vous voulez empêcher les utilisateurs de se fier à
+  la position de l'argument qui est passé ;
+
+* dans le cas d'une API, utilisez les paramètres seulement
+  positionnels pour éviter de casser l'API si le nom du paramètre est
+  modifié dans l'avenir.
+
+
+4.9.4. Listes d'arguments arbitraires
+-------------------------------------
+
+Pour terminer, l'option la moins fréquente consiste à indiquer qu'une
+fonction peut être appelée avec un nombre arbitraire d'arguments. Ces
+arguments sont intégrés dans un *n*-uplet (voir n-uplets et
+séquences). Avant le nombre variable d'arguments, zéro ou plus
+arguments normaux peuvent apparaître
+
+   def write_multiple_items(file, separator, *args):
+       file.write(separator.join(args))
+
+Normalement, ces arguments "variadiques" sont les derniers paramètres,
+parce qu'ils agrègent toutes les valeurs suivantes. Tout paramètre
+placé après le paramètre "*arg" ne pourra être utilisé que comme
+argument nommé, pas comme argument positionnel
+
+   >>> def concat(*args, sep="/"):
+   ...     return sep.join(args)
+   ...
+   >>> concat("earth", "mars", "venus")
+   'earth/mars/venus'
+   >>> concat("earth", "mars", "venus", sep=".")
+   'earth.mars.venus'
+
+
+4.9.5. Séparation des listes d'arguments
+----------------------------------------
+
+La situation inverse intervient lorsque les arguments sont déjà dans
+une liste ou un *n*-uplet mais doivent être séparés pour un appel de
+fonction nécessitant des arguments positionnés séparés. Par exemple,
+la primitive "range()" attend des arguments *start* et *stop*
+distincts. S'ils ne sont pas disponibles séparément, écrivez l'appel
+de fonction en utilisant l'opérateur "*" pour séparer les arguments
+présents dans une liste ou un *n*-uplet :
+
+   >>> list(range(3, 6))            # normal call with separate arguments
+   [3, 4, 5]
+   >>> args = [3, 6]
+   >>> list(range(*args))            # call with arguments unpacked from a list
+   [3, 4, 5]
+
+De la même façon, les dictionnaires peuvent fournir des arguments
+nommés en utilisant l'opérateur "**" :
+
+   >>> def parrot(voltage, state='a stiff', action='voom'):
+   ...     print("-- This parrot wouldn't", action, end=' ')
+   ...     print("if you put", voltage, "volts through it.", end=' ')
+   ...     print("E's", state, "!")
+   ...
+   >>> d = {"voltage": "four million", "state": "bleedin' demised", "action": "VOOM"}
+   >>> parrot(**d)
+   -- This parrot wouldn't VOOM if you put four million volts through it. E's bleedin' demised !
+
+
+4.9.6. Fonctions anonymes
+-------------------------
+
+Avec le mot-clé "lambda", vous pouvez créer de petites fonctions
+anonymes. En voici une qui renvoie la somme de ses deux arguments :
+"lambda a, b: a+b". Les fonctions lambda peuvent être utilisées
+partout où un objet fonction est attendu. Elles sont syntaxiquement
+restreintes à une seule expression. Sémantiquement, elles ne sont que
+du sucre syntaxique pour une définition de fonction normale. Comme les
+fonctions imbriquées, les fonctions lambda peuvent référencer des
+variables de la portée englobante :
+
+   >>> def make_incrementor(n):
+   ...     return lambda x: x + n
+   ...
+   >>> f = make_incrementor(42)
+   >>> f(0)
+   42
+   >>> f(1)
+   43
+
+The above example uses a lambda expression to return a function.
+Another use is to pass a small function as an argument.  For instance,
+"list.sort()" takes a sorting key function *key* which can be a lambda
+function:
+
+   >>> pairs = [(1, 'one'), (2, 'two'), (3, 'three'), (4, 'four')]
+   >>> pairs.sort(key=lambda pair: pair[1])
+   >>> pairs
+   [(4, 'four'), (1, 'one'), (3, 'three'), (2, 'two')]
+
+
+4.9.7. Chaînes de documentation
+-------------------------------
+
+Voici quelques conventions concernant le contenu et le format des
+chaînes de documentation.
+
+Il convient que la première ligne soit toujours courte et résume de
+manière concise l'utilité de l'objet. Afin d'être bref, nul besoin de
+rappeler le nom de l'objet ou son type, qui sont accessibles par
+d'autres moyens (sauf si le nom est un verbe qui décrit une
+opération). La convention veut que la ligne commence par une majuscule
+et se termine par un point.
+
+S'il y a d'autres lignes dans la chaîne de documentation, la deuxième
+ligne devrait être vide, pour la séparer visuellement du reste de la
+description. Les autres lignes peuvent alors constituer un ou
+plusieurs paragraphes décrivant le mode d'utilisation de l'objet, ses
+effets de bord, etc.
+
+The Python parser strips indentation from multi-line string literals
+when they serve as module, class, or function docstrings.
+
+Voici un exemple de chaîne de documentation multi-lignes :
+
+   >>> def my_function():
+   ...     """Do nothing, but document it.
+   ...
+   ...     No, really, it doesn't do anything:
+   ...
+   ...         >>> my_function()
+   ...         >>>
+   ...     """
+   ...     pass
+   ...
+   >>> print(my_function.__doc__)
+   Do nothing, but document it.
+
+   No, really, it doesn't do anything:
+
+       >>> my_function()
+       >>>
+
+
+4.9.8. Annotations de fonctions
+-------------------------------
+
+Les annotations de fonction sont des métadonnées optionnelles
+décrivant les types utilisés par une fonction définie par
+l'utilisateur (voir les **PEP 3107** et **PEP 484** pour plus
+d'informations).
+
+*Annotations* are stored in the "__annotations__" attribute of the
+function as a dictionary and have no effect on any other part of the
+function.  Parameter annotations are defined by a colon after the
+parameter name, followed by an expression evaluating to the value of
+the annotation.  Return annotations are defined by a literal "->",
+followed by an expression, between the parameter list and the colon
+denoting the end of the "def" statement.  The following example has a
+required argument, an optional argument, and the return value
+annotated:
+
+   >>> def f(ham: str, eggs: str = 'eggs') -> str:
+   ...     print("Annotations:", f.__annotations__)
+   ...     print("Arguments:", ham, eggs)
+   ...     return ham + ' and ' + eggs
+   ...
+   >>> f('spam')
+   Annotations: {'ham': <class 'str'>, 'return': <class 'str'>, 'eggs': <class 'str'>}
+   Arguments: spam eggs
+   'spam and eggs'
+
+
+4.10. Aparté : le style de codage
+=================================
+
+Now that you are about to write longer, more complex pieces of Python,
+it is a good time to talk about *coding style*.  Most languages can be
+written (or more concisely, *formatted*) in different styles; some are
+more readable than others. Making it easy for others to read your code
+is always a good idea, and adopting a nice coding style helps
+tremendously for that.
+
+En Python, la plupart des projets adhèrent au style défini dans la
+**PEP 8** ; elle met en avant un style de codage très lisible et
+agréable à l’œil. Chaque développeur Python se doit donc de la lire et
+de s'en inspirer autant que possible ; voici ses principaux points
+notables :
+
+* utilisez des indentations de 4 espaces et pas de tabulation.
+
+  4 espaces constituent un bon compromis entre une indentation courte
+  (qui permet une profondeur d'imbrication plus importante) et une
+  longue (qui rend le code plus facile à lire). Les tabulations
+  introduisent de la confusion et doivent être proscrites autant que
+  possible ;
+
+* faites en sorte que les lignes ne dépassent pas 79 caractères, au
+  besoin en insérant des retours à la ligne.
+
+  Vous facilitez ainsi la lecture pour les utilisateurs qui n'ont
+  qu'un petit écran et, pour les autres, cela leur permet de
+  visualiser plusieurs fichiers côte à côte ;
+
+* utilisez des lignes vides pour séparer les fonctions et les classes,
+  ou pour scinder de gros blocs de code à l'intérieur de fonctions ;
+
+* lorsque c'est possible, placez les commentaires sur leurs propres
+  lignes ;
+
+* utilisez les chaînes de documentation ;
+
+* utilisez des espaces autour des opérateurs et après les virgules,
+  mais pas juste à l'intérieur des parenthèses : "a = f(1, 2) + g(3,
+  4)" ;
+
+* nommez toujours vos classes et fonctions de la même manière ; la
+  convention est d'utiliser une notation "UpperCamelCase" pour les
+  classes, et "minuscules_avec_trait_bas" pour les fonctions et
+  méthodes. Utilisez toujours "self" comme nom du premier argument des
+  méthodes (voyez Une première approche des classes pour en savoir
+  plus sur les classes et les méthodes) ;
+
+* n’utilisez pas d'encodage exotique dès lors que votre code est censé
+  être utilisé dans des environnements internationaux. Par défaut,
+  Python travaille en UTF-8. Pour couvrir tous les cas, préférez le
+  simple ASCII ;
+
+* de la même manière, n'utilisez que des caractères ASCII pour vos
+  noms de variables s'il est envisageable qu'une personne parlant une
+  autre langue lise ou doive modifier votre code.
+
+-[ Notes ]-
+
+[1] En fait, *appels par référence d'objets* serait sans doute une
+    description plus juste dans la mesure où, si un objet mutable est
+    passé en argument, l'appelant verra toutes les modifications qui
+    lui auront été apportées par l'appelé (insertion d'éléments dans
+    une liste…).

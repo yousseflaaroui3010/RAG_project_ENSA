@@ -1,0 +1,606 @@
+6. Modules
+**********
+
+Lorsque vous quittez et entrez à nouveau dans l'interpréteur Python,
+tout ce que vous avez déclaré dans la session précédente est perdu.
+Afin de rédiger des programmes plus longs, vous devez utiliser un
+éditeur de texte, préparer votre code dans un fichier et exécuter
+Python avec ce fichier en paramètre. Cela s'appelle créer un *script*.
+Lorsque votre programme grandit, vous pouvez séparer votre code dans
+plusieurs fichiers. Ainsi, il vous est facile de réutiliser des
+fonctions écrites pour un programme dans un autre sans avoir à les
+copier.
+
+Pour gérer cela, Python vous permet de placer des définitions dans un
+fichier et de les utiliser dans un script ou une session interactive.
+Un tel fichier est appelé un *module* et les définitions d'un module
+peuvent être importées dans un autre module ou dans le module *main*
+(qui est le module qui contient vos variables et définitions lors de
+l'exécution d'un script au niveau le plus haut ou en mode interactif).
+
+Un module est un fichier contenant des définitions et des
+instructions. Son nom de fichier est le nom du module suffixé de
+".py". À l'intérieur d'un module, son propre nom est accessible par la
+variable "__name__". Par exemple, prenez votre éditeur favori et créez
+un fichier "fibo.py" dans le répertoire courant qui contient :
+
+   # Fibonacci numbers module
+
+   def fib(n):
+       """Write Fibonacci series up to n."""
+       a, b = 0, 1
+       while a < n:
+           print(a, end=' ')
+           a, b = b, a+b
+       print()
+
+   def fib2(n):
+       """Return Fibonacci series up to n."""
+       result = []
+       a, b = 0, 1
+       while a < n:
+           result.append(a)
+           a, b = b, a+b
+       return result
+
+Maintenant, ouvrez un interpréteur et importez le module en tapant :
+
+   >>> import fibo
+
+Les noms des fonctions définies dans "fibo" ne sont pas ajoutés
+directement dans l'*espace de nommage* courant (voir Portées et
+espaces de nommage en Python pour plus de détails), seul le nom de
+module "fibo" est ajouté. L'appel des fonctions se fait donc *via* le
+nom du module :
+
+   >>> fibo.fib(1000)
+   0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987
+   >>> fibo.fib2(100)
+   [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89]
+   >>> fibo.__name__
+   'fibo'
+
+Si vous avez l'intention d'utiliser souvent une fonction, il est
+possible de lui assigner un nom local :
+
+   >>> fib = fibo.fib
+   >>> fib(500)
+   0 1 1 2 3 5 8 13 21 34 55 89 144 233 377
+
+
+6.1. Les modules en détail
+==========================
+
+Un module peut contenir aussi bien des instructions que des
+déclarations de fonctions. Ces instructions permettent d'initialiser
+le module. Elles ne sont exécutées que la *première* fois que le nom
+d'un module est trouvé dans un "import" [1] (elles sont aussi
+exécutées lorsque le fichier est exécuté en tant que script).
+
+Chaque module possède son propre espace de nommage, utilisé comme
+espace de nommage global par toutes les fonctions définies par le
+module. Ainsi l'auteur d'un module peut utiliser des variables
+globales dans un module sans se soucier de collisions de noms avec des
+variables globales définies par l'utilisateur du module. Cependant, si
+vous savez ce que vous faites, vous pouvez modifier une variable
+globale d'un module avec la même notation que pour accéder aux
+fonctions : "nommodule.nomelement".
+
+Des modules peuvent importer d'autres modules. Il est courant, mais
+pas obligatoire, de ranger tous les "import" au début du module (ou du
+script). Les noms des modules importés, s'ils sont placés au début
+d'un module (en dehors des fonctions et des classes) sont ajoutés à
+l'espace de nommage global du module.
+
+Il existe une variante de l'instruction "import" qui importe les noms
+d'un module directement dans l'espace de nommage du module qui
+l'importe, par exemple :
+
+   >>> from fibo import fib, fib2
+   >>> fib(500)
+   0 1 1 2 3 5 8 13 21 34 55 89 144 233 377
+
+Cela n'insère pas le nom du module depuis lequel les définitions sont
+récupérées dans l'espace de nommage local (dans cet exemple, "fibo"
+n'est pas défini).
+
+Il existe même une variante permettant d'importer tous les noms qu'un
+module définit :
+
+   >>> from fibo import *
+   >>> fib(500)
+   0 1 1 2 3 5 8 13 21 34 55 89 144 233 377
+
+Tous les noms ne commençant pas par un tiret bas ("_") sont importés.
+Dans la grande majorité des cas, les développeurs n'utilisent pas
+cette syntaxe puisqu'en important un ensemble indéfini de noms, des
+noms déjà définis peuvent se retrouver masqués.
+
+Notez qu'en général, importer "*" d'un module ou d'un paquet est
+déconseillé. Souvent, le code devient difficilement lisible. Son
+utilisation en mode interactif est acceptée pour gagner quelques
+secondes.
+
+Si le nom du module est suivi par "as", alors le nom suivant "as" est
+directement lié au module importé.
+
+   >>> import fibo as fib
+   >>> fib.fib(500)
+   0 1 1 2 3 5 8 13 21 34 55 89 144 233 377
+
+Dans les faits, le module est importé de la même manière qu'avec
+"import fibo", la seule différence est qu'il sera disponible sous le
+nom de "fib".
+
+C'est aussi valide en utilisant "from", et a le même effet :
+
+   >>> from fibo import fib as fibonacci
+   >>> fibonacci(500)
+   0 1 1 2 3 5 8 13 21 34 55 89 144 233 377
+
+Note:
+
+  pour des raisons d’efficacité, chaque module n’est importé qu’une
+  fois par session de l’interpréteur. Par conséquent, si vous modifiez
+  vos modules, vous devez redémarrer l’interpréteur — ou, si c’est
+  juste un module que vous voulez tester interactivement, utilisez
+  "importlib.reload()", par exemple "import importlib ;
+  importlib.reload(modulename)".
+
+
+6.1.1. Exécuter des modules comme des scripts
+---------------------------------------------
+
+Lorsque vous exécutez un module Python avec
+
+   python fibo.py <arguments>
+
+le code du module est exécuté comme si vous l'aviez importé mais son
+"__name__" vaut ""__main__"". Donc, en ajoutant ces lignes à la fin du
+module :
+
+   if __name__ == "__main__":
+       import sys
+       fib(int(sys.argv[1]))
+
+vous pouvez rendre le fichier utilisable comme script aussi bien que
+comme module importable, car le code qui analyse la ligne de commande
+n'est lancé que si le module est exécuté comme fichier « main » :
+
+   $ python fibo.py 50
+   0 1 1 2 3 5 8 13 21 34
+
+Si le fichier est importé, le code n'est pas exécuté :
+
+   >>> import fibo
+   >>>
+
+C'est typiquement utilisé soit pour proposer une interface utilisateur
+pour un module, soit pour lancer les tests sur le module (exécuter le
+module en tant que script lance les tests).
+
+
+6.1.2. Les dossiers de recherche de modules
+-------------------------------------------
+
+When a module named "spam" is imported, the interpreter first searches
+for a built-in module with that name. These module names are listed in
+"sys.builtin_module_names". If not found, it then searches for a file
+named "spam.py" in a list of directories given by the variable
+"sys.path".  "sys.path" is initialized from these locations:
+
+* le dossier contenant le script courant (ou le dossier courant si
+  aucun script n'est donné) ;
+
+* "PYTHONPATH" (une liste de dossiers, utilisant la même syntaxe que
+  la variable shell "PATH") ;
+
+* La valeur par défaut, qui dépend de l'installation (incluant par
+  convention un dossier "site-packages", géré par le module "site").
+
+Vous trouverez plus de détails dans The initialization of the sys.path
+module search path.
+
+Note:
+
+  sur les systèmes qui gèrent les liens symboliques, le dossier
+  contenant le script courant est résolu après avoir suivi le lien
+  symbolique du script. Autrement dit, le dossier contenant le lien
+  symbolique n'est **pas** ajouté aux dossiers de recherche de
+  modules.
+
+Après leur initialisation, les programmes Python peuvent modifier leur
+"sys.path". Le dossier contenant le script courant est placé au début
+de la liste des dossiers à rechercher, avant les dossiers de
+bibliothèques. Cela signifie qu'un module dans ce dossier, ayant le
+même nom qu'un module, sera chargé à sa place. C'est une erreur
+typique, à moins que ce ne soit voulu. Voir Modules standards pour
+plus d'informations.
+
+
+6.1.3. Fichiers Python « compilés »
+-----------------------------------
+
+Pour accélérer le chargement des modules, Python cache une version
+compilée de chaque module dans un fichier nommé "module(version).pyc"
+(ou *version* représente le format du fichier compilé, typiquement une
+version de Python) dans le dossier "__pycache__". Par exemple, avec
+CPython 3.3, la version compilée de *spam.py* serait
+"__pycache__/spam.cpython-33.pyc". Cette règle de nommage permet à des
+versions compilées par des versions différentes de Python de
+coexister.
+
+Python compare les dates de modification du fichier source et de sa
+version compilée pour voir si le module doit être recompilé. Ce
+processus est entièrement automatique. Par ailleurs, les versions
+compilées sont indépendantes de la plateforme et peuvent donc être
+partagées entre des systèmes d'architectures différentes.
+
+Il existe deux situations où Python ne vérifie pas le cache : le
+premier cas est lorsque le module est donné par la ligne de commande
+(cas où le module est toujours recompilé, sans même cacher sa version
+compilée) ; le second cas est lorsque le module n'a pas de source.
+Pour gérer un module sans source (où seule la version compilée est
+fournie), le module compilé doit se trouver dans le dossier source et
+sa source ne doit pas être présente.
+
+Astuces pour les experts :
+
+* vous pouvez utiliser les options "-O" ou "-OO" lors de l'appel à
+  Python pour réduire la taille des modules compilés. L'option "-O"
+  supprime les instructions "assert" et l'option "-OO" supprime aussi
+  les documentations "__doc__". Cependant, puisque certains programmes
+  ont besoin de ces "__doc__", vous ne devriez utiliser "-OO" que si
+  vous savez ce que vous faites. Les modules « optimisés » sont
+  marqués d'un "opt-" et sont généralement plus petits. Les versions
+  futures de Python pourraient changer les effets de l'optimisation ;
+
+* un programme ne s'exécute pas plus vite lorsqu'il est lu depuis un
+  ".pyc", il est juste chargé plus vite ;
+
+* le module "compileall" peut créer des fichiers ".pyc" pour tous les
+  modules d'un dossier ;
+
+* vous trouvez plus de détails sur ce processus, ainsi qu'un
+  organigramme des décisions, dans la **PEP 3147**.
+
+
+6.2. Modules standards
+======================
+
+Python est accompagné d'une bibliothèque de modules standards, décrits
+dans la documentation de la Bibliothèque Python, plus loin. Certains
+modules sont intégrés dans l'interpréteur, ils proposent des outils
+qui ne font pas partie du langage mais qui font tout de même partie de
+l'interpréteur, soit pour le côté pratique, soit pour mettre à
+disposition des outils essentiels tels que l'accès aux appels système.
+La composition de ces modules est configurable à la compilation et
+dépend aussi de la plateforme cible. Par exemple, le module "winreg"
+n'est proposé que sur les systèmes Windows. Un module mérite une
+attention particulière, le module "sys", qui est présent dans tous les
+interpréteurs Python. Les variables "sys.ps1" et "sys.ps2" définissent
+les chaînes d'invites principales et secondaires :
+
+   >>> import sys
+   >>> sys.ps1
+   '>>> '
+   >>> sys.ps2
+   '... '
+   >>> sys.ps1 = 'C> '
+   C> print('Yuck!')
+   Yuck!
+   C>
+
+Ces deux variables ne sont définies que si l'interpréteur est en mode
+interactif.
+
+La variable "sys.path" est une liste de chaînes qui détermine les
+chemins de recherche de modules pour l'interpréteur. Elle est
+initialisée à un chemin par défaut pris de la variable d'environnement
+"PYTHONPATH" ou d'une valeur par défaut interne si "PYTHONPATH" n'est
+pas définie. "sys.path" est modifiable en utilisant les opérations
+habituelles des listes :
+
+   >>> import sys
+   >>> sys.path.append('/ufs/guido/lib/python')
+
+
+6.3. La fonction "dir()"
+========================
+
+La fonction interne "dir()" est utilisée pour trouver quels noms sont
+définis par un module. Elle donne une liste de chaînes classées par
+ordre lexicographique :
+
+   >>> import fibo, sys
+   >>> dir(fibo)
+   ['__name__', 'fib', 'fib2']
+   >>> dir(sys)
+   ['__breakpointhook__', '__displayhook__', '__doc__', '__excepthook__',
+    '__interactivehook__', '__loader__', '__name__', '__package__', '__spec__',
+    '__stderr__', '__stdin__', '__stdout__', '__unraisablehook__',
+    '_clear_type_cache', '_current_frames', '_debugmallocstats', '_framework',
+    '_getframe', '_git', '_home', '_xoptions', 'abiflags', 'addaudithook',
+    'api_version', 'argv', 'audit', 'base_exec_prefix', 'base_prefix',
+    'breakpointhook', 'builtin_module_names', 'byteorder', 'call_tracing',
+    'callstats', 'copyright', 'displayhook', 'dont_write_bytecode', 'exc_info',
+    'excepthook', 'exec_prefix', 'executable', 'exit', 'flags', 'float_info',
+    'float_repr_style', 'get_asyncgen_hooks', 'get_coroutine_origin_tracking_depth',
+    'getallocatedblocks', 'getdefaultencoding', 'getdlopenflags',
+    'getfilesystemencodeerrors', 'getfilesystemencoding', 'getprofile',
+    'getrecursionlimit', 'getrefcount', 'getsizeof', 'getswitchinterval',
+    'gettrace', 'hash_info', 'hexversion', 'implementation', 'int_info',
+    'intern', 'is_finalizing', 'last_traceback', 'last_type', 'last_value',
+    'maxsize', 'maxunicode', 'meta_path', 'modules', 'path', 'path_hooks',
+    'path_importer_cache', 'platform', 'prefix', 'ps1', 'ps2', 'pycache_prefix',
+    'set_asyncgen_hooks', 'set_coroutine_origin_tracking_depth', 'setdlopenflags',
+    'setprofile', 'setrecursionlimit', 'setswitchinterval', 'settrace', 'stderr',
+    'stdin', 'stdout', 'thread_info', 'unraisablehook', 'version', 'version_info',
+    'warnoptions']
+
+Sans paramètre, "dir()" liste les noms actuellement définis :
+
+   >>> a = [1, 2, 3, 4, 5]
+   >>> import fibo
+   >>> fib = fibo.fib
+   >>> dir()
+   ['__builtins__', '__name__', 'a', 'fib', 'fibo', 'sys']
+
+Notez qu'elle liste tous les types de noms : les variables, fonctions,
+modules, etc.
+
+"dir()" ne liste ni les fonctions primitives, ni les variables
+internes. Si vous voulez les lister, elles sont définies dans le
+module "builtins" :
+
+   >>> import builtins
+   >>> dir(builtins)
+   ['ArithmeticError', 'AssertionError', 'AttributeError', 'BaseException',
+    'BlockingIOError', 'BrokenPipeError', 'BufferError', 'BytesWarning',
+    'ChildProcessError', 'ConnectionAbortedError', 'ConnectionError',
+    'ConnectionRefusedError', 'ConnectionResetError', 'DeprecationWarning',
+    'EOFError', 'Ellipsis', 'EnvironmentError', 'Exception', 'False',
+    'FileExistsError', 'FileNotFoundError', 'FloatingPointError',
+    'FutureWarning', 'GeneratorExit', 'IOError', 'ImportError',
+    'ImportWarning', 'IndentationError', 'IndexError', 'InterruptedError',
+    'IsADirectoryError', 'KeyError', 'KeyboardInterrupt', 'LookupError',
+    'MemoryError', 'NameError', 'None', 'NotADirectoryError', 'NotImplemented',
+    'NotImplementedError', 'OSError', 'OverflowError',
+    'PendingDeprecationWarning', 'PermissionError', 'ProcessLookupError',
+    'ReferenceError', 'ResourceWarning', 'RuntimeError', 'RuntimeWarning',
+    'StopIteration', 'SyntaxError', 'SyntaxWarning', 'SystemError',
+    'SystemExit', 'TabError', 'TimeoutError', 'True', 'TypeError',
+    'UnboundLocalError', 'UnicodeDecodeError', 'UnicodeEncodeError',
+    'UnicodeError', 'UnicodeTranslateError', 'UnicodeWarning', 'UserWarning',
+    'ValueError', 'Warning', 'ZeroDivisionError', '_', '__build_class__',
+    '__debug__', '__doc__', '__import__', '__name__', '__package__', 'abs',
+    'all', 'any', 'ascii', 'bin', 'bool', 'bytearray', 'bytes', 'callable',
+    'chr', 'classmethod', 'compile', 'complex', 'copyright', 'credits',
+    'delattr', 'dict', 'dir', 'divmod', 'enumerate', 'eval', 'exec', 'exit',
+    'filter', 'float', 'format', 'frozenset', 'getattr', 'globals', 'hasattr',
+    'hash', 'help', 'hex', 'id', 'input', 'int', 'isinstance', 'issubclass',
+    'iter', 'len', 'license', 'list', 'locals', 'map', 'max', 'memoryview',
+    'min', 'next', 'object', 'oct', 'open', 'ord', 'pow', 'print', 'property',
+    'quit', 'range', 'repr', 'reversed', 'round', 'set', 'setattr', 'slice',
+    'sorted', 'staticmethod', 'str', 'sum', 'super', 'tuple', 'type', 'vars',
+    'zip']
+
+
+6.4. Les paquets
+================
+
+Packages are a way of structuring Python's module namespace by using
+"dotted module names".  For example, the module name "A.B" designates
+a submodule named "B" in a package named "A".  Just like the use of
+modules saves the authors of different modules from having to worry
+about each other's global variable names, the use of dotted module
+names saves the authors of multi-module packages like NumPy or Pillow
+from having to worry about each other's module names.
+
+Imaginez que vous voulez construire un ensemble de modules (un «
+paquet ») pour gérer uniformément les fichiers contenant du son et des
+données sonores. Il existe un grand nombre de formats de fichiers pour
+stocker du son (généralement identifiés par leur extension, par
+exemple ".wav", ".aiff", ".au"), vous avez donc besoin de créer et
+maintenir un nombre croissant de modules pour gérer la conversion
+entre tous ces formats. Vous voulez aussi pouvoir appliquer un certain
+nombre d'opérations sur ces sons : mixer, ajouter de l'écho, égaliser,
+ajouter un effet stéréo artificiel, etc. Donc, en plus des modules de
+conversion, vous allez écrire une myriade de modules permettant
+d'effectuer ces opérations. Voici une structure possible pour votre
+paquet (exprimée sous la forme d'une arborescence de fichiers) :
+
+   sound/                          Top-level package
+         __init__.py               Initialize the sound package
+         formats/                  Subpackage for file format conversions
+                 __init__.py
+                 wavread.py
+                 wavwrite.py
+                 aiffread.py
+                 aiffwrite.py
+                 auread.py
+                 auwrite.py
+                 ...
+         effects/                  Subpackage for sound effects
+                 __init__.py
+                 echo.py
+                 surround.py
+                 reverse.py
+                 ...
+         filters/                  Subpackage for filters
+                 __init__.py
+                 equalizer.py
+                 vocoder.py
+                 karaoke.py
+                 ...
+
+Lorsqu'il importe des paquets, Python cherche dans chaque dossier de
+"sys.path" un sous-dossier du nom du paquet.
+
+The "__init__.py" files are required to make Python treat directories
+containing the file as packages (unless using a *namespace package*, a
+relatively advanced feature). This prevents directories with a common
+name, such as "string", from unintentionally hiding valid modules that
+occur later on the module search path. In the simplest case,
+"__init__.py" can just be an empty file, but it can also execute
+initialization code for the package or set the "__all__" variable,
+described later.
+
+Les utilisateurs d'un module peuvent importer ses modules
+individuellement, par exemple :
+
+   import sound.effects.echo
+
+This loads the submodule "sound.effects.echo".  It must be referenced
+with its full name.
+
+   sound.effects.echo.echofilter(input, output, delay=0.7, atten=4)
+
+Une autre manière d'importer des sous-modules est :
+
+   from sound.effects import echo
+
+This also loads the submodule "echo", and makes it available without
+its package prefix, so it can be used as follows:
+
+   echo.echofilter(input, output, delay=0.7, atten=4)
+
+Une autre méthode consiste à importer la fonction ou la variable
+désirée directement :
+
+   from sound.effects.echo import echofilter
+
+Again, this loads the submodule "echo", but this makes its function
+"echofilter()" directly available:
+
+   echofilter(input, output, delay=0.7, atten=4)
+
+Notez que lorsque vous utilisez "from package import element",
+"element" peut aussi bien être un sous-module, un sous-paquet ou
+simplement un nom déclaré dans le paquet (une variable, une fonction
+ou une classe). L'instruction "import" cherche en premier si "element"
+est défini dans le paquet ; s'il ne l'est pas, elle cherche à charger
+un module et, si elle n'en trouve pas, une exception "ImportError" est
+levée.
+
+Au contraire, en utilisant la syntaxe "import
+element.souselement.soussouselement", chaque "element" sauf le dernier
+doit être un paquet. Le dernier "element" peut être un module ou un
+paquet, mais ne peut être ni une fonction, ni une classe, ni une
+variable définie dans l'élément précédent.
+
+
+6.4.1. Importer * depuis un paquet
+----------------------------------
+
+Qu'arrive-t-il lorsqu'un utilisateur écrit "from sound.effects import
+*" ? Idéalement, on pourrait espérer que Python aille chercher tous
+les sous-modules du paquet sur le système de fichiers et qu'ils
+seraient tous importés. Cela pourrait être long et importer certains
+sous-modules pourrait avoir des effets secondaires indésirables ou, du
+moins, désirés seulement lorsque le sous-module est importé
+explicitement.
+
+La seule solution, pour l'auteur du paquet, est de fournir un index
+explicite du contenu du paquet. L'instruction "import" utilise la
+convention suivante : si le fichier "__init__.py" du paquet définit
+une liste nommée "__all__", cette liste est utilisée comme liste des
+noms de modules devant être importés lorsque "from package import *"
+est utilisé. Il est de la responsabilité de l'auteur du paquet de
+maintenir cette liste à jour lorsque de nouvelles versions du paquet
+sont publiées. Un auteur de paquet peut aussi décider de ne pas
+autoriser d'importer "*" pour son paquet. Par exemple, le fichier
+"sound/effects/__init__.py" peut contenir le code suivant :
+
+   __all__ = ["echo", "surround", "reverse"]
+
+This would mean that "from sound.effects import *" would import the
+three named submodules of the "sound.effects" package.
+
+Be aware that submodules might become shadowed by locally defined
+names. For example, if you added a "reverse" function to the
+"sound/effects/__init__.py" file, the "from sound.effects import *"
+would only import the two submodules "echo" and "surround", but *not*
+the "reverse" submodule, because it is shadowed by the locally defined
+"reverse" function:
+
+   __all__ = [
+       "echo",      # refers to the 'echo.py' file
+       "surround",  # refers to the 'surround.py' file
+       "reverse",   # !!! refers to the 'reverse' function now !!!
+   ]
+
+   def reverse(msg: str):  # <-- this name shadows the 'reverse.py' submodule
+       return msg[::-1]    #     in the case of a 'from sound.effects import *'
+
+If "__all__" is not defined, the statement "from sound.effects import
+*" does *not* import all submodules from the package "sound.effects"
+into the current namespace; it only ensures that the package
+"sound.effects" has been imported (possibly running any initialization
+code in "__init__.py") and then imports whatever names are defined in
+the package.  This includes any names defined (and submodules
+explicitly loaded) by "__init__.py".  It also includes any submodules
+of the package that were explicitly loaded by previous "import"
+statements.  Consider this code:
+
+   import sound.effects.echo
+   import sound.effects.surround
+   from sound.effects import *
+
+In this example, the "echo" and "surround" modules are imported in the
+current namespace because they are defined in the "sound.effects"
+package when the "from...import" statement is executed.  (This also
+works when "__all__" is defined.)
+
+Bien que certains modules ont été pensés pour n'exporter que les noms
+respectant une certaine structure lorsque "import *" est utilisé,
+"import *" reste considéré comme une mauvaise pratique dans du code à
+destination d'un environnement de production.
+
+Rappelez-vous que rien ne vous empêche d'utiliser "from paquet import
+sous_module_specifique" ! C'est d'ailleurs la manière recommandée, à
+moins que le module qui fait les importations ait besoin de sous-
+modules ayant le même nom mais provenant de paquets différents.
+
+
+6.4.2. Références internes dans un paquet
+-----------------------------------------
+
+When packages are structured into subpackages (as with the "sound"
+package in the example), you can use absolute imports to refer to
+submodules of siblings packages.  For example, if the module
+"sound.filters.vocoder" needs to use the "echo" module in the
+"sound.effects" package, it can use "from sound.effects import echo".
+
+You can also write relative imports, with the "from module import
+name" form of import statement.  These imports use leading dots to
+indicate the current and parent packages involved in the relative
+import.  From the "surround" module for example, you might use:
+
+   from . import echo
+   from .. import formats
+   from ..filters import equalizer
+
+Note that relative imports are based on the name of the current
+module's package. Since the main module does not have a package,
+modules intended for use as the main module of a Python application
+must always use absolute imports.
+
+
+6.4.3. Paquets dans plusieurs dossiers
+--------------------------------------
+
+Packages support one more special attribute, "__path__".  This is
+initialized to be a *sequence* of strings containing the name of the
+directory holding the package's "__init__.py" before the code in that
+file is executed.  This variable can be modified; doing so affects
+future searches for modules and subpackages contained in the package.
+
+Bien que cette fonctionnalité ne soit que rarement utile, elle peut
+servir à élargir la liste des modules trouvés dans un paquet.
+
+-[ Notes ]-
+
+[1] En réalité, la déclaration d'une fonction est elle-même une
+    instruction ; son exécution ajoute le nom de la fonction dans
+    l'espace de nommage global du module.

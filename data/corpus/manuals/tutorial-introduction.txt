@@ -1,0 +1,589 @@
+3. Introduction informelle à Python
+***********************************
+
+Dans les exemples qui suivent, les entrées et sorties se distinguent
+par la présence ou l'absence d'invite (*>>>* et *...*) : pour
+reproduire les exemples, vous devez taper tout ce qui est après
+l'invite, au moment où celle-ci apparaît ; les lignes qui n'affichent
+pas d'invite sont les sorties de l'interpréteur. Notez qu'une invite
+secondaire affichée seule sur une ligne dans un exemple indique que
+vous devez entrer une ligne vide ; ceci est utilisé pour terminer une
+commande multi-lignes.
+
+Beaucoup d'exemples de ce manuel, même ceux saisis à l'invite de
+l'interpréteur, incluent des commentaires. Les commentaires en Python
+commencent avec un caractère croisillon, "#", et s'étendent jusqu'à la
+fin de la ligne. Un commentaire peut apparaître au début d'une ligne
+ou à la suite d'un espace ou de code, mais pas à l'intérieur d'une
+chaîne de caractères littérale. Un caractère croisillon à l'intérieur
+d'une chaîne de caractères est juste un caractère croisillon. Comme
+les commentaires ne servent qu'à expliquer le code et ne sont pas
+interprétés par Python, ils peuvent être ignorés lorsque vous tapez
+les exemples.
+
+Quelques exemples :
+
+   # this is the first comment
+   spam = 1  # and this is the second comment
+             # ... and now a third!
+   text = "# This is not a comment because it's inside quotes."
+
+
+3.1. Utilisation de Python comme une calculatrice
+=================================================
+
+Essayons quelques commandes Python simples. Démarrez l'interpréteur et
+attendez l'invite primaire, ">>>". Ça ne devrait pas être long.
+
+
+3.1.1. Les nombres
+------------------
+
+The interpreter acts as a simple calculator: you can type an
+expression into it and it will write the value.  Expression syntax is
+straightforward: the operators "+", "-", "*" and "/" can be used to
+perform arithmetic; parentheses ("()") can be used for grouping. For
+example:
+
+   >>> 2 + 2
+   4
+   >>> 50 - 5*6
+   20
+   >>> (50 - 5*6) / 4
+   5.0
+   >>> 8 / 5  # division always returns a floating-point number
+   1.6
+
+Les nombres entiers (comme "2", "4", "20") sont de type "int", alors
+que les décimaux (comme "5.0", "1.6") sont de type "float". Vous
+trouvez plus de détails sur les types numériques plus loin dans ce
+tutoriel.
+
+Les divisions ("/") donnent toujours des "float". Utilisez l'opérateur
+"//" pour effectuer une *division entière* et donc obtenir un résultat
+entier. Pour obtenir le reste d'une division entière, utilisez
+l'opérateur "%" :
+
+   >>> 17 / 3  # classic division returns a float
+   5.666666666666667
+   >>>
+   >>> 17 // 3  # floor division discards the fractional part
+   5
+   >>> 17 % 3  # the % operator returns the remainder of the division
+   2
+   >>> 5 * 3 + 2  # floored quotient * divisor + remainder
+   17
+
+En Python, il est possible de calculer des puissances avec l'opérateur
+"**" [1] :
+
+   >>> 5 ** 2  # 5 squared
+   25
+   >>> 2 ** 7  # 2 to the power of 7
+   128
+
+Le signe égal ("=") est utilisé pour affecter une valeur à une
+variable. Dans ce cas, aucun résultat n'est affiché avant l'invite
+suivante :
+
+   >>> width = 20
+   >>> height = 5 * 9
+   >>> width * height
+   900
+
+Si une variable n'est pas « définie » (si aucune valeur ne lui a été
+affectée), son utilisation produit une erreur :
+
+   >>> n  # try to access an undefined variable
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   NameError: name 'n' is not defined
+
+Les nombres à virgule flottante sont tout à fait admis (NdT : Python
+utilise le point *.* comme séparateur entre la partie entière et la
+partie décimale des nombres, c'est la convention anglo-saxonne) ; les
+opérateurs avec des opérandes de types différents convertissent
+l'opérande de type entier en type virgule flottante :
+
+   >>> 4 * 3.75 - 1
+   14.0
+
+En mode interactif, la dernière expression affichée est affectée à la
+variable "_". Ainsi, lorsque vous utilisez Python comme calculatrice,
+cela vous permet de continuer des calculs facilement, par exemple :
+
+   >>> tax = 12.5 / 100
+   >>> price = 100.50
+   >>> price * tax
+   12.5625
+   >>> price + _
+   113.0625
+   >>> round(_, 2)
+   113.06
+
+Cette variable doit être considérée comme une variable en lecture
+seule par l'utilisateur. Ne lui affectez pas de valeur explicitement —
+vous créeriez ainsi une variable locale indépendante, avec le même
+nom, qui masquerait la variable native et son fonctionnement magique.
+
+En plus des "int" et des "float", il existe les "Decimal" et les
+"Fraction". Python gère aussi les nombres complexes, en utilisant le
+suffixe "j" ou "J" pour indiquer la partie imaginaire (tel que
+"3+5j").
+
+
+3.1.2. Text
+-----------
+
+Python can manipulate text (represented by type "str", so-called
+"strings") as well as numbers.  This includes characters ""!"", words
+""rabbit"", names ""Paris"", sentences ""Got your back."", etc. ""Yay!
+:)"". They can be enclosed in single quotes ("'...'") or double quotes
+(""..."") with the same result [2].
+
+   >>> 'spam eggs'  # single quotes
+   'spam eggs'
+   >>> "Paris rabbit got your back :)! Yay!"  # double quotes
+   'Paris rabbit got your back :)! Yay!'
+   >>> '1975'  # digits and numerals enclosed in quotes are also strings
+   '1975'
+
+To quote a quote, we need to "escape" it, by preceding it with "\".
+Alternatively, we can use the other type of quotation marks:
+
+   >>> 'doesn\'t'  # use \' to escape the single quote...
+   "doesn't"
+   >>> "doesn't"  # ...or use double quotes instead
+   "doesn't"
+   >>> '"Yes," they said.'
+   '"Yes," they said.'
+   >>> "\"Yes,\" they said."
+   '"Yes," they said.'
+   >>> '"Isn\'t," they said.'
+   '"Isn\'t," they said.'
+
+In the Python shell, the string definition and output string can look
+different.  The "print()" function produces a more readable output, by
+omitting the enclosing quotes and by printing escaped and special
+characters:
+
+   >>> s = 'First line.\nSecond line.'  # \n means newline
+   >>> s  # without print(), special characters are included in the string
+   'First line.\nSecond line.'
+   >>> print(s)  # with print(), special characters are interpreted, so \n produces new line
+   First line.
+   Second line.
+
+Si vous ne voulez pas que les caractères précédés d'un "\" soient
+interprétés comme étant spéciaux, utilisez les *chaînes brutes* (*raw
+strings* en anglais) en préfixant la chaîne d'un "r" :
+
+   >>> print('C:\this\name')  # here \t means tab, \n means newline
+   C:      his
+   ame
+   >>> print(r'C:\this\name')  # note the r before the quote
+   C:\this\name
+
+Il existe une petite subtilité concernant les chaînes brutes : une
+chaîne brute ne peut pas se terminer par un nombre impair de
+caractères "\" ; voir l'entrée FAQ pour plus d'informations et des
+solutions de contournement.
+
+String literals can span multiple lines.  One way is using triple-
+quotes: """"..."""" or "'''...'''".  End-of-line characters are
+automatically included in the string, but it's possible to prevent
+this by adding a "\" at the end of the line.  In the following
+example, the initial newline is not included:
+
+   >>> print("""\
+   ... Usage: thingy [OPTIONS]
+   ...      -h                        Display this usage message
+   ...      -H hostname               Hostname to connect to
+   ... """)
+   Usage: thingy [OPTIONS]
+        -h                        Display this usage message
+        -H hostname               Hostname to connect to
+
+   >>>
+
+Les chaînes peuvent être concaténées (collées ensemble) avec
+l'opérateur "+" et répétées avec l'opérateur "*" :
+
+   >>> # 3 times 'un', followed by 'ium'
+   >>> 3 * 'un' + 'ium'
+   'unununium'
+
+Plusieurs chaînes de caractères, écrites littéralement (c'est-à-dire
+entre guillemets), côte à côte, sont automatiquement concaténées.
+
+   >>> 'Py' 'thon'
+   'Python'
+
+Cette fonctionnalité est surtout intéressante pour couper des chaînes
+trop longues :
+
+   >>> text = ('Put several strings within parentheses '
+   ...         'to have them joined together.')
+   >>> text
+   'Put several strings within parentheses to have them joined together.'
+
+Cela ne fonctionne cependant qu'avec les chaînes littérales, pas avec
+les variables ni les expressions :
+
+   >>> prefix = 'Py'
+   >>> prefix 'thon'  # can't concatenate a variable and a string literal
+     File "<stdin>", line 1
+       prefix 'thon'
+              ^^^^^^
+   SyntaxError: invalid syntax
+   >>> ('un' * 3) 'ium'
+     File "<stdin>", line 1
+       ('un' * 3) 'ium'
+                  ^^^^^
+   SyntaxError: invalid syntax
+
+Pour concaténer des variables, ou des variables avec des chaînes
+littérales, utilisez l'opérateur "+" :
+
+   >>> prefix + 'thon'
+   'Python'
+
+Les chaînes de caractères peuvent être indexées (ou indicées,
+c'est-à-dire que l'on peut accéder aux caractères par leur position),
+le premier caractère d'une chaîne étant à la position 0. Il n'existe
+pas de type distinct pour les caractères, un caractère est simplement
+une chaîne de longueur 1 :
+
+   >>> word = 'Python'
+   >>> word[0]  # character in position 0
+   'P'
+   >>> word[5]  # character in position 5
+   'n'
+
+Les indices peuvent également être négatifs, on compte alors en
+partant de la droite. Par exemple :
+
+   >>> word[-1]  # last character
+   'n'
+   >>> word[-2]  # second-last character
+   'o'
+   >>> word[-6]
+   'P'
+
+Notez que, comme "-0" égale "0", les indices négatifs commencent par
+"-1".
+
+En plus d'accéder à un élément par son indice, il est aussi possible
+de « trancher » (*slice* en anglais) une chaîne. Accéder à une chaîne
+par un indice permet d'obtenir un caractère, *trancher* permet
+d'obtenir une sous-chaîne :
+
+   >>> word[0:2]  # characters from position 0 (included) to 2 (excluded)
+   'Py'
+   >>> word[2:5]  # characters from position 2 (included) to 5 (excluded)
+   'tho'
+
+Les valeurs par défaut des indices de tranches ont une utilité ; le
+premier indice vaut zéro par défaut (c.-à-d. lorsqu'il est omis), le
+deuxième correspond par défaut à la taille de la chaîne de caractères
+
+   >>> word[:2]   # character from the beginning to position 2 (excluded)
+   'Py'
+   >>> word[4:]   # characters from position 4 (included) to the end
+   'on'
+   >>> word[-2:]  # characters from the second-last (included) to the end
+   'on'
+
+Notez que le début est toujours inclus et la fin toujours exclue. Cela
+assure que "s[:i] + s[i:]" est toujours égal à "s" :
+
+   >>> word[:2] + word[2:]
+   'Python'
+   >>> word[:4] + word[4:]
+   'Python'
+
+Pour mémoriser la façon dont les tranches fonctionnent, vous pouvez
+imaginer que les indices pointent *entre* les caractères, le côté
+gauche du premier caractère ayant la position 0. Le côté droit du
+dernier caractère d'une chaîne de *n* caractères a alors pour indice
+*n*. Par exemple :
+
+    +---+---+---+---+---+---+
+    | P | y | t | h | o | n |
+    +---+---+---+---+---+---+
+    0   1   2   3   4   5   6
+   -6  -5  -4  -3  -2  -1
+
+La première ligne de nombres donne la position des indices 0…6 dans la
+chaîne ; la deuxième ligne donne l'indice négatif correspondant. La
+tranche de *i* à *j* est constituée de tous les caractères situés
+entre les bords libellés *i* et *j*, respectivement.
+
+Pour des indices non négatifs, la longueur d'une tranche est la
+différence entre ces indices, si les deux sont entre les bornes. Par
+exemple, la longueur de "word[1:3]" est 2.
+
+Utiliser un indice trop grand produit une erreur :
+
+   >>> word[42]  # the word only has 6 characters
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   IndexError: string index out of range
+
+Cependant, les indices hors bornes sont gérés silencieusement
+lorsqu'ils sont utilisés dans des tranches :
+
+   >>> word[4:42]
+   'on'
+   >>> word[42:]
+   ''
+
+Les chaînes de caractères, en Python, ne peuvent pas être modifiées.
+On dit qu'elles sont *immuables*. Affecter une nouvelle valeur à un
+indice dans une chaîne produit une erreur :
+
+   >>> word[0] = 'J'
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   TypeError: 'str' object does not support item assignment
+   >>> word[2:] = 'py'
+   Traceback (most recent call last):
+     File "<stdin>", line 1, in <module>
+   TypeError: 'str' object does not support item assignment
+
+Si vous avez besoin d'une chaîne différente, vous devez en créer une
+nouvelle :
+
+   >>> 'J' + word[1:]
+   'Jython'
+   >>> word[:2] + 'py'
+   'Pypy'
+
+La fonction native "len()" renvoie la longueur d'une chaîne :
+
+   >>> s = 'supercalifragilisticexpialidocious'
+   >>> len(s)
+   34
+
+Voir aussi:
+
+  Type Séquence de Texte — str
+     Les chaînes de caractères sont des exemples de *types séquences*
+     ; elles acceptent donc les opérations classiques prises en charge
+     par ces types.
+
+  Méthodes de chaînes de caractères
+     Les chaînes de caractères gèrent un large éventail de méthodes de
+     transformations basiques et de recherche.
+
+  f-strings
+     Des chaînes littérales qui contiennent des expressions.
+
+  Format string syntax
+     Informations sur le formatage des chaînes avec la méthode
+     "str.format()".
+
+  Formatage de chaines à la printf
+     Description détaillée des anciennes méthodes de mise en forme,
+     appelées lorsque les chaînes de caractères sont à gauche de
+     l'opérateur "%".
+
+
+3.1.3. Listes
+-------------
+
+Python connaît différents types de données *combinés*, utilisés pour
+regrouper plusieurs valeurs. Le plus souple est la *liste*, qui peut
+être écrit comme une suite, placée entre crochets, de valeurs
+(éléments) séparées par des virgules. Les éléments d'une liste ne sont
+pas obligatoirement tous du même type, bien qu'à l'usage ce soit
+souvent le cas.
+
+   >>> squares = [1, 4, 9, 16, 25]
+   >>> squares
+   [1, 4, 9, 16, 25]
+
+Comme les chaînes de caractères (et toute autre type de *sequence*),
+les listes peuvent être indicées et découpées :
+
+   >>> squares[0]  # indexing returns the item
+   1
+   >>> squares[-1]
+   25
+   >>> squares[-3:]  # slicing returns a new list
+   [9, 16, 25]
+
+Les listes gèrent aussi les opérations comme les concaténations :
+
+   >>> squares + [36, 49, 64, 81, 100]
+   [1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+
+Mais à la différence des chaînes qui sont *immuables*, les listes sont
+*mutables* : il est possible de modifier leur contenu :
+
+   >>> cubes = [1, 8, 27, 65, 125]  # something's wrong here
+   >>> 4 ** 3  # the cube of 4 is 64, not 65!
+   64
+   >>> cubes[3] = 64  # replace the wrong value
+   >>> cubes
+   [1, 8, 27, 64, 125]
+
+You can also add new items at the end of the list, by using the
+"list.append()" *method* (we will see more about methods later):
+
+   >>> cubes.append(216)  # add the cube of 6
+   >>> cubes.append(7 ** 3)  # and the cube of 7
+   >>> cubes
+   [1, 8, 27, 64, 125, 216, 343]
+
+Simple assignment in Python never copies data. When you assign a list
+to a variable, the variable refers to the *existing list*. Any changes
+you make to the list through one variable will be seen through all
+other variables that refer to it.:
+
+   >>> rgb = ["Red", "Green", "Blue"]
+   >>> rgba = rgb
+   >>> id(rgb) == id(rgba)  # they reference the same object
+   True
+   >>> rgba.append("Alph")
+   >>> rgb
+   ["Red", "Green", "Blue", "Alph"]
+
+Toutes les opérations par tranches renvoient une nouvelle liste
+contenant les éléments demandés. Cela signifie que l'opération
+suivante renvoie une copie (superficielle) de la liste :
+
+   >>> correct_rgba = rgba[:]
+   >>> correct_rgba[-1] = "Alpha"
+   >>> correct_rgba
+   ["Red", "Green", "Blue", "Alpha"]
+   >>> rgba
+   ["Red", "Green", "Blue", "Alph"]
+
+Des affectations de tranches sont également possibles, ce qui peut
+même modifier la taille de la liste ou la vider complètement :
+
+   >>> letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+   >>> letters
+   ['a', 'b', 'c', 'd', 'e', 'f', 'g']
+   >>> # replace some values
+   >>> letters[2:5] = ['C', 'D', 'E']
+   >>> letters
+   ['a', 'b', 'C', 'D', 'E', 'f', 'g']
+   >>> # now remove them
+   >>> letters[2:5] = []
+   >>> letters
+   ['a', 'b', 'f', 'g']
+   >>> # clear the list by replacing all the elements with an empty list
+   >>> letters[:] = []
+   >>> letters
+   []
+
+La primitive "len()" s'applique aussi aux listes :
+
+   >>> letters = ['a', 'b', 'c', 'd']
+   >>> len(letters)
+   4
+
+Il est possible d'imbriquer des listes (c.-à-d. créer des listes
+contenant d'autres listes). Par exemple :
+
+   >>> a = ['a', 'b', 'c']
+   >>> n = [1, 2, 3]
+   >>> x = [a, n]
+   >>> x
+   [['a', 'b', 'c'], [1, 2, 3]]
+   >>> x[0]
+   ['a', 'b', 'c']
+   >>> x[0][1]
+   'b'
+
+
+3.2. Premiers pas vers la programmation
+=======================================
+
+Bien entendu, on peut utiliser Python pour des tâches plus compliquées
+que d'additionner deux et deux. Par exemple, on peut écrire le début
+de la suite de Fibonacci comme ceci :
+
+   >>> # Fibonacci series:
+   >>> # the sum of two elements defines the next
+   >>> a, b = 0, 1
+   >>> while a < 10:
+   ...     print(a)
+   ...     a, b = b, a+b
+   ...
+   0
+   1
+   1
+   2
+   3
+   5
+   8
+
+Cet exemple introduit plusieurs nouvelles fonctionnalités.
+
+* La première ligne contient une *affectation multiple* : les
+  variables "a" et "b" se voient affecter simultanément leurs
+  nouvelles valeurs 0 et 1. Cette méthode est encore utilisée à la
+  dernière ligne, pour démontrer que les expressions sur la partie
+  droite de l'affectation sont toutes évaluées avant que les
+  affectations ne soient effectuées. Ces expressions en partie droite
+  sont toujours évaluées de la gauche vers la droite.
+
+* La boucle "while" s'exécute tant que la condition (ici : "a < 10")
+  reste vraie. En Python, comme en C, tout entier différent de zéro
+  est vrai et zéro est faux. La condition peut aussi être une chaîne
+  de caractères, une liste, ou en fait toute séquence ; une séquence
+  avec une valeur non nulle est vraie, une séquence vide est fausse.
+  Le test utilisé dans l'exemple est une simple comparaison. Les
+  opérateurs de comparaison standards sont écrits comme en C : "<"
+  (inférieur), ">" (supérieur), "==" (égal), "<=" (inférieur ou égal),
+  ">=" (supérieur ou égal) et "!=" (non égal).
+
+* Le *corps* de la boucle est *indenté* : l'indentation est la méthode
+  utilisée par Python pour regrouper des instructions. En mode
+  interactif, vous devez saisir une tabulation ou des espaces pour
+  chaque ligne indentée. En pratique, vous aurez intérêt à utiliser un
+  éditeur de texte pour les saisies plus compliquées ; tous les
+  éditeurs de texte dignes de ce nom disposent d'une fonction d'auto-
+  indentation. Lorsqu'une expression composée est saisie en mode
+  interactif, elle doit être suivie d'une ligne vide pour indiquer
+  qu'elle est terminée (car l'analyseur ne peut pas deviner que vous
+  venez de saisir la dernière ligne). Notez bien que toutes les lignes
+  à l'intérieur d'un bloc doivent être indentées au même niveau.
+
+* La fonction "print()" écrit les valeurs des paramètres qui lui sont
+  fournis. Ce n'est pas la même chose que d'écrire l'expression que
+  vous voulez afficher (comme nous l'avons fait dans l'exemple de la
+  calculatrice), en raison de la manière qu'a "print" de gérer les
+  paramètres multiples, les nombres décimaux et les chaînes. Les
+  chaînes sont affichées sans apostrophe et une espace est insérée
+  entre les éléments de telle sorte que vous pouvez facilement
+  formater les choses, comme ceci :
+
+     >>> i = 256*256
+     >>> print('The value of i is', i)
+     The value of i is 65536
+
+  Le paramètre nommé *end* peut servir pour enlever le retour à la
+  ligne ou pour terminer la ligne par une autre chaîne :
+
+     >>> a, b = 0, 1
+     >>> while a < 1000:
+     ...     print(a, end=',')
+     ...     a, b = b, a+b
+     ...
+     0,1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,
+
+-[ Notes ]-
+
+[1] Puisque "**" est prioritaire sur "-", "-3 ** 2" est interprété
+    "-(3 ** 2)" et vaut donc "-9". Pour éviter cela et obtenir "9",
+    utilisez des parenthèses : "(-3) ** 2".
+
+[2] Contrairement à d'autres langages, les caractères spéciaux comme
+    "\n" ont la même signification entre guillemets (""..."") ou entre
+    guillemets simples ("'...'"). La seule différence est que, dans
+    une chaîne entre guillemets, il n'est pas nécessaire de protéger
+    les guillemets simples et vice-versa.

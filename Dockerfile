@@ -58,8 +58,15 @@ WORKDIR /app
 # machine gets exactly what they got before this file existed, and the
 # deviation cannot leak out of the container.
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    set -eu; \
+# NO BUILD CACHE MOUNT, and this was decided against rather than
+# forgotten. Railway rejects an anonymous one ("missing an id argument"),
+# and then rejects a named one too unless the id is literally
+# `s/<SERVICE_ID>-<name>` -- their documented format hardcodes ONE
+# Railway service's id. This repo is cloned on two machines and also
+# builds locally through docker compose, so a Railway service id baked
+# into the Dockerfile would be wrong everywhere except one deploy of one
+# account. A build cache is an optimisation; portability is not.
+RUN set -eu; \
     # WHY NOT `uv sync`, AND WHY NOT `--no-install-package torch`.
     # Both were tried and both still downloaded the CUDA stack, because
     # `uv.lock` pins the `nvidia-*` wheels as their OWN entries, not just
@@ -202,14 +209,48 @@ COPY . .
 # docker-entrypoint.sh copies them in on first boot only -- when the
 # volume is empty. An operator who deletes a seeded document keeps it
 # deleted; nothing here overwrites live data.
+# The seed corpus, copied OUTSIDE the volume mount point on purpose.
+# Railway mounts its volume at start, which would hide anything written to
+# /app/data at build time; `docker-entrypoint.sh` copies from here into the
+# volume on first boot instead.
+#
+# GETTING THE DOCUMENTS THIS FAR TOOK FOUR FAILED DEPLOYS, so the reason
+# they are committed to git is recorded next to the line that needs them.
+# `railway up` uploads a GIT-FILTERED snapshot. While `data/` was fully
+# git-ignored the corpus could not reach Railway's builder by any route:
+#   - `COPY data/corpus ...`   -> `"/data/corpus": not found`
+#   - `COPY data/corpu[s] ...` -> `lstat /data: no such file or directory`
+#     (an optional-glob still needs the PARENT directory to exist)
+#   - `.railwayignore` cannot rescue it: Railway applies it IN ADDITION to
+#     `.gitignore`, never instead, so a git-ignored path stays excluded
+#   - `railway volume files upload` needs an SSH key registered to the
+#     account, which this machine did not have
+# Each failed AFTER the whole builder stage went green -- the expensive
+# way to learn it.
+#
+# The fix was to stop treating source documents as runtime state: `.gitignore`
+# now excludes `data/*` and re-includes `data/corpus/`, so the PDFs travel
+# with the repo. See the note there; it explains why `data/*` and not `data/`.
 COPY data/corpus /app/seed-corpus
 
-# `data/` is git-ignored (the corpus, the SQLite registry, the Qdrant
-# collection, the parent store and the reports all live here). It is a
-# VOLUME so the container can be rebuilt without losing an indexed
-# workspace. On Railway this must be an attached volume mounted at
-# /app/data, or every deploy starts with an empty registry.
-VOLUME ["/app/data"]
+# NO `VOLUME` INSTRUCTION HERE, AND THAT IS DELIBERATE.
+# Railway's builder rejects the image outright if there is one: "docker
+# VOLUME at Line 212 is not supported, use Railway Volumes". The first
+# deploy failed on exactly that.
+#
+# Removing it costs nothing and is arguably more honest. `VOLUME` only
+# ever bought the local case, where Docker copies image content into a
+# NEW named volume -- and that copy is what gave a false pass when the
+# seeding logic was first tested: the corpus appeared without the seeding
+# code running at all. With no `VOLUME`, every environment behaves the
+# same way Railway does, and `docker-entrypoint.sh` is the single path
+# that puts documents on the disk.
+#
+# The persistence itself is declared where it belongs for each target:
+# `docker-compose.yml` names a `sanad-data` volume, and on Railway a
+# volume is attached to the service at /app/data. Without one of those,
+# `data/` -- the corpus, the SQLite registry, the Qdrant collection, the
+# parent store and the reports -- is lost on every redeploy.
 
 EXPOSE 8000
 
