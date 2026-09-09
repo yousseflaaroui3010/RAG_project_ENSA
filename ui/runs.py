@@ -52,6 +52,7 @@ from typing import Any
 
 from agent.graph import ask
 from agent.ports import AgentPorts
+from agent.querying import ClarificationContext, clarified_question
 from agent.state import Answer, Turn
 from vector_store import SearchHit
 
@@ -137,6 +138,7 @@ class Run:
     workspace_id: str
     session_id: str | None
     history: tuple[Turn, ...] = ()
+    clarification_context: ClarificationContext | None = None
 
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _stage: Stage | None = None
@@ -147,6 +149,12 @@ class Run:
     reading: Reading = field(default_factory=Reading)
 
     # --- what the page reads -------------------------------------------
+
+    @property
+    def question_for_agent(self) -> str:
+        if self.clarification_context is None:
+            return self.question
+        return clarified_question(self.clarification_context, self.question)
 
     @property
     def stage(self) -> Stage | None:
@@ -219,11 +227,11 @@ class Run:
             self._stage = stage
 
     def observed(self, ports: AgentPorts) -> AgentPorts:
-        """The same ports, with three of them announcing themselves.
+        """The same ports, with the signed UX stages and cancel checkpoints.
 
-        `dataclasses.replace` on a frozen dataclass, so the callables
-        underneath are ST-23's and ST-24's untouched. The two ports that
-        set no stage are deliberate:
+        `dataclasses.replace` on a frozen dataclass leaves the callables
+        underneath untouched. The two kinds of ports that set no stage are
+        deliberate:
 
         * `fetch_parents` reads a few JSON files in milliseconds and has
           no name in UX spec 6.3's vocabulary of three. Leaving the stage
@@ -231,14 +239,25 @@ class Run:
           user was told; inventing a fourth hint would be adding a stage
           the spec does not have. It is still wrapped, for the cancel
           checkpoint alone.
-        * `summarize`, `clarify`, `rewrite` and `reword` are either
-          stubbed (ST-22, ST-25) or instantaneous, and none of them is a
-          stage a user waits through."""
+        * `clarify` and `rewrite` are ST-22's shared, model-backed query
+          planning. Both have checkpoints immediately before and after their
+          call, which covers both a first question and a resumed clarification.
+          Neither gets a new stage name because UX spec 6.3 defines only the
+          existing Searching, Checking, and Writing names."""
 
         def searching(retrieve: Any) -> Any:
             def wrapped(workspace_id: str, query: str) -> Sequence[SearchHit]:
                 self._enter(Stage.SEARCHING)
                 return retrieve(workspace_id, query)
+
+            return wrapped
+
+        def stoppable_query_planning(port: Any) -> Any:
+            def wrapped(question: str, summary: str) -> Any:
+                self._checkpoint()
+                result = port(question, summary)
+                self._checkpoint()
+                return result
 
             return wrapped
 
@@ -291,6 +310,8 @@ class Run:
 
         return dataclasses.replace(
             ports,
+            clarify=stoppable_query_planning(ports.clarify),
+            rewrite=stoppable_query_planning(ports.rewrite),
             retrieve=searching(ports.retrieve),
             grade=checking(ports.grade),
             fetch_parents=stoppable(ports.fetch_parents),
@@ -305,6 +326,7 @@ class Run:
                 ports=self.observed(ports),
                 session_id=self.session_id,
                 history=self.history,
+                clarification_context=self.clarification_context,
             )
         except BaseException as exc:  # noqa: BLE001 -- see below
             # EVERY failure is caught, including the ones a library author

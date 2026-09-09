@@ -641,11 +641,10 @@ def answer(confirmed: bool = False) -> int:
     with vector_store.open_store(QDRANT) as client:
         model = build_chat_model()
         ports = AgentPorts(
-            # ST-22 and ST-25 are not built. Stubbed IN THE OPEN, and it
-            # matters for reading the numbers: no clarification round and no
-            # session summary means every timing below is a FLOOR. A real
-            # ST-22 adds at least one more provider call to an ambiguous
-            # question, and several of these are ambiguous.
+            # This historical ST-18 spike deliberately excludes ST-22 query
+            # planning and ST-25 memory. No clarification round or session
+            # summary means every timing below is a floor; the running app's
+            # planner adds a provider call, including on ambiguous questions.
             summarize=lambda history: "",
             clarify=lambda question, summary: None,
             rewrite=lambda question, summary: (question,),

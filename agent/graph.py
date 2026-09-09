@@ -54,6 +54,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from agent import nodes
 from agent.ports import AgentPorts
+from agent.querying import ClarificationContext, clarified_question
 from agent.state import AgentState, Answer, Source, Turn
 from agent.trace import Trace, TraceStep
 from config import get_settings
@@ -127,6 +128,7 @@ def initial_state(
     question: str,
     session_id: str,
     history: tuple[Turn, ...],
+    clarification_used: bool = False,
 ) -> AgentState:
     """Every key the nodes read, present from the start.
 
@@ -144,6 +146,7 @@ def initial_state(
         relevant=False,
         parents={},
         parents_unreadable=False,
+        clarification_used=clarification_used,
         clarification=None,
         steps=[],
         answer_kind=None,
@@ -159,6 +162,7 @@ def ask(
     ports: AgentPorts,
     session_id: str | None = None,
     history: Sequence[Turn] = (),
+    clarification_context: ClarificationContext | None = None,
 ) -> Answer:
     """Run one question through the graph and return one answer object.
 
@@ -191,6 +195,17 @@ def ask(
             f"{len(asked)}."
         )
 
+    if clarification_context is not None:
+        original = clarification_context.original.strip()
+        if len(original) < settings.question_min_length:
+            raise ValueError("the original question behind this clarification is blank")
+        if len(original) > settings.question_max_length:
+            raise ValueError(
+                "the original question behind this clarification exceeds the "
+                f"{settings.question_max_length}-character request limit"
+            )
+        asked = clarified_question(clarification_context, question)
+
     session = session_id or _new_id()
     graph = build_graph(ports)
     final: dict = graph.invoke(
@@ -199,6 +214,7 @@ def ask(
             question=asked,
             session_id=session,
             history=tuple(history),
+            clarification_used=clarification_context is not None,
         )
     )
 
