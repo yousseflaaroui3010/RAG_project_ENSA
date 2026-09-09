@@ -191,6 +191,27 @@ class Settings(BaseSettings):
     # design decision and becomes an open door.
     access_password: str = ""
 
+    # Turns an instance into a READ-ONLY window on work done elsewhere:
+    # the Reports screen, the workspace list and the passage viewer still
+    # serve, while Sync and Chat decline with a sentence instead of trying.
+    # Empty/False is the default, so a laptop run is exactly unchanged.
+    #
+    # WHY THIS EXISTS, measured rather than assumed. Both Sync and Chat
+    # load `embedding_model` -- Chat too, via `vector_store` line 377's
+    # `embed_query`, so this is not a Sync-only limit. That model is
+    # intfloat/multilingual-e5-base: 278M parameters, which is 1,112 MB at
+    # float32. The published container is capped at 1,024 MB, so the model
+    # cannot be loaded there AT ALL, and the failure is the worst kind --
+    # the platform kills the process mid-load and restarts it, the browser
+    # sees a spinner that never ends, and nothing anywhere says why.
+    #
+    # Setting this makes the limit HONEST instead of silent. It is not a
+    # workaround for the memory cap and it does not make answering work;
+    # the fix for that is a bigger box or a smaller model, and the second
+    # one would change every stored vector and invalidate the evaluation
+    # this release is gated on (docs/evals/ST-36-triage.md).
+    evidence_only: bool = False
+
     # --- Workspace validation (ST-11) ---
     # Mirrors docs/phase2/openapi.yaml WorkspaceCreate/WorkspaceUpdate
     # `name` constraints (minLength/maxLength). Read from here in

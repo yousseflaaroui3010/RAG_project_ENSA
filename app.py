@@ -43,6 +43,7 @@ from fastapi.templating import Jinja2Templates
 import sync
 import vector_store
 import workspaces
+from agent.chat import ChatUnavailableError
 from agent.ports import AgentPorts
 from config import get_settings
 from db import repo
@@ -69,6 +70,19 @@ SEE_OTHER = 303
 # room for percent-escaped multibyte French and every other field on the
 # page many times over. A body past this is dropped rather than buffered.
 MAX_FORM_BYTES = 64 * 1024
+
+
+# The one sentence both refusals show, written once. Sync and Chat decline
+# for the SAME reason, so two hand-written strings would be two things free
+# to drift apart -- and the operator would be told two different stories
+# about one limit. See `config.evidence_only` for why the limit exists and
+# why it is not a bug to be worked around.
+EVIDENCE_ONLY_MESSAGE = (
+    "This published instance is read-only: it shows evaluation reports and "
+    "workspace details, but cannot answer questions or run a Sync. Both need "
+    "the embedding model, which is larger than this container's memory "
+    "limit. Run Sanad locally to ask questions or index documents."
+)
 
 
 @dataclass
@@ -109,6 +123,15 @@ class Runtime:
     last_sync_run_id: dict[str, str] = field(default_factory=dict)
 
     def ports(self) -> AgentPorts:
+        # `evidence_only` is checked HERE rather than in the `/chat/ask`
+        # route because this is the seam the screen already understands:
+        # `_start` catches whatever this raises and hands it to
+        # `run.fail`, which is UX spec 11's "answering service
+        # unreachable" panel. Raising the SAME exception type a missing
+        # key raises means one error path, one template, and one set of
+        # tests -- not a second way for the chat screen to say no.
+        if get_settings().evidence_only:
+            raise ChatUnavailableError(EVIDENCE_ONLY_MESSAGE)
         if self.ports_factory is None:
             return build_default_ports(self.client)
         return self.ports_factory()
@@ -665,6 +688,18 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         the operator who clicked Sync actually sees. The tiny window
         between this read and the thread's own claim is the same one
         `sync._claim_sync_run`'s docstring already names and accepts."""
+        # Checked FIRST, before the double-sync read and before any
+        # thread: on a read-only instance there is nothing to claim and
+        # nothing to race. Reuses `sync_errors`, which is the channel the
+        # S2 panel already renders (PRD section 11's "Sync could not run"
+        # box), so this needs no new template and no new state -- the
+        # operator sees the same box a missing folder produces, carrying a
+        # sentence that explains the limit instead of a path.
+        if get_settings().evidence_only:
+            runtime.sync_errors[workspace_id] = EVIDENCE_ONLY_MESSAGE
+            return RedirectResponse(
+                f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER
+            )
         with repo.session(runtime.db_path) as conn:
             running = repo.get_running_sync_run(conn, workspace_id)
         if running is not None:
