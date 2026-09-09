@@ -326,6 +326,101 @@ copied.
 
 ## Now
 
+**ST-36's PROMPT FIX IS REAL AND THE GATE IS STILL RED, MEASURED 2026-09-09
+ON `fix/S3-ST-39-g-out-005-replacement` (ca3c134). NO CODE CHANGED BY THIS
+SESSION -- the tree was clean before and after, verified by hash.** The
+question put to this session was whether to fix `g-in-014` or record it as a
+known limitation. Neither: ST-36 had already fixed it, on a branch nobody had
+merged, and the claim rested on ONE run.
+
+**WHY "KNOWN LIMITATION" WAS NEVER AN OPTION, stated because it was the
+question asked:** G3 counts an in-scope refusal as a missing source
+(`evaluation/runner.py:176`, folded in at `:215`), so one refusing row makes
+sources 39/40 and the gate exits 1. ST-41's exit gate needs exit 0. Writing
+"known limitation" in a document changes nothing. The only routes to green are
+fixing the product or editing the row, and the row is sound -- unlike
+`g-out-005`, the corpus answers `g-in-014` TWICE (dahir art. 35 and the CLEISS
+guide), so editing it would be the cheating the core law bans.
+
+**THE FIX WORKS, AND THIS IS THE FIRST NUMBER ON THIS PROJECT WITH A
+SIGNIFICANCE TEST BEHIND IT.** `g-in-014`, ten runs each side, same machine,
+same Qdrant index, same corpus, ONE variable changed (`prompts/query-reword`
+0.1.0 -> ST-36's 0.2.0, swapped in byte-identical, hash `1b9aa9e`):
+
+| | main v0.1.0 | ST-36 v0.2.0 |
+|---|---|---|
+| answered | 2/10 | **10/10** |
+| missing a source (G3) | 8/10 | **0/10** |
+| cited dahir art. 35 | 0 | **10/10** |
+
+Fisher exact **p = 0.0007**. ST-36's own diagnosis (an acronym in the search
+pulls onto pages that DESCRIBE the institution instead of the page that STATES
+the rule) was re-derived independently here before its triage doc was read: of
+the seven queries the old prompt generated, six kept `CNSS` and none found
+article 35; a control query using the reference answer's own words returns it
+at **score 1.0**, proving the chunk is indexed and the retriever is not blind.
+
+**AND THE GATE IS STILL RED, WHICH IS THE PART THE TRIAGE DOC DOES NOT SAY.**
+A full sixty-question run with BOTH fixes (ST-36's prompt + ST-39's replaced
+`g-out-005`) -- the configuration main would have if #85 and ca3c134 both
+landed -- reports **G1 0.968 PASS, G2 20/20 PASS, G3 39/40 FAIL, exit 1**.
+`g-in-014` passed at 1.0 and sourced. The single miss MOVED to `g-in-037`.
+`docs/evals/ST-36-triage.md` says "a gate that was failing now passes"; one run
+supported that and four do not.
+
+**G2 20/20 IS NOW A FACT, NOT AN EXPECTATION.** The DECISIONS row of
+2026-09-09 closed by saying 20/20 was "expected and not yet a fact". Two full
+runs since have measured it (07:26 and 11:33), so ST-39's `g-out-005`
+replacement holds. Also settled: the worry that "drop the institution name"
+would break out-of-scope rows where the institution IS the subject did NOT
+materialise -- all twenty refused correctly.
+
+**`g-in-037` IS A WARNING, NOT A CONVICTION, AND IT IS WRITTEN THAT WAY ON
+PURPOSE.** It asks the deadline for declaring a sick note *to the CNSS*, and
+its pair `g-in-035` is the same event with a deadline to the EMPLOYER, so the
+institution is exactly what separates them. Ten runs each side:
+
+| | main v0.1.0 | ST-36 v0.2.0 | |
+|---|---|---|---|
+| refused | 1/10 | 5/10 | p = 0.14, **NOT significant** |
+| answers at/above 0.90 | 1/9 | **5/5** | p = 0.003, significant |
+| mean groundedness | 0.83 | **0.94** | |
+
+So the new prompt demonstrably makes the ANSWER BETTER and may or may not make
+the REFUSAL more likely. A five-fold jump at p = 0.14 on n=10 is underpowered:
+it cannot convict the prompt and it cannot clear it. Do not let this be
+repeated as "ST-36 broke g-in-037" -- that is not what was measured.
+
+**THE STRUCTURAL FINDING, which outlives both rows: G3 IS FORTY COIN FLIPS
+THAT MUST ALL LAND.** Across the four full runs, G3 has read 39/40, 40/40,
+39/40, 39/40 -- clean once in four, each time blocked by a DIFFERENT row. Six
+rows also changed verdict between the three earlier runs on an IDENTICAL
+prompt, so run-to-run noise of four to six rows is this suite's baseline. Two
+consequences nobody has ruled on: a green gate is reachable (run 2 would have
+been green had it carried ST-39's row) but not RELIABLE, and at a ~50% row like
+`g-in-037` the gate cannot pass dependably however good the rest is. A single
+lucky green would also HIDE a real defect, which is worse than a stable red.
+
+**PARKED, NOT IMPROVISED, AND FLAGGED BECAUSE IT WOULD CONVENIENTLY GO GREEN:**
+the signed PRD (section 3, G3) says "100% of **answers** display at least one
+source reference". A refusal is not an answer and by F-05's design carries
+none, yet `runner.py:176` marks an in-scope refusal `sources_present=False` and
+`:215` folds it into G3 -- so one failure is punished twice, once by G1 and
+again by G3. That reads like the implementation being STRICTER than the signed
+spec. It is not touched here: it is a spec-interpretation call for a human,
+exactly like the `g-out-005` ruling, and "fixing" it would turn the gate green
+while `g-in-014` stayed broken. Whoever rules on it should do so AFTER the
+product fix, never as the route to green.
+
+MEASUREMENT SCOPE, so nobody reads more into this than it holds: this session
+measured TWO rows deeply (`g-in-014`, `g-in-037`, ten runs each side) and ran
+ONE full sixty-question sweep with the new prompt. It did NOT measure the other
+38 in-scope rows at more than one run apiece, so per-row claims about them are
+single observations inside a suite already known to move four to six rows a
+run. Gate steps were NOT re-run: no code changed, so `uv run pytest` and ruff
+were not re-executed this session and this entry makes no claim about them.
+Gitleaks not run -- MB's clone, same as every other entry above.
+
 **ST-33 RELEASE GATE BUILT, 2026-09-05, ON BRANCH
 `feat/S3-ST-33-release-gate` cut from main at `8d89e94` (ST-32 merged, PR
 #82). NOT MERGED.** `evaluation/gate.py` (`evaluate_report`) reads an
