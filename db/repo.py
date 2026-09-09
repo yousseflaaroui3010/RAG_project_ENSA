@@ -365,6 +365,62 @@ def get_running_sync_run(
     ).fetchone()
 
 
+def reconcile_interrupted_sync_runs(conn: sqlite3.Connection) -> list[str]:
+    """Close every run left unfinished by a dead process. Returns their ids.
+
+    THE INVARIANT THIS RESTS ON: a Sync runs on a thread inside this
+    process (`app.py`'s `start_sync_route`), and `sync._run` stamps
+    `finish_sync_run` from a `finally:` block. So an ordinary failure --
+    a missing folder, an unreadable PDF, any exception at all -- already
+    finishes its row. A row that is STILL unfinished when the process
+    starts cannot belong to a live run: the only way to reach that state
+    is for the process to be killed outright, and the thread died with it.
+    At startup, therefore, no sync can legitimately be running.
+
+    WHY THIS EXISTS. Observed in production on 2026-09-07: the container
+    was killed mid-Sync by the platform's memory limit while loading the
+    embedding model. The row stayed `finished_at IS NULL` forever, so
+    `get_running_sync_run` kept answering "running", the S2 panel polled
+    "Scanning the workspace folder..." for two days, and the double-sync
+    guard refused every retry -- one dead row locked the workspace out of
+    syncing permanently, with no way back through the UI.
+
+    THE COUNTS ARE RECOVERED, NOT ZEROED, and that is the difference
+    between recording what happened and quietly lying about it.
+    `sync_item` rows are written per file as the run goes, so a run killed
+    halfway leaves a real record of the files it did finish. Stamping the
+    run finished with six zeros would contradict rows sitting in the same
+    database. These are counted back out of `sync_item` instead, so the
+    report says exactly what the interrupted run achieved before it
+    died."""
+    unfinished = [
+        row["id"]
+        for row in conn.execute(
+            "SELECT id FROM sync_run WHERE finished_at IS NULL ORDER BY started_at"
+        )
+    ]
+    for sync_run_id in unfinished:
+        counts = {
+            row["result"]: row["n"]
+            for row in conn.execute(
+                "SELECT result, COUNT(*) AS n FROM sync_item "
+                "WHERE sync_run_id = ? GROUP BY result",
+                (sync_run_id,),
+            )
+        }
+        finish_sync_run(
+            conn,
+            sync_run_id=sync_run_id,
+            added=counts.get("added", 0),
+            changed=counts.get("changed", 0),
+            unchanged=counts.get("unchanged", 0),
+            failed=counts.get("failed", 0),
+            removed=counts.get("removed", 0),
+            skipped=counts.get("skipped", 0),
+        )
+    return unfinished
+
+
 def finish_sync_run(
     conn: sqlite3.Connection,
     *,

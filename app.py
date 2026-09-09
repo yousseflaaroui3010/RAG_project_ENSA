@@ -433,6 +433,22 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         # is idempotent, so an existing database is untouched.
         repo.ensure_schema(runtime.db_path)
 
+        # A Sync cannot outlive the process that ran it, so any row still
+        # marked running belongs to a process that was killed. Closing
+        # them HERE, before the first request, is what stops one dead run
+        # from showing "Scanning the workspace folder..." forever and
+        # locking that workspace out of ever syncing again -- see
+        # `repo.reconcile_interrupted_sync_runs` for the production
+        # incident this comes from.
+        with repo.session(runtime.db_path) as conn:
+            interrupted = repo.reconcile_interrupted_sync_runs(conn)
+        if interrupted:
+            logger.warning(
+                "closed %d sync run(s) left unfinished by a killed process: %s",
+                len(interrupted),
+                ", ".join(interrupted),
+            )
+
         # ONE Qdrant client for the process (ADR-04). `open_store` raises
         # on a second client for the same path, so opening it here -- and
         # only here -- is what keeps that promise for the whole server.
