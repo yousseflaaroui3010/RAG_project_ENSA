@@ -259,7 +259,7 @@ of 20, so a model that answers any of these *well* costs the gate a point.
 | Row | Refuses | But the corpus nearby holds |
 |---|---|---|
 | `g-out-004` | whether an `auto-entrepreneur` must join the CNSS | dahir article 2 lists who **is** subject and article 3 who is **not**, so an answer can be reasoned from the lists without the term ever appearing |
-| `g-out-005` | the 35-hour week | *a* legal working week — 44 hours, article 184 |
+| ~~`g-out-005`~~ | ~~the 35-hour week~~ | ~~*a* legal working week — 44 hours, article 184~~ **REPLACED after ST-36 proved the prediction right. See below.** |
 | `g-out-006` | the **CMR** pension rules for civil servants | dahir article 3 **names civil servants explicitly**, as excluded: "ne sont pas assujettis au présent régime : les fonctionnaires titulaires de l'État". A good answer can say so and be right |
 | `g-out-009` | how to bring a case to the `conseil de prud'hommes` | 24 mentions of `tribunal` and a whole dispute-resolution chapter, so the corpus can say where a dispute *does* go |
 | `g-out-019` | rules on `titres-restaurant` | dahir article 19's catch-all: "tous autres avantages en argent, les avantages en nature" (`g-in-024`), from which a sourced answer could reasonably be built |
@@ -271,8 +271,31 @@ of them had passed `golden_grounding.py`: the terms really are absent. That is
 the limit the script has always had and the reason this section exists — see
 the paternity question above.
 
-**Six of the twenty is a lot, and it is stated plainly rather than averaged
-away.** G2 demands 20 refusals out of 20, so if several of these are answered
+**`g-out-005` was replaced on 2026-09-09, and the prediction above is exactly
+why.** ST-36's first full evaluation scored G2 at 19/20, and this row was the
+single miss. The product answered *"la durée normale de travail n'est pas de
+35 heures ... elle est fixée à 44 heures"* — correct, sourced to article 184,
+and more useful to a reader than a refusal. The row's own `notes` had called it
+"le refus le plus discutable du lot" before it was ever run. The failure was
+the QUESTION: the corpus held a direct equivalent, so a good answer was always
+reachable and G2 counted a right answer as a wrong one.
+
+The replacement asks about a **`compte épargne-temps`**, and it closes the door
+the 35-hour question left open: absence was verified not only for the term but
+for the MECHANISM. `épargne`, `report des congés` and `cumul des congés` are
+all absent from all three documents, while `convention collective` is found —
+which is what proves the matcher can see rather than merely returning nothing.
+The 67 occurrences of `congé annuel payé` are the deliberate near-miss, but
+they describe a RIGHT to leave, not the capitalisation being asked about.
+
+Confirmed by running it: the product refuses, lists its searches, and attaches
+no sources. Counts and ids are unchanged (40 in / 20 out, `g-out-005` keeps its
+id), so this needed no new `GOLDEN_SET_VERSION` — see `DECISIONS.md`
+(2026-09-09) for the ruling and for why replacing a question to make a gate
+pass is normally cheating and why this case is not.
+
+**Five of the remaining twenty is still a lot, and it is stated plainly rather
+than averaged away.** G2 demands 20 refusals out of 20, so if several of these are answered
 well the gate fails on questions rather than on the product. The alternative
 was to replace them, which was rejected: near-misses are the entire value of
 the out-of-scope half, and the same argument repeated would empty it. What the
