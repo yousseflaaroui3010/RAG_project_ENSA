@@ -1,11 +1,10 @@
 """The eight seams the agent graph is wired to (ST-21).
 
-ST-21 builds the SHAPE of the answering flow: the order of the nodes, the
+ST-21 built the SHAPE of the answering flow: the order of the nodes, the
 branch to a clarifying question, the retry loop and its ceiling, the
-refusal path, and the trace. It deliberately builds none of the thinking.
-Every place the flow needs a model or a store is one function on this
-object, and every one of them belongs to a story that has not been built
-yet:
+refusal path, and the trace. Every place the flow needs a model or a store
+is one function on this object. Later stories supplied each implementation;
+`ui/ports.py` is the one place that composes all eight:
 
 | Port            | Owner  | What it becomes                               |
 |-----------------|--------|-----------------------------------------------|
@@ -42,13 +41,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
-from agent.state import Turn
+from agent.state import SessionMemory
 from vector_store import SearchHit
 
 # The session summary handed to the rewrite step. "" when there is no
 # earlier turn to summarize -- an empty string, never None, so no node has
 # to branch on the shape of it.
-Summarize = Callable[[tuple[Turn, ...]], str]
+Summarize = Callable[[SessionMemory], str]
 
 # Returns the ONE clarifying question to ask (F-06 is explicit: exactly
 # one), or None when the question is clear enough to search. None is the
