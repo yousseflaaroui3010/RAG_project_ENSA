@@ -1,264 +1,191 @@
-# ST-36 — first full evaluation run, and the triage of every failure
+# ST-36 - first full evaluation run and tuning triage
 
-Workspace: `392ffb55-12a4-4c91-b2b2-25395c1a703f` ("HR (Moroccan labour law)"),
-three documents synced: the 2011 consolidated labour code (201 pages), the
-1972 social-security dahir (16 pages), and the CLEISS guide (8 pages).
+Workspace: `392ffb55-12a4-4c91-b2b2-25395c1a703f` ("HR (Moroccan labour law)").
+The measured workspace held the consolidated 2011 labour code, the 1972
+social-security dahir, and the CLEISS guide.
 
-Golden set: v1, frozen, 40 in-scope + 20 out-of-scope.
+Golden set: v1, 40 in-scope questions and 20 out-of-scope questions.
 
----
+## Binding gate meanings
 
-## Run 1 — 2026-09-06T13:00:17Z
+The signed PRD settles the three disputed meanings:
 
-`data/reports/392ffb55-12a4-4c91-b2b2-25395c1a703f/2026-09-06T13-00-17.042322+00-00.json`
-
-| Gate | Meaning | Result | Verdict |
-|---|---|---|---|
-| G1 | average groundedness >= 0.90 | **0.969** | PASS |
-| G2 | all 20 out-of-scope questions refused | **19 / 20** | FAIL |
-| G3 | every answer carries sources | **39 / 40** | FAIL |
-| — | relevancy (not gated) | 1.000 | — |
-
-Overall: **not passed**. Seven of sixty rows failed.
-
-**Read the two failing gates carefully, because they are not seven problems.**
-Only **two** rows actually move a gate: `g-in-014` (which is the whole of G3's
-miss) and `g-out-005` (which is the whole of G2's miss). The other five rows
-scored below the per-row groundedness threshold while the *average* that G1 is
-measured on still passed comfortably.
-
----
-
-## The seven failures, one by one
-
-### 1. `g-in-014` — PRODUCT DEFECT. Root cause found, fixed, verified.
-
-*"À combien s'élève l'indemnité journalière de maladie versée par la CNSS ?"*
-
-The product **refused a question its own documents answer in one sentence.**
-This single row is why G3 read 39/40: a refusal carries no sources.
-
-**What actually happened**, read off the trace rather than guessed. The agent
-searched seven times across three attempts. Every search found the right two
-documents. The relevance grader rejected the passages all three times, the
-retry ceiling ran out, and it refused honestly.
-
-**The grader was right.** The passages it was shown genuinely did not answer
-the question. The failure was upstream, in which passages were fetched.
-
-**The root cause is one habit in the reworded searches.** All three rewords
-kept the words `maladie` and `CNSS`. The statute states the rule without ever
-naming the fund that pays it:
-
-> « L'indemnité journalière est égale aux deux tiers du salaire journalier
-> moyen défini ci-après. » — dahir 1-72-184, article 35
-
-So an acronym in the search matches the pages that *describe the institution*
-instead of the page that *states the rule*. Measured, not reasoned about:
-
-| Search | Does it find article 35? |
+| Gate | Release rule |
 |---|---|
-| `montant de l'indemnité journalière maladie CNSS` | no |
-| `montant de l'indemnité journalière` | yes, rank 3 |
-| `indemnité journalière salaire journalier moyen` | yes, **rank 1** |
-| `calcul du salaire journalier moyen indemnité journalière` | yes, **rank 1** |
+| G1 | At least 90% of the 40 in-scope rows must be fully grounded. A fully grounded answer scores 1.00 because every factual claim is supported. The boundary is therefore 36/40, not an average score of 0.90. |
+| G2 | All 20 out-of-scope rows must produce a refusal. A sourced answer that discusses a nearby rule still fails G2, even if its text says the requested rule is absent. |
+| G3 | Every response whose kind is `answer` must carry a source. Refusals are not answers and do not enter this denominator. |
 
-**Retrieval depth was ruled out first**, so the cheap knob was not turned by
-reflex: raising `retrieval_depth_k` from 5 to 12 does **not** surface the
-passage for the original wording. Depth was never the problem; vocabulary was.
+Sources: `docs/phase2/Sanad_PRD_v1.0.md` lines 50-52 and 146-151. The
+architecture repeats the same three rules at lines 147 and 393-395.
 
-**Indexing was ruled out too**: querying with the passage's own words returns it
-at score 1.0, so the chunk is in the index and reachable.
+The evaluator and report screen now apply these meanings. The mean
+groundedness score remains in reports as useful supporting information, but it
+does not decide G1.
 
-**Fix — the one tuning iteration ST-36 asks for.** `prompts/query-reword`
-0.1.0 → 0.2.0, one new rule: drop the name of the body or scheme unless the
-question is about that body itself. Search for the rule, not for who pays it.
+## What the historical runs prove
 
-**Verified by running it, not by reading it.** The same question now returns
-kind `answer`, citing `dahir-1-72-184 … Article 35 … Article 37`, and its text
-states the two-thirds rule — which is the golden row's reference answer. The
-reword it produced dropped `CNSS` as instructed.
+The original report files lived under `data/reports/`, which is intentionally
+not tracked. They are no longer present on this clone. The first runner also
+did not save answer text. The exact original low-scoring answers therefore
+cannot be reconstructed, and later answers must not be described as the
+original outputs.
 
----
-
-### 2. `g-out-005` — GOLDEN SET, not the product. Needs a human ruling.
-
-*"La semaine de 35 heures s'applique-t-elle à mes salariés ?"*
-
-Expected a refusal; the product answered. This one row is the whole of G2's
-19/20.
-
-**This was predicted in writing before the run.** `evaluation/golden/README.md`
-lists six out-of-scope rows as *arguable* — rows where the corpus cannot answer
-the question as asked but *can* say something sensible nearby. `g-out-005` is
-the oldest entry on that list: the 35-hour week is French law and is absent,
-but the labour code's article 184 sets a 44-hour week, so the product has real,
-citable material in front of it.
-
-The golden row's own note draws a fine line: an answer that cites the 44 hours
-**without saying the 35-hour week is not in the documents** answers a different
-question. Whether the product crossed that line cannot be decided from the
-report, because the report stores scores, not answer text.
-
-**Not fixed here, on purpose.** Three reasons:
-
-1. The golden set is frozen at v1. `FROZEN_TOTALS = {"v1": (40, 20)}` means
-   changing a row is a deliberate, visible act, not a tuning knob.
-2. Loosening the refusal behaviour to satisfy this row would weaken F-05, an
-   item the project plan lists as never-cut.
-3. The six arguable rows were kept on purpose — near-misses are the entire
-   value of the out-of-scope half. Replacing them empties it.
-
-**The decision this needs, stated plainly:** either the product's answer is
-judged good enough (it names the real 44-hour rule and says the 35-hour week is
-absent) and the row is reworded under a **v2** golden set, or the answer really
-does dodge the question and the refusal path needs work. Reading the actual
-answer text is step one, and it is a five-minute job.
-
----
-
-### 3-7. `g-in-024`, `g-in-026`, `g-in-027`, `g-in-037`, `g-in-038` — below the per-row bar, gate unaffected.
-
-| Row | Subject | Groundedness | Relevancy | Sources |
-|---|---|---|---|---|
-| `g-in-024` | what CNSS contributions are calculated on | 0.85 | 1.0 | yes |
-| `g-in-026` | the death allowance amount | 0.75 | 1.0 | yes |
-| `g-in-027` | pension as a % of average salary | 0.80 | 1.0 | yes |
-| `g-in-037` | deadline to declare a sick leave | 0.85 | 1.0 | yes |
-| `g-in-038` | when sick pay starts and for how long | 0.80 | 1.0 | yes |
-
-All five **answered**, all five **carried sources**, all five scored **1.0 on
-relevancy** — the answer was about the right thing every time. They sit at 0.75
-to 0.85 against a per-row bar of 0.90.
-
-**Why this is one pattern and not five bugs:** every one of them is a
-social-security question whose reference answer is a precise number or a list
-of numbers — two thirds, sixty times, 50 %, thirty days, the fourth day, 52
-weeks. These are the rows where "close" is visibly not "exact". The labour-code
-rows, which are mostly prose, did not fail this way.
-
-**What is honestly not known yet, and is not being dressed up:** whether these
-answers are *wrong* or merely *incomplete*. The report stores a score, not the
-answer text, so nothing here can distinguish "the model missed the second half
-of the rule" from "the judge marked down a correct answer for omitting a
-clause". Settling it means re-running the five and reading them. That is the
-next piece of work, and it is deliberately **not** claimed as done.
-
-**They do not block a release.** G1 is measured on the average, which was 0.969.
-
----
-
-## What the tuning iteration changed
-
-One change, one file: `prompts/query-reword` 0.1.0 → 0.2.0.
-
-Nothing else was touched. In particular `retrieval_depth_k` was left at 5,
-because the measurement above showed raising it does not fix the row it looked
-like it would fix. Turning a knob that does nothing is worse than leaving it
-alone: it hides the real cause and costs latency on every question.
-
-Checks after the change: `uv run ruff check .` exit 0, `uv run pytest`
-**684 passed / 2 skipped** exit 0.
-
----
-
-## Run 2 — 2026-09-06T13:41:19Z
-
-`data/reports/392ffb55-12a4-4c91-b2b2-25395c1a703f/2026-09-06T13-41-19.949864+00-00.json`
-
-Same sixty questions, same workspace, same frozen golden set. The only change
-between the runs is the reworded-search rule.
-
-| Gate | Run 1 | Run 2 | Verdict |
-|---|---|---|---|
-| G1 average groundedness (>= 0.90) | 0.9692 | **0.9668** | PASS, unchanged |
-| G2 refusals | 19 / 20 | **19 / 20** | FAIL, unchanged |
-| G3 sources on every answer | 39 / 40 | **40 / 40** | **FAIL → PASS** |
-| relevancy (not gated) | 1.000 | 1.000 | — |
-
-**The tuning iteration did what it was aimed at.** `g-in-014` went from
-`refusal` to `answer`, which is the entire reason G3 moved from 39/40 to 40/40.
-A gate that was failing now passes, and one prompt rule is the whole diff.
-
-**Only ONE thing now blocks the release gate: `g-out-005`** — the 35-hour-week
-row, flagged as arguable in `evaluation/golden/README.md` before either run
-happened. That is a golden-set ruling, not a product fix.
-
-### The comparison exposed something the single run could not
-
-Per-row groundedness, same product, same questions, one prompt rule apart:
-
-| Row | Run 1 | Run 2 | Moved |
-|---|---|---|---|
-| `g-in-014` | refusal (no score) | 0.80 | fixed the refusal |
-| `g-in-024` | 0.85 | 0.85 | — |
-| `g-in-026` | 0.75 | 0.85 | +0.10 |
-| `g-in-027` | 0.80 | **1.00** | +0.20 |
-| `g-in-030` | 0.90 | 0.85 | **-0.05, newly failing** |
-| `g-in-037` | 0.85 | 0.90 | +0.05 |
-| `g-in-038` | 0.80 | **0.67** | **-0.13** |
-
-**None of these rows was touched by the change.** The reword rule only fires
-when the grader rejects a first search, which did not happen for any of them.
-Yet they moved by up to 0.20 in both directions, and the failing set changed
-membership: `g-in-027` and `g-in-037` left it, `g-in-030` joined it.
-
-**So the per-row score carries roughly ±0.15 of run-to-run noise**, because the
-judge is our own model reading its own answer (`evaluation/scoring.py`), and it
-is not deterministic. Two consequences, both worth writing down before anyone
-reads a future report:
-
-1. **"Five rows failed" is not a stable fact.** Which five is partly a coin
-   toss. Chasing an individual row between runs would be chasing noise.
-2. **The per-row bar of 0.90 sits inside the noise band.** The *average* G1 is
-   far more stable — 0.9692 against 0.9668, a gap of 0.0024 across the whole
-   set — which is a good argument for G1 being defined on the average, as it
-   already is.
-
-This is a measurement about the measuring instrument, not about the product,
-and it is the kind of thing only a second run can show. It is the strongest
-argument this project has for why ST-36 asks for two runs rather than one.
-
-**Not acted on here, deliberately.** Making the judge deterministic, or
-averaging several judgements per row, changes what G1 *means* and would need a
-decision record against the signed thresholds. Parked and visible.
-
----
-
-## Where the release gate stands after ST-36
-
-- **G1 groundedness — PASS** (0.967 against a 0.90 bar, stable across two runs).
-- **G2 honest refusals — FAIL**, 19/20, on one row already known to be arguable.
-- **G3 sources on every answer — PASS**, 40/40, fixed by this story.
-
-One golden-set ruling stands between this product and a green release gate.
-
-## The low-scoring rows were read, and none of them is wrong
-
-The earlier draft of this document left this as unmeasured. It has since been
-measured the only way that settles it — by asking the questions again and
-reading the answers against their reference text.
-
-| Row | Product answer vs reference | Verdict |
+| Run | Recorded result | What can still be claimed |
 |---|---|---|
-| `g-in-024` | all three categories of remuneration, correctly attributed to dahir **article 19**, plus the sailors clause the reference omits | **correct** |
-| `g-in-038` | "à partir du quatrième jour", "cinquante-deux semaines", "vingt-quatre mois" | **correct, near verbatim** |
-| `g-in-030` | both conditions (108 days of contributions over 6 months, salary >= 60 % of SMIG) plus a correct residence requirement | **correct** |
-| `g-in-026` | the main rule right (sixty times the average daily wage) but **omits the pensioners' clause** (twice the average monthly salary behind the pension) | **correct but incomplete** |
+| 2026-09-06 13:00 UTC | mean groundedness 0.969; G2 19/20; old G3 39/40 | The product refused `g-in-014`; `g-out-005` was answered. The displayed G1 and G3 verdicts used the wrong definitions. |
+| 2026-09-06 13:41 UTC | mean groundedness 0.967; G2 19/20; old G3 40/40 | `g-in-014` changed from refusal to sourced answer after the prompt change. The displayed G1 verdict still used the wrong definition. |
+| 2026-09-09 11:33 UTC | mean groundedness 0.968; G2 20/20; old G3 39/40 | The ST-39 replacement held at 20/20. The only old G3 miss was an in-scope refusal, which does not fail signed G3. The corrected G1 count is unavailable without the report rows. |
 
-**So the product is more accurate than its per-row scores suggest.** Three of
-the four are right; the fourth is right about what it says and silent about a
-second sentence of the article. Nothing here invented a number, cited the wrong
-document, or contradicted the corpus — which are the failures F-03 and F-05
-exist to prevent.
+These runs satisfy ST-36's requirement to record a first and second run, but
+they do not provide a valid release verdict under the corrected G1 rule. A new
+full run with the corrected runner is required before ST-41.
 
-**This strengthens the case for G1 being measured on the average.** A row can
-sit at 0.75 while being a correct answer that skipped a subordinate clause. A
-per-row bar of 0.90 reads that as a failure; the average across sixty questions
-does not, and the average is also the number that barely moved between two runs
-(0.9692 vs 0.9668).
+## Failure triage
 
-**What this does NOT license.** "Not wrong" is not "complete". `g-in-026`
-genuinely drops half of its article, and a user who asked that question would
-be under-informed. That is a real, small defect — it is just not the defect the
-per-row score was pointing at, and it is not a release blocker.
+### `g-in-014`: product defect, fixed by the tuning iteration
+
+Question: "A combien s'eleve l'indemnite journaliere de maladie versee par la
+CNSS ?"
+
+The first run refused a question answered by dahir article 35. Retrieval depth
+was tested up to 12 and did not surface the passage for the original wording.
+A control search using the article's own words returned it at score 1.0. The
+surviving cause was vocabulary: searches retaining `CNSS` were pulled toward
+pages describing the institution rather than article 35, which states the
+two-thirds amount without naming it.
+
+The query-reword prompt changed from 0.1.0 to 0.2.0. Ten controlled runs on
+each version measured refusals falling from 8/10 to 0/10; all ten 0.2.0 runs
+cited article 35. Fisher's exact test gave p=0.0007. This supports the fix for
+this row.
+
+The first 0.2.0 wording was too broad because it told the model to drop every
+institution unless the institution itself was the subject. The reviewed
+wording is narrower: keep the institution when it distinguishes a responsible
+party, deadline, eligibility rule, procedure, or another body's rule;
+otherwise include at least one institution-free search rather than removing
+the institution from every search.
+
+### `g-out-005`: flawed golden row, replaced by human ruling
+
+The old question asked whether France's 35-hour week applied. The corpus gives
+Morocco's 44-hour week, so the product produced a correct sourced contrast
+instead of a refusal. The row therefore rewarded a worse response.
+
+The human-approved ST-39 change replaced it with a question about a `compte
+epargne-temps`, whose mechanism is absent under the checked terms. The id,
+kind, and 40/20 totals remain unchanged. Two full runs after the replacement
+measured G2 at 20/20.
+
+G2 itself is not loosened. The signed requirement is still 20 refusals out of
+20; changing the product to refuse a useful, supported answer was rejected.
+
+### Historical low scores: original text unavailable
+
+The first run listed `g-in-024`, `g-in-026`, `g-in-027`, `g-in-037`, and
+`g-in-038` below the old per-row 0.90 boundary. Later re-asks found correct
+answers for `g-in-024`, `g-in-030`, and `g-in-038`, and a correct but incomplete
+answer for `g-in-026`. Those later outputs are useful diagnosis, not copies of
+the original responses.
+
+Future reports now save `answer_text` beside each score, refusal, and error.
+That closes the evidence gap for future runs without changing the database
+schema.
+
+`g-in-037` remains the important prompt-risk case because it asks for the CNSS
+deadline while its paired row asks for the employer deadline. Ten runs on each
+prompt version measured refusals moving from 1/10 to 5/10, but p=0.14 is not
+enough to call that a proven regression. Among answers, scores at or above 0.90
+moved from 1/9 to 5/5. The narrower prompt rule and its second golden case are
+aimed at preserving this distinction.
+
+## Prompt release evidence
+
+The 0.2.0 release now has:
+
+- a flat, readable changelog in `prompts/query-reword/PROMPT.md`;
+- the exact 0.1.0 prompt retained as `PROMPT.0.1.0.md` for rollback;
+- `g-008`, which requires one search without `CNSS` for the benefit amount;
+- `g-009`, which requires preserving `CNSS` for the distinct 30-day deadline.
+
+The human approved the live backtest on 2026-09-10. Both cases passed:
+
+- `g-008` returned three searches. Two omitted `CNSS` while preserving the
+  sickness-benefit amount, including `pourcentage salaire indemnite
+  journaliere de maladie`.
+- `g-009` returned three searches. Two retained `CNSS` or its full name and
+  preserved the declaration deadline, including `delai depot avis incapacite
+  travail CNSS`.
+
+This clears the prompt registry backtest for 0.2.0.
+
+## Corrected run - 2026-09-10T16:01:42Z
+
+Report:
+`data/reports/14b81a1d-5af0-4fb9-a46a-493fad3eb650/2026-09-10T16-01-42.812227+00-00.json`
+
+| Gate | Result | Verdict |
+|---|---|---|
+| G1 fully grounded in-scope rows | **27/40 (67.5%)** | FAIL; needs at least 36/40 |
+| G2 clear out-of-scope refusals | **20/20** | PASS |
+| G3 sources on actual answers | **35/35** | PASS |
+| Mean groundedness, supporting metric only | 0.9686 | not a gate |
+| Mean relevancy, supporting metric only | 1.0000 | not a gate |
+
+The release command exited 1 and named thirteen G1 failures. This is the first
+run using the signed G1 and G3 meanings. It proves the old average was unsafe:
+0.9686 looks comfortably above 0.90 while only 67.5% of rows were fully
+grounded.
+
+### Five retrieval failures
+
+`g-in-017`, `g-in-028`, `g-in-033`, `g-in-039`, and `g-in-040` returned honest
+refusals for questions the corpus answers. These are product failures, not
+judge noise. Their saved output is the refusal text; each needs its retrieval
+trace inspected and a focused regression before ST-41.
+
+### Eight answered rows below full grounding
+
+All eight answers had sources and scored 1.00 for relevancy:
+
+| Row | Score | Saved-output triage |
+|---|---|---|
+| `g-in-013` | 0.85 | Gives the required age and 3,240 days, then adds early-retirement conditions. Verify every added condition against the cited passages. |
+| `g-in-024` | 0.95 | Gives every reference category, then adds a contribution cap and the sailors' basis. Verify those additions. |
+| `g-in-025` | 0.90 | Gives contribution, work-stop, residence, and filing conditions, but omits the reference's 14-week duration. Verify the added nine-month filing rule. |
+| `g-in-026` | 0.85 | Contains both reference formulas, fixing the earlier incomplete rerun, then adds a decree-set minimum. Verify that final claim. |
+| `g-in-027` | 0.75 | Gives the required 50%, then adds the 216-day increases and 70% cap. Verify those additions against the passages used. |
+| `g-in-030` | 0.85 | Gives several family-allowance conditions but explicitly lacks every requested child age. Grounded but incomplete on its face. |
+| `g-in-037` | 0.85 | Correctly keeps the CNSS 30-day deadline, then adds six-month sickness and nine-month maternity filing deadlines. Verify the unrelated additions. |
+| `g-in-038` | 0.90 | Near-verbatim match to the reference: fourth day, 52 weeks, 24 months, every day. This is the strongest candidate for judge variation rather than a product error. |
+
+The report preserves each exact answer. It does not preserve the full passage
+text used by the judge, so the six "verify additions" rows require reading the
+cited source passages before deciding whether the product or judge is wrong.
+That work belongs to ST-39; changing the 1.00 definition to make this run green
+would weaken the signed gate.
+
+### Failed first attempt and new early guard
+
+The first corrected command used the old workspace ID from the historical
+triage. That workspace is absent on this clone, and its search collection is
+absent too. The old runner processed all 60 rows as collection errors and then
+failed its database foreign key only at the end. No model score was produced.
+
+The runner now checks the workspace before loading or processing questions.
+The regression test proves an unknown ID makes zero scorer calls and creates no
+report. Running the command with `missing-workspace` now prints one clear error
+and exits before evaluation work.
+
+## Current release position
+
+- Query-reword 0.2.0 passed both live prompt cases and fixes `g-in-014` in the
+  corrected run.
+- The ST-39 row replacement reaches G2 20/20.
+- G3 passes 35/35 under the signed answer-only denominator.
+- G1 fails 27/40. The five retrieval failures and eight scored answers above
+  are the ST-39 input before ST-41 can release.
+- The corrected evaluator, release command, and report screen passed the full
+  automated gate after the early-workspace guard was added: 735 passed and 2
+  skipped; lint passed.
