@@ -132,6 +132,10 @@ WRITTEN_ANSWER = (
     "une seule fois."
 )
 QUESTION = "Quelle est la duree de la periode d'essai pour un cadre ?"
+QUERY_PLAN = (
+    '{"clarification":null,"queries":'
+    '["duree periode essai cadre renouvellement"]}'
+)
 
 # Long enough to time out loudly rather than hang a CI run for ever, short
 # enough that a real deadlock is noticed in one coffee rather than one
@@ -227,7 +231,7 @@ def sanad(tmp_path, monkeypatch):
             def ports() -> AgentPorts:
                 base = build_ports(
                     client,
-                    model or ScriptedChat("RELEVANT", WRITTEN_ANSWER),
+                    model or ScriptedChat(QUERY_PLAN, "RELEVANT", WRITTEN_ANSWER),
                     parents_path=parents_dir,
                 )
                 return dataclasses.replace(base, **overrides)
@@ -502,7 +506,12 @@ def test_a_refusal_is_styled_as_an_outcome_and_never_as_an_error(sanad):
     NOT. Half of it would pass on a screen that rendered every refusal in
     the danger panel."""
     build, workspace, _ = sanad
-    client, runtime = build(ScriptedChat("OFF_TOPIC"))
+    client, runtime = build(
+        ScriptedChat(
+            '{"clarification":null,"queries":["tajine pruneaux cuisine"]}',
+            "OFF_TOPIC",
+        )
+    )
 
     _ask(client, "Comment cuisiner un tajine aux pruneaux ?")
     page = _settled(client, runtime, workspace.id)
@@ -519,7 +528,7 @@ def test_a_writer_that_declines_also_refuses_rather_than_erroring(sanad):
     they do not answer. It must land in the same refusal variant, not in
     the error panel -- a decline is the product working, not breaking."""
     build, workspace, _ = sanad
-    client, runtime = build(ScriptedChat("RELEVANT", NOT_COVERED))
+    client, runtime = build(ScriptedChat(QUERY_PLAN, "RELEVANT", NOT_COVERED))
 
     _ask(client, "Quel est le taux de cotisation CNSS en 2026 ?")
     page = _settled(client, runtime, workspace.id)
@@ -531,25 +540,36 @@ def test_a_writer_that_declines_also_refuses_rather_than_erroring(sanad):
 # --- the clarification variant (UX spec 6.2, F-06) --------------------
 
 
-def test_a_clarification_renders_exactly_one_question(sanad):
-    """F-06 is explicit that there is exactly one. ST-22 owns the clarify
-    port and is unbuilt, so this drives the real graph with a clarify port
-    written out loud -- the same move `tests/integration/
-    test_ask_sourced_answer.py` makes for the ports it does not own.
-
-    THE LIVE GAP IS STATED RATHER THAN HIDDEN: with `ui/ports.py`'s
-    stub, the running app cannot produce this variant. The screen is
-    proven ready for it; ST-22 is what makes it appear."""
+def test_an_ambiguous_question_asks_once_then_resumes_after_the_reply(sanad):
+    """ST-22's full exit gate through the shipping composition."""
     build, workspace, _ = sanad
-    asked = "Est-ce que la duree peut etre prolongee ?"
-    client, runtime = build(clarify=lambda question, summary: asked)
+    original = "Parlez-moi de cette procedure."
+    asked = "De quelle procedure parlez-vous ?"
+    reply = "La procedure de la periode d'essai."
+    model = ScriptedChat(
+        '{"clarification":"De quelle procedure parlez-vous ?","queries":[]}',
+        QUERY_PLAN,
+        "RELEVANT",
+        WRITTEN_ANSWER,
+    )
+    client, runtime = build(model)
 
-    _ask(client, "Et pour la duree ?")
+    _ask(client, original)
     page = _settled(client, runtime, workspace.id)
-
     assert "bubble--clarification" in page
     assert asked in _visible(page)
     assert page.count("bubble--clarification") == 1
+
+    _ask(client, reply)
+    page = _settled(client, runtime, workspace.id)
+    visible = _visible(page)
+    assert page.count("bubble--clarification") == 1
+    assert WRITTEN_ANSWER in visible
+    assert visible.index(original) < visible.index(asked) < visible.index(reply)
+    assert original in model.calls[1][1]
+    assert asked in model.calls[1][1]
+    assert reply in model.calls[1][1]
+    assert len(model.calls) == 4
 
 
 # --- the error state (PRD section 8, UX spec 11) ----------------------
@@ -605,11 +625,16 @@ def test_cancelling_leaves_something_marked_incomplete_and_never_final(sanad):
     incomplete and no control presents it as a finished answer."""
     build, workspace, _ = sanad
     gate = Gate()
-    client, runtime = build()
-    _hold(runtime, gate, "grade")
+    clarification = "Which procedure do you mean?"
+    client, runtime = build(
+        ScriptedChat(
+            '{"clarification":"Which procedure do you mean?","queries":[]}'
+        )
+    )
+    _hold(runtime, gate, "clarify")
 
     client.post("/chat/ask", data={"question": QUESTION}, follow_redirects=False)
-    assert gate.reached.wait(WAIT), "the run never reached the grader"
+    assert gate.reached.wait(WAIT), "the run never reached query planning"
     client.post("/chat/cancel", follow_redirects=False)
     gate.release.set()
     page = _settled(client, runtime, workspace.id)
@@ -617,7 +642,41 @@ def test_cancelling_leaves_something_marked_incomplete_and_never_final(sanad):
     assert "msg--interrupted" in page
     assert "Incomplete" in page
     assert "msg--answer" not in page
+    assert "bubble--clarification" not in page
+    assert clarification not in _visible(page)
     assert WRITTEN_ANSWER not in _visible(page)
+
+
+def test_cancelling_a_resumed_query_plan_discards_its_result(sanad):
+    build, workspace, _ = sanad
+    original = "Parlez-moi de cette procedure."
+    asked = "De quelle procedure parlez-vous ?"
+    model = ScriptedChat(
+        '{"clarification":"De quelle procedure parlez-vous ?","queries":[]}',
+        QUERY_PLAN,
+    )
+    client, runtime = build(model)
+
+    _ask(client, original)
+    first_page = _settled(client, runtime, workspace.id)
+    assert asked in _visible(first_page)
+
+    gate = Gate()
+    _hold(runtime, gate, "rewrite")
+    client.post(
+        "/chat/ask",
+        data={"question": "La procedure de la periode d'essai."},
+        follow_redirects=False,
+    )
+    assert gate.reached.wait(WAIT), "the resumed run never reached query planning"
+    client.post("/chat/cancel", follow_redirects=False)
+    gate.release.set()
+    page = _settled(client, runtime, workspace.id)
+
+    assert "msg--interrupted" in page
+    assert "Incomplete" in page
+    assert "msg--answer" not in page
+    assert len(model.calls) == 2
 
 
 # --- F-09, criteria 2 and 3 ------------------------------------------
