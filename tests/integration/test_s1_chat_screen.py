@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import dataclasses
 import html
+import json
 import threading
 
 import pytest
@@ -132,6 +133,10 @@ WRITTEN_ANSWER = (
     "une seule fois."
 )
 QUESTION = "Quelle est la duree de la periode d'essai pour un cadre ?"
+QUERY_PLAN = (
+    '{"clarification":null,"queries":'
+    '["duree periode essai cadre renouvellement"]}'
+)
 
 # Long enough to time out loudly rather than hang a CI run for ever, short
 # enough that a real deadlock is noticed in one coffee rather than one
@@ -145,10 +150,10 @@ class Gate:
     This is what makes the loading state observable: without it the run
     finishes in milliseconds and there is no in-flight page to fetch. It
     is also what makes the stage assertions DISCRIMINATING -- the same
-    question is blocked at three different ports and must report three
+    question is blocked at four different ports and must report four
     different stages. A timer-driven screen (which is what the React
     reference ships) would print the same label at the same elapsed time
-    in all three."""
+    in all four."""
 
     def __init__(self) -> None:
         self.reached = threading.Event()
@@ -227,7 +232,7 @@ def sanad(tmp_path, monkeypatch):
             def ports() -> AgentPorts:
                 base = build_ports(
                     client,
-                    model or ScriptedChat("RELEVANT", WRITTEN_ANSWER),
+                    model or ScriptedChat(QUERY_PLAN, "RELEVANT", WRITTEN_ANSWER),
                     parents_path=parents_dir,
                 )
                 return dataclasses.replace(base, **overrides)
@@ -370,6 +375,7 @@ def test_a_workspace_with_no_documents_disables_the_input_and_says_why(sanad):
 @pytest.mark.parametrize(
     ("port", "expected"),
     [
+        ("summarize", "Preparing the question"),
         ("retrieve", "Searching the workspace"),
         ("grade", "Checking the answer"),
         ("write_answer", "Writing"),
@@ -382,11 +388,11 @@ def test_the_loading_state_names_the_stage_the_agent_is_really_in(
     about them: "Never fake progress. Stage hints during a long operation
     say what is actually happening."
 
-    THE PARAMETRISATION IS THE TEST. One question is held at three
-    different ports and must report three different stages. A screen that
+    THE PARAMETRISATION IS THE TEST. One question is held at four
+    different ports and must report four different stages. A screen that
     advanced a counter on a timer -- which is exactly what
     `designrag-main/src/components/ChatScreen.tsx:111` does -- would show
-    the same label in all three rows and fail two of them."""
+    the same label in all four rows and fail three of them."""
     build, workspace, _ = sanad
     gate = Gate()
     client, runtime = build()
@@ -502,7 +508,12 @@ def test_a_refusal_is_styled_as_an_outcome_and_never_as_an_error(sanad):
     NOT. Half of it would pass on a screen that rendered every refusal in
     the danger panel."""
     build, workspace, _ = sanad
-    client, runtime = build(ScriptedChat("OFF_TOPIC"))
+    client, runtime = build(
+        ScriptedChat(
+            '{"clarification":null,"queries":["tajine pruneaux cuisine"]}',
+            "OFF_TOPIC",
+        )
+    )
 
     _ask(client, "Comment cuisiner un tajine aux pruneaux ?")
     page = _settled(client, runtime, workspace.id)
@@ -519,7 +530,7 @@ def test_a_writer_that_declines_also_refuses_rather_than_erroring(sanad):
     they do not answer. It must land in the same refusal variant, not in
     the error panel -- a decline is the product working, not breaking."""
     build, workspace, _ = sanad
-    client, runtime = build(ScriptedChat("RELEVANT", NOT_COVERED))
+    client, runtime = build(ScriptedChat(QUERY_PLAN, "RELEVANT", NOT_COVERED))
 
     _ask(client, "Quel est le taux de cotisation CNSS en 2026 ?")
     page = _settled(client, runtime, workspace.id)
@@ -531,25 +542,36 @@ def test_a_writer_that_declines_also_refuses_rather_than_erroring(sanad):
 # --- the clarification variant (UX spec 6.2, F-06) --------------------
 
 
-def test_a_clarification_renders_exactly_one_question(sanad):
-    """F-06 is explicit that there is exactly one. ST-22 owns the clarify
-    port and is unbuilt, so this drives the real graph with a clarify port
-    written out loud -- the same move `tests/integration/
-    test_ask_sourced_answer.py` makes for the ports it does not own.
-
-    THE LIVE GAP IS STATED RATHER THAN HIDDEN: with `ui/ports.py`'s
-    stub, the running app cannot produce this variant. The screen is
-    proven ready for it; ST-22 is what makes it appear."""
+def test_an_ambiguous_question_asks_once_then_resumes_after_the_reply(sanad):
+    """ST-22's full exit gate through the shipping composition."""
     build, workspace, _ = sanad
-    asked = "Est-ce que la duree peut etre prolongee ?"
-    client, runtime = build(clarify=lambda question, summary: asked)
+    original = "Parlez-moi de cette procedure."
+    asked = "De quelle procedure parlez-vous ?"
+    reply = "La procedure de la periode d'essai."
+    model = ScriptedChat(
+        '{"clarification":"De quelle procedure parlez-vous ?","queries":[]}',
+        QUERY_PLAN,
+        "RELEVANT",
+        WRITTEN_ANSWER,
+    )
+    client, runtime = build(model)
 
-    _ask(client, "Et pour la duree ?")
+    _ask(client, original)
     page = _settled(client, runtime, workspace.id)
-
     assert "bubble--clarification" in page
     assert asked in _visible(page)
     assert page.count("bubble--clarification") == 1
+
+    _ask(client, reply)
+    page = _settled(client, runtime, workspace.id)
+    visible = _visible(page)
+    assert page.count("bubble--clarification") == 1
+    assert WRITTEN_ANSWER in visible
+    assert visible.index(original) < visible.index(asked) < visible.index(reply)
+    assert original in model.calls[1][1]
+    assert asked in model.calls[1][1]
+    assert reply in model.calls[1][1]
+    assert len(model.calls) == 4
 
 
 # --- the error state (PRD section 8, UX spec 11) ----------------------
@@ -605,11 +627,16 @@ def test_cancelling_leaves_something_marked_incomplete_and_never_final(sanad):
     incomplete and no control presents it as a finished answer."""
     build, workspace, _ = sanad
     gate = Gate()
-    client, runtime = build()
-    _hold(runtime, gate, "grade")
+    clarification = "Which procedure do you mean?"
+    client, runtime = build(
+        ScriptedChat(
+            '{"clarification":"Which procedure do you mean?","queries":[]}'
+        )
+    )
+    _hold(runtime, gate, "clarify")
 
     client.post("/chat/ask", data={"question": QUESTION}, follow_redirects=False)
-    assert gate.reached.wait(WAIT), "the run never reached the grader"
+    assert gate.reached.wait(WAIT), "the run never reached query planning"
     client.post("/chat/cancel", follow_redirects=False)
     gate.release.set()
     page = _settled(client, runtime, workspace.id)
@@ -617,7 +644,41 @@ def test_cancelling_leaves_something_marked_incomplete_and_never_final(sanad):
     assert "msg--interrupted" in page
     assert "Incomplete" in page
     assert "msg--answer" not in page
+    assert "bubble--clarification" not in page
+    assert clarification not in _visible(page)
     assert WRITTEN_ANSWER not in _visible(page)
+
+
+def test_cancelling_a_resumed_query_plan_discards_its_result(sanad):
+    build, workspace, _ = sanad
+    original = "Parlez-moi de cette procedure."
+    asked = "De quelle procedure parlez-vous ?"
+    model = ScriptedChat(
+        '{"clarification":"De quelle procedure parlez-vous ?","queries":[]}',
+        QUERY_PLAN,
+    )
+    client, runtime = build(model)
+
+    _ask(client, original)
+    first_page = _settled(client, runtime, workspace.id)
+    assert asked in _visible(first_page)
+
+    gate = Gate()
+    _hold(runtime, gate, "rewrite")
+    client.post(
+        "/chat/ask",
+        data={"question": "La procedure de la periode d'essai."},
+        follow_redirects=False,
+    )
+    assert gate.reached.wait(WAIT), "the resumed run never reached query planning"
+    client.post("/chat/cancel", follow_redirects=False)
+    gate.release.set()
+    page = _settled(client, runtime, workspace.id)
+
+    assert "msg--interrupted" in page
+    assert "Incomplete" in page
+    assert "msg--answer" not in page
+    assert len(model.calls) == 2
 
 
 # --- F-09, criteria 2 and 3 ------------------------------------------
@@ -651,6 +712,83 @@ def test_an_unflagged_workspace_shows_no_disclaimer_anywhere(sanad):
 
 
 # --- new conversation (UX spec 6.2) ----------------------------------
+
+
+def test_a_follow_up_uses_the_completed_trial_period_exchange(sanad):
+    """F-07: follow-up resolves, then compact memory replaces old raw turns."""
+    build, workspace, _ = sanad
+    summary = "La conversation porte sur la periode d'essai des cadres."
+    rolled_summary = (
+        "La periode d'essai des cadres dure trois mois et se renouvelle une fois."
+    )
+    renewal_answer = "La periode d'essai peut etre renouvelee une seule fois."
+    notice_answer = "Le renouvellement doit etre notifie par ecrit."
+    model = ScriptedChat(
+        QUERY_PLAN,
+        "RELEVANT",
+        WRITTEN_ANSWER,
+        summary,
+        '{"clarification":null,"queries":["renouvellement periode essai"]}',
+        "RELEVANT",
+        renewal_answer,
+        rolled_summary,
+        '{"clarification":null,"queries":["notification renouvellement essai"]}',
+        "RELEVANT",
+        notice_answer,
+    )
+    client, runtime = build(model)
+
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    _ask(client, "Et combien de renouvellements ?")
+    page = _settled(client, runtime, workspace.id)
+
+    assert renewal_answer in _visible(page)
+    assert summary in model.calls[4][1]
+    assert runtime.conversation(workspace.id).messages[-1].searched == (
+        "renouvellement periode essai",
+    )
+
+    _ask(client, "Et comment est-il notifie ?")
+    page = _settled(client, runtime, workspace.id)
+
+    assert notice_answer in _visible(page)
+    payload = json.loads(model.calls[7][1].split("Session memory as JSON:\n", 1)[1])
+    assert payload == {
+        "previous_summary": summary,
+        "new_completed_turns": [
+            {
+                "question": "Et combien de renouvellements ?",
+                "answer": renewal_answer,
+            }
+        ],
+    }
+    assert QUESTION not in model.calls[7][1], "the first raw turn was already folded"
+    assert len(model.calls) == 11
+
+
+def test_a_follow_up_after_new_conversation_gets_no_earlier_context(sanad):
+    """F-07: New conversation removes both the transcript and its memory."""
+    build, workspace, _ = sanad
+    clarification = "De quel sujet demandez-vous le nombre de renouvellements ?"
+    model = ScriptedChat(
+        QUERY_PLAN,
+        "RELEVANT",
+        WRITTEN_ANSWER,
+        '{"clarification":"De quel sujet demandez-vous le nombre de '
+        'renouvellements ?","queries":[]}',
+    )
+    client, runtime = build(model)
+
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    client.post("/chat/new", follow_redirects=False)
+    _ask(client, "Et combien de renouvellements ?")
+    page = _settled(client, runtime, workspace.id)
+
+    assert clarification in _visible(page)
+    assert "Earlier conversation summary:\n(none)" in model.calls[3][1]
+    assert len(model.calls) == 4, "a cleared conversation must not call the summarizer"
 
 
 def test_a_new_conversation_clears_the_transcript(sanad):

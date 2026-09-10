@@ -54,6 +54,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from agent import nodes
 from agent.ports import AgentPorts
+from agent.querying import ClarificationContext, clarified_question
 from agent.state import AgentState, Answer, Source, Turn
 from agent.trace import Trace, TraceStep
 from config import get_settings
@@ -127,6 +128,8 @@ def initial_state(
     question: str,
     session_id: str,
     history: tuple[Turn, ...],
+    previous_summary: str = "",
+    clarification_used: bool = False,
 ) -> AgentState:
     """Every key the nodes read, present from the start.
 
@@ -138,12 +141,14 @@ def initial_state(
         session_id=session_id,
         question=question,
         history=history,
+        previous_summary=previous_summary,
         summary="",
         queries=(),
         passages=(),
         relevant=False,
         parents={},
         parents_unreadable=False,
+        clarification_used=clarification_used,
         clarification=None,
         steps=[],
         answer_kind=None,
@@ -159,12 +164,16 @@ def ask(
     ports: AgentPorts,
     session_id: str | None = None,
     history: Sequence[Turn] = (),
+    previous_summary: str = "",
+    clarification_context: ClarificationContext | None = None,
 ) -> Answer:
     """Run one question through the graph and return one answer object.
 
-    `session_id` is echoed back so the caller can pass it to the next
-    question and keep in-session memory (F-07, openapi AskRequest); omit
-    it to start a clean conversation, which mints a new one.
+    `session_id` identifies the conversation and is echoed back (F-07,
+    openapi AskRequest). The owner of that conversation supplies its rolling
+    `previous_summary` and unsummarized `history`; the in-process UI does this
+    in `Conversation.begin`. ST-51's HTTP route must resolve the same state by
+    session id. Omit the id and memory to start a clean conversation.
 
     The graph is compiled per call. That is a few milliseconds of Python
     with no I/O in it, and it keeps this function stateless -- a long-lived
@@ -191,6 +200,17 @@ def ask(
             f"{len(asked)}."
         )
 
+    if clarification_context is not None:
+        original = clarification_context.original.strip()
+        if len(original) < settings.question_min_length:
+            raise ValueError("the original question behind this clarification is blank")
+        if len(original) > settings.question_max_length:
+            raise ValueError(
+                "the original question behind this clarification exceeds the "
+                f"{settings.question_max_length}-character request limit"
+            )
+        asked = clarified_question(clarification_context, question)
+
     session = session_id or _new_id()
     graph = build_graph(ports)
     final: dict = graph.invoke(
@@ -199,6 +219,8 @@ def ask(
             question=asked,
             session_id=session,
             history=tuple(history),
+            previous_summary=previous_summary,
+            clarification_used=clarification_context is not None,
         )
     )
 

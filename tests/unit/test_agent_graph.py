@@ -26,10 +26,12 @@ import dataclasses
 
 import pytest
 
+import agent.graph
 import agent.nodes
 from agent.graph import ask
 from agent.ports import AgentPorts, AnswerNotCoveredError
-from agent.state import AnswerKind, Turn
+from agent.querying import ClarificationContext, clarified_question
+from agent.state import AnswerKind, SessionMemory, Turn
 from agent.trace import StepKind
 from config import get_settings
 from vector_store import SearchHit
@@ -103,11 +105,13 @@ def _ports(**overrides) -> AgentPorts:
 
 
 def _with_settings(monkeypatch, **overrides):
-    """Point the routers at non-default agent settings.
+    """Point the graph front door and routers at non-default settings.
 
-    `agent.nodes` is the module that reads the ceiling, so that is the
-    name that gets patched -- see `route_after_grade`."""
+    Both modules import `get_settings` directly, so both names must point
+    at the same object or one question would be checked against two sets
+    of limits."""
     settings = get_settings().model_copy(update=overrides)
+    monkeypatch.setattr(agent.graph, "get_settings", lambda: settings)
     monkeypatch.setattr(agent.nodes, "get_settings", lambda: settings)
     return settings
 
@@ -423,9 +427,15 @@ def test_the_session_summary_reaches_the_step_that_rewrites_the_question():
     summarize = _Recorder("the user is asking about trial periods")
     rewrite = _Recorder(("renouvellement periode essai",))
 
-    _ask(ports=_ports(summarize=summarize, rewrite=rewrite), history=history)
+    _ask(
+        ports=_ports(summarize=summarize, rewrite=rewrite),
+        history=history,
+        previous_summary="the contract concerns a manager",
+    )
 
-    assert summarize.calls == [(history,)]
+    assert summarize.calls == [
+        (SessionMemory(summary="the contract concerns a manager", turns=history),)
+    ]
     assert rewrite.calls == [(QUESTION, "the user is asking about trial periods")]
 
 
@@ -493,6 +503,114 @@ def test_a_chunk_found_by_two_sub_queries_reaches_the_model_once():
         ("code-du-travail.pdf", "Article 13"),
         ("code-du-travail.pdf", "Article 14"),
     ]
+
+
+def test_split_rankings_are_interleaved_and_capped_as_one_result_list(monkeypatch):
+    """Separate-search scores cannot be compared. Preserve each ranking,
+    give each query a turn, and keep the writer's total at the configured
+    one-query depth. A duplicate must not use one of those places."""
+    _with_settings(monkeypatch, retrieval_depth_k=4)
+    a1 = HIT
+    a2 = dataclasses.replace(HIT, parent_id="a-2", chunk_text="A2")
+    a3 = dataclasses.replace(HIT, parent_id="a-3", chunk_text="A3")
+    b1 = dataclasses.replace(HIT, parent_id="b-1", chunk_text="B1")
+    duplicate_a1 = dataclasses.replace(HIT, score=0.12)
+    b2 = dataclasses.replace(HIT, parent_id="b-2", chunk_text="B2")
+    batches = {"q1": (a1, a2, a3), "q2": (b1, duplicate_a1, b2)}
+    write = _Recorder(ANSWER_TEXT)
+
+    _ask(
+        ports=_ports(
+            rewrite=lambda question, summary: ("q1", "q2"),
+            retrieve=lambda workspace_id, query: batches[query],
+            write_answer=write,
+        )
+    )
+
+    assert [hit.chunk_text for hit in write.calls[0][1]] == [
+        HIT.chunk_text,
+        "B1",
+        "A2",
+        "B2",
+    ]
+
+
+def test_each_sub_query_can_contribute_when_depth_is_smaller_than_the_split(monkeypatch):
+    """Running a search whose every result is then discarded is a silent lie.
+
+    The total normally stays at the retrieval depth, but one result from each
+    permitted sub-query is the floor when an operator configures a lower depth.
+    """
+    _with_settings(monkeypatch, retrieval_depth_k=2, max_sub_queries=3)
+    batches = {
+        query: (
+            dataclasses.replace(HIT, parent_id=f"{query}-1", chunk_text=f"{query}-1"),
+            dataclasses.replace(HIT, parent_id=f"{query}-2", chunk_text=f"{query}-2"),
+        )
+        for query in ("q1", "q2", "q3")
+    }
+    write = _Recorder(ANSWER_TEXT)
+
+    _ask(
+        ports=_ports(
+            rewrite=lambda question, summary: ("q1", "q2", "q3"),
+            retrieve=lambda workspace_id, query: batches[query],
+            write_answer=write,
+        )
+    )
+
+    assert [hit.chunk_text for hit in write.calls[0][1]] == ["q1-1", "q2-1", "q3-1"]
+
+
+def test_a_clarification_reply_resumes_without_asking_a_second_question():
+    clarify = _Recorder("Which procedure?")
+    rewrite = _Recorder(("licenciement procedure",))
+    context = ClarificationContext(
+        original="Parlez-moi de cette procedure.\n",
+        asked=" Parlez-vous du licenciement ou de la demission ?",
+    )
+    reply = "\tLa procedure de licenciement.  "
+
+    answer = ask(
+        workspace_id="ws-hr",
+        question=reply,
+        clarification_context=context,
+        ports=_ports(clarify=clarify, rewrite=rewrite),
+    )
+
+    assert answer.kind is AnswerKind.ANSWER
+    assert clarify.calls == []
+    assert rewrite.calls[0][0] == clarified_question(context, reply)
+
+
+def test_an_oversized_original_clarification_request_stops_before_any_port(
+    monkeypatch,
+):
+    _with_settings(monkeypatch, question_max_length=17)
+    called = _Recorder(None)
+    ports = AgentPorts(
+        summarize=called,
+        clarify=called,
+        rewrite=called,
+        retrieve=called,
+        grade=called,
+        reword=called,
+        fetch_parents=called,
+        write_answer=called,
+    )
+
+    with pytest.raises(ValueError, match="17-character request limit"):
+        ask(
+            workspace_id="ws-hr",
+            question="Le licenciement.",
+            clarification_context=ClarificationContext(
+                original="x" * 18,
+                asked="Quel sujet ?",
+            ),
+            ports=ports,
+        )
+
+    assert called.calls == []
 
 
 def test_a_reword_may_split_differently_and_every_query_is_searched(monkeypatch):

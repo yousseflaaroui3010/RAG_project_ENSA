@@ -154,7 +154,7 @@ def corpus(tmp_path, monkeypatch):
 
 
 def _ports(client, parents, model, **overrides) -> AgentPorts:
-    """The three real ST-23 ports; the other five stubbed in the open."""
+    """The three real ST-23 ports; the other five are controlled test doubles."""
     import dataclasses
 
     from agent.grading import build_grade, build_reword
@@ -163,7 +163,7 @@ def _ports(client, parents, model, **overrides) -> AgentPorts:
     base = AgentPorts(
         # ST-25's, stubbed: no session memory in this story.
         summarize=lambda history: "",
-        # ST-22's, stubbed: never ambiguous here.
+        # Local test doubles keep this retry test unambiguous and single-query.
         clarify=lambda question, summary: None,
         rewrite=lambda question, summary: (question,),
         # --- the three ST-23 owns, all real ---

@@ -1,11 +1,12 @@
 """One question in flight: the real stage, cancellation, and what was read.
 
 WHY THIS FILE EXISTS AT ALL, because a chat screen is usually just a form.
-UX spec 6.3 requires stage hints -- "Searching the workspace", then
-"Checking the answer", then "Writing" -- and design principle 3 bans the
-alternative in one sentence: "A spinner with no stage is banned." Principle
-3's first line is stricter still: "Never fake progress. Stage hints during
-a long operation say what is actually happening."
+UX spec 6.3 requires stage hints, and design principle 3 bans the alternative
+in one sentence: "A spinner with no stage is banned." Principle 3's first line
+is stricter still: "Never fake progress. Stage hints during a long operation
+say what is actually happening." ST-25 adds "Preparing the question" before
+the signed Search, Check and Write labels because model-backed session memory
+and query planning happen before retrieval; calling either one Search is false.
 
 The React reference in `designrag-main/` fails exactly that clause. Its
 stages are two `setTimeout` calls at 650ms and 1300ms
@@ -52,27 +53,29 @@ from typing import Any
 
 from agent.graph import ask
 from agent.ports import AgentPorts
+from agent.querying import ClarificationContext, clarified_question
 from agent.state import Answer, Turn
 from vector_store import SearchHit
 
 
 class Stage(StrEnum):
-    """The three stage hints UX spec 6.3 names, in order.
+    """The stage hints shown in order while one question runs.
 
     A StrEnum rather than free strings because the label shown to the user
     and the value the poll returns must be the same thing; two spellings
     of "checking" is how a screen ends up announcing a stage that never
     ran."""
 
+    PREPARING = "preparing"
     SEARCHING = "searching"
     CHECKING = "checking"
     WRITING = "writing"
 
 
-# UX spec 6.3, verbatim. The wording is the spec's, not a paraphrase: it is
-# what the live region announces (6.4) and what a jury reads off the
-# screen.
+# The three signed labels stay verbatim. ST-25's approved Preparing label
+# truthfully names the model work that now happens before search.
 STAGE_LABELS: Mapping[Stage, str] = {
+    Stage.PREPARING: "Preparing the question",
     Stage.SEARCHING: "Searching the workspace",
     Stage.CHECKING: "Checking the answer",
     Stage.WRITING: "Writing",
@@ -122,21 +125,24 @@ class Run:
     not be recorded while the model is thinking, which is the one moment
     it is needed.
 
-    `reading` IS THE EXCEPTION AND IT IS NOT GUARDED. An earlier version
+    `reading` AND `updated_summary` ARE THE EXCEPTIONS AND ARE NOT GUARDED.
+    An earlier version
     of this docstring said "every field", which was not true and is the
     kind of sentence a later reader trusts instead of checking. What makes
     it safe is ordering, not the lock: the worker fills `reading` inside
     `write_answer` and only then sets `_done` under the lock, and nothing
-    outside reads `reading` until it has seen `done` -- `Conversation.
-    settle` is the only reader and it checks `run.done` first. So the
-    lock release that publishes `_done` is what publishes `reading` with
-    it. If a future caller ever reads `reading` on a run that is still in
-    flight, that argument evaporates and this needs the lock."""
+    outside reads either until it has seen `done` -- `Conversation.settle`
+    is the only reader and it checks `run.done` first. So the lock release
+    that publishes `_done` publishes both values with it. If a future caller
+    reads either value while a run is still in flight, that argument evaporates
+    and the value needs the lock."""
 
     question: str
     workspace_id: str
     session_id: str | None
     history: tuple[Turn, ...] = ()
+    previous_summary: str = ""
+    clarification_context: ClarificationContext | None = None
 
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _stage: Stage | None = None
@@ -145,8 +151,15 @@ class Run:
     _answer: Answer | None = None
     _error: BaseException | None = None
     reading: Reading = field(default_factory=Reading)
+    updated_summary: str | None = None
 
     # --- what the page reads -------------------------------------------
+
+    @property
+    def question_for_agent(self) -> str:
+        if self.clarification_context is None:
+            return self.question
+        return clarified_question(self.clarification_context, self.question)
 
     @property
     def stage(self) -> Stage | None:
@@ -157,9 +170,9 @@ class Run:
     def stage_label(self) -> str:
         """What the screen shows. Never blank while a run is in flight:
         before the first port is entered the honest answer is the first
-        stage, because `ask` has been called and the search is what it
+        stage, because `ask` has been called and preparation is what it
         does first."""
-        stage = self.stage or Stage.SEARCHING
+        stage = self.stage or Stage.PREPARING
         return STAGE_LABELS[stage]
 
     @property
@@ -191,7 +204,8 @@ class Run:
         the page can only offer Cancel from a snapshot that was already
         one render out of date."""
         with self._lock:
-            self._cancelled = True
+            if not self._done:
+                self._cancelled = True
 
     def fail(self, exc: BaseException) -> None:
         """Settle this run as failed without ever having started it.
@@ -208,37 +222,62 @@ class Run:
 
     def _checkpoint(self) -> None:
         with self._lock:
-            if self._cancelled:
-                raise RunCancelled(
-                    f"cancelled during {self._stage or Stage.SEARCHING}"
-                )
+            self._raise_if_cancelled()
 
     def _enter(self, stage: Stage) -> None:
-        self._checkpoint()
         with self._lock:
+            # This is one cancellation boundary: whichever action wins this
+            # lock decides whether the next stage starts or stops.
+            self._raise_if_cancelled()
             self._stage = stage
 
-    def observed(self, ports: AgentPorts) -> AgentPorts:
-        """The same ports, with three of them announcing themselves.
+    def _raise_if_cancelled(self) -> None:
+        if self._cancelled:
+            raise RunCancelled(
+                f"cancelled during {self._stage or Stage.PREPARING}"
+            )
 
-        `dataclasses.replace` on a frozen dataclass, so the callables
-        underneath are ST-23's and ST-24's untouched. The two ports that
-        set no stage are deliberate:
+    def observed(self, ports: AgentPorts) -> AgentPorts:
+        """The same ports, with truthful UX stages and cancel checkpoints.
+
+        `dataclasses.replace` on a frozen dataclass leaves the callables
+        underneath untouched. Preparation covers the summary and the paired
+        query-planning ports; retrieval, grading and writing use the three
+        signed labels. One port sets no new stage:
 
         * `fetch_parents` reads a few JSON files in milliseconds and has
-          no name in UX spec 6.3's vocabulary of three. Leaving the stage
+          no separate user action. Leaving the stage
           on "Checking the answer" through it is the last true thing the
           user was told; inventing a fourth hint would be adding a stage
           the spec does not have. It is still wrapped, for the cancel
           checkpoint alone.
-        * `summarize`, `clarify`, `rewrite` and `reword` are either
-          stubbed (ST-22, ST-25) or instantaneous, and none of them is a
-          stage a user waits through."""
+        `clarify` and `rewrite` are ST-22's shared model call. Both use
+        Preparing and have checkpoints immediately before and after their call,
+        covering both a first question and a resumed clarification."""
+
+        def preparing_summary(summarize: Any) -> Any:
+            def wrapped(memory: Any) -> str:
+                self._enter(Stage.PREPARING)
+                summary = summarize(memory)
+                self._checkpoint()
+                self.updated_summary = summary
+                return summary
+
+            return wrapped
 
         def searching(retrieve: Any) -> Any:
             def wrapped(workspace_id: str, query: str) -> Sequence[SearchHit]:
                 self._enter(Stage.SEARCHING)
                 return retrieve(workspace_id, query)
+
+            return wrapped
+
+        def stoppable_query_planning(port: Any) -> Any:
+            def wrapped(question: str, summary: str) -> Any:
+                self._enter(Stage.PREPARING)
+                result = port(question, summary)
+                self._checkpoint()
+                return result
 
             return wrapped
 
@@ -291,6 +330,9 @@ class Run:
 
         return dataclasses.replace(
             ports,
+            summarize=preparing_summary(ports.summarize),
+            clarify=stoppable_query_planning(ports.clarify),
+            rewrite=stoppable_query_planning(ports.rewrite),
             retrieve=searching(ports.retrieve),
             grade=checking(ports.grade),
             fetch_parents=stoppable(ports.fetch_parents),
@@ -305,6 +347,8 @@ class Run:
                 ports=self.observed(ports),
                 session_id=self.session_id,
                 history=self.history,
+                previous_summary=self.previous_summary,
+                clarification_context=self.clarification_context,
             )
         except BaseException as exc:  # noqa: BLE001 -- see below
             # EVERY failure is caught, including the ones a library author
@@ -318,7 +362,15 @@ class Run:
                 self._done = True
             return
         with self._lock:
-            self._answer = answer
+            # This is the last cancellation boundary. It closes the small
+            # window after the graph's final port returns but before its answer
+            # is published to the conversation.
+            if self._cancelled:
+                self._error = RunCancelled(
+                    f"cancelled during {self._stage or Stage.PREPARING}"
+                )
+            else:
+                self._answer = answer
             self._done = True
 
     def start(self, ports: AgentPorts) -> None:

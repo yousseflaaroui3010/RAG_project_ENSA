@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 
 from agent.ports import AgentPorts, AnswerNotCoveredError
-from agent.state import AgentState, AnswerKind, Source
+from agent.state import AgentState, AnswerKind, SessionMemory, Source
 from agent.trace import StepKind, TraceStep, rewords_in, searches_in
 from config import get_settings
 from vector_store import SearchHit
@@ -166,45 +166,39 @@ def _attempt_number(state: AgentState) -> int:
 
 
 def _merge_hits(batches: Sequence[Sequence[SearchHit]]) -> tuple[SearchHit, ...]:
-    """Hits from several queries, de-duplicated, IN QUERY ORDER.
+    """Interleave query rankings, de-duplicate them, and cap the total.
 
     Identity is (parent_id, chunk_text), NOT the whole hit: the same chunk
     found by two sub-queries comes back with two different fusion scores,
     so equality on the object would keep both and the model would read the
     same passage twice.
 
-    PARKED, NOT FIXED -- ST-22 owns the trigger, and this is visible rather
-    than improvised (ST-19/ST-29/ST-21/ST-23 review, 2026-09-03). The
-    paragraph below hands honest multi-query fusion to ST-23. **ST-23 shipped
-    and closed without doing it**, and `agent/retrieval.py` is a thin wrapper
-    over `vector_store.search` with no fusion in it. Nothing is wrong TODAY
-    only because `ui/ports.py` stubs `rewrite` to return exactly one query
-    (ST-22), so `batches` always has length one and query order IS score
-    order. THE DAY ST-22 LANDS, three things start at once: passages arrive in
-    arbitrary query order, nothing anywhere trims the list, and the writer is
-    handed up to (queries x `retrieval_depth_k`) sections with no cap. ST-32
-    then scores retrieval quality against that. Deliberately not fixed here:
-    picking a fusion rule is retrieval design, it belongs with whoever
-    implements the split, and improvising one now would pre-empt a decision
-    another story owns. Whoever lands ST-22 reads this docstring first.
-
-    ORDER IS QUERY ORDER, NOT SCORE ORDER, and this needs saying because
-    an earlier version of this docstring claimed "best-ranked first",
-    which was false the moment there were two queries -- being found
-    earlier is not being ranked higher. It is left unsorted deliberately:
-    `SearchHit.score` comes out of Qdrant's Reciprocal Rank Fusion, which
-    is a rank-based score computed WITHIN one query, so scores from two
-    different searches are not on a comparable scale and sorting by them
-    would be a second quiet wrongness rather than a fix. Fusing several
-    sub-query rankings honestly is retrieval work and belongs to ST-23,
-    which owns the hybrid search. Until then: whoever trims this list to
-    "the top N" is trimming by query order, and this docstring is the
-    warning."""
-    seen: dict[tuple[str, str], SearchHit] = {}
-    for batch in batches:
-        for hit in batch:
-            seen.setdefault((hit.parent_id, hit.chunk_text), hit)
-    return tuple(seen.values())
+    `SearchHit.score` is computed within one search, so scores from two
+    searches cannot be globally sorted. Round-robin keeps each search's own
+    rank order and gives every part of a split a chance. The total is normally
+    the retrieval depth, but cannot be smaller than the number of searches:
+    otherwise a valid configuration could run a sub-query and then silently
+    discard all of its results before grading."""
+    limit = max(get_settings().retrieval_depth_k, len(batches))
+    rankings = [iter(batch) for batch in batches]
+    seen: set[tuple[str, str]] = set()
+    merged: list[SearchHit] = []
+    while len(merged) < limit:
+        added = False
+        for ranking in rankings:
+            for hit in ranking:
+                identity = (hit.parent_id, hit.chunk_text)
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                merged.append(hit)
+                added = True
+                break
+            if len(merged) == limit:
+                break
+        if not added:
+            break
+    return tuple(merged)
 
 
 def _sources_for(passages: tuple[SearchHit, ...]) -> tuple[Source, ...]:
@@ -240,7 +234,12 @@ def make_summarize(ports: AgentPorts) -> Callable[[AgentState], dict]:
     """Section 5.2 box M: summarize the session context (F-07)."""
 
     def summarize(state: AgentState) -> dict:
-        summary = ports.summarize(state["history"])
+        summary = ports.summarize(
+            SessionMemory(
+                summary=state["previous_summary"],
+                turns=state["history"],
+            )
+        )
         detail = summary if summary else "no earlier turns in this session"
         return {
             "summary": summary,
@@ -261,7 +260,9 @@ def make_rewrite(ports: AgentPorts) -> Callable[[AgentState], dict]:
 
     def rewrite(state: AgentState) -> dict:
         question, summary = state["question"], state["summary"]
-        clarification = ports.clarify(question, summary)
+        clarification = None
+        if not state["clarification_used"]:
+            clarification = ports.clarify(question, summary)
         if clarification is not None:
             return {
                 "clarification": _spoken(clarification, "clarify"),

@@ -12,30 +12,15 @@ in 131.85s -- up from 623, which is exactly the two tests the prompt fix
 adds. Exit codes read from `$?`: `SYNC_EXIT=0`, `RUFF_EXIT=0`,
 `PYTEST_EXIT=0`.
 
-**THE `.env` BLOCKER IS HALF CLOSED, AND THE OTHER HALF IS WORSE THAN THE
-FIRST. THIS IS THE ENTRY TO READ.** The retired model name is fixed:
-`CHAT_MODEL_CLOUD` on this clone now reads `gemini-3.6-flash`, and the
-byte-order mark that was sitting at the top of `.env` was stripped at the
-same time (harmless only because line 1 is a comment that absorbed it --
-reorder that file so a real setting sits first and that setting silently
-stops working, which is the pydantic-settings failure PR #64 recorded).
-
-**But ONE LIVE CALL then proved THE KEY ITSELF IS INVALID.** Google answered
-`400 INVALID_ARGUMENT / API_KEY_INVALID`, "API key not valid. Please pass a
-valid API key." The key is present and 56 characters long, so nothing about
-its SHAPE says it is wrong; only using it does. Owner: whoever holds this
-clone -- a new Google AI Studio key in `.env`, which is git-ignored and holds
-a secret, so no merge and no agent can do it.
-
-**WHY THAT ONE CALL WAS WORTH THE CREDITS IT SPENT, spelled out because the
-project's own law says stop and ask before spending money and the human was
-asked:** the config was CORRECT and the product still could not answer. Every
-check available offline was green -- the setting loads, the model name is the
-one ST-24 proved live, the key is present and plausible -- and all of it was
-consistent with a product that cannot talk to a model at all. Without the
-call this would have surfaced at ST-36, in the middle of the first evaluation
-run, as sixty failures nobody could attribute. "It builds" is not "it works",
-and this is the cheapest instance of that lesson this project will get.
+**THE `.env` MODEL BLOCKER IS CLOSED ON THIS CLONE, RE-MEASURED 2026-09-09.**
+The retired model name remains fixed at `gemini-3.6-flash`, and ST-22 made two
+live planner calls through the configured model: an ambiguous French request
+returned one clarification; a clear compound request returned two French
+searches covering duration and renewal. Both completed without an auth error.
+The 2026-09-03 entry below was accurate when measured -- Google then returned
+`400 INVALID_ARGUMENT / API_KEY_INVALID` -- so the git-ignored secret changed
+outside this repository between the two runs. No key value was printed or
+stored. This closes live model access here; it says nothing about MB's clone.
 
 Plus the golden set's own corpus check, which is not in gate.yml because
 `data/` is git-ignored: `uv run python scripts/golden_grounding.py` ->
@@ -325,6 +310,245 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
+
+**DONE 2026-09-10: ST-25 SESSION MEMORY, branch
+`feat/S2-ST-25-session-memory`, cut from merged main at `6a789b5`. Exit gate:
+the follow-up "and how many renewals?" resolves to the earlier trial-period
+topic; a new conversation carries none of that context. BUILD-PLAN assigns the
+story to YL; the human has explicitly approved taking all buildable work. Blast
+radius, written before code:**
+
+1. **Who is touched:** every second and later answered question in one chat,
+   because the running composition will replace the summary stub. First
+   questions, refusals and clarification-only exchanges still have no completed
+   history to summarize.
+2. **Worst case:** a bad summary changes what a vague follow-up is searched as,
+   or context survives the New conversation action. Either can produce a
+   confidently sourced answer to the wrong subject; a blank model reply could
+   also erase memory silently if it were accepted.
+3. **How we find out:** unit checks pin empty history, exact JSON boundaries and
+   blank-output failure; shipping-level tests ask the signed two-turn example
+   and then repeat the vague follow-up after New conversation. Two prompt
+   golden cases and live model calls cover the model behavior the scripted
+   tests cannot.
+4. **How we undo it:** revert the one ST-25 commit. No stored document,
+   conversation, database or API shape changes; the old explicit no-summary
+   stub restores single-turn behavior.
+
+**SEARCH SCOPE:** codebase-memory was not attached, so Graphify indexed all 86
+code files locally: **2,237 nodes / 5,231 edges**, with the 49 signed/journal
+documents reviewed directly because Graphify's document pass could not read the
+project's differently named local model key. Graph queries traced every
+`AgentPorts` constructor and the complete Conversation -> Run -> graph -> summary
+-> query planner path. Project-wide searches also covered `summarize`, `history`,
+`Turn`, `build_ports`, `session_id`, `reset`, and F-07/ST-25 across Python and
+Markdown. The shared summary input must change to carry the previous summary and
+new turns together; the human approved that wider change after review found the
+first full-history design grows without bound.
+
+**APPROVED DESIGN:** use the existing provider-swappable chat model for a compact
+ROLLING summary. Each successful run folds only the completed turns since the
+last summary into the previous compact summary, so later calls stay bounded
+instead of resending the whole transcript. This follows architecture 5.2 and
+ADR-03's cited reference pattern. Summary input is JSON data; the summary is
+JSON-encoded again at the query-planner boundary so text resembling prompt
+labels cannot forge a field. Blank, oversized-input and oversized-output cases
+fail by name instead of silently forgetting context. The human approved the
+shared hand-off change on 2026-09-10 after both review passes found the unbounded
+first design.
+
+**APPROVED UI CHOICE:** add a fourth live stage, "Preparing the question", while
+summary and query planning run. The signed screen lists only Searching, Checking
+and Writing, but its higher rule says stage hints must report what is actually
+happening and bans a spinner without a stage. Calling a model summary "Searching
+the workspace" is false. The human explicitly chose the truthful fourth stage;
+it uses the existing polite live region and adds no new control.
+
+**LIVE PROMPT BACKTEST 2026-09-10:** the configured `gemini-3.6-flash` model
+returned a compact trial-period summary preserving three months and one renewal;
+the real query planner then produced `nombre de renouvellements periode d essai
+cadre` with no clarification. On the rolling hostile case it retained the trial
+period as the established subject, treated the instruction-shaped leave text as
+an unsuccessful exchange, and added no leave entitlement. This is the required
+O2 check for `session-summarizer` 0.1.0; the scripted tests prove transport and
+failure handling, while this call proves the behavior they cannot.
+
+**HTTP HAND-OFF FOR ST-51:** `agent.graph.ask` remains stateless: `session_id`
+identifies memory, while the owning conversation supplies the compact summary
+and pending turns. The in-process UI now does that under one lock. The future
+HTTP route must resolve those two values by the echoed session id to meet
+OpenAPI line 486; the id alone is not a storage mechanism and ST-25 does not add
+the route or a second session store early.
+
+**FINAL PROOF:** `uv run pytest` in the locked temporary environment produced
+**727 passed / 2 skipped / 1 third-party warning in 143.02s**; `uv run ruff
+check .` passed; `git diff --check` found no whitespace errors. Thirteen
+deliberate breaks were watched fail before restoration, covering missing and
+uncleared memory, unsafe boundaries, blank/invisible/oversized summaries,
+three cancellation races, and finished-answer overwrite. Two independent
+reviews found the original unbounded design and three race windows; the final
+acceptance recheck passed all ten ST-25 items. The polite loading announcement
+is covered through the real app and its existing `role=status`; no manual
+screen-reader walk was available in this tool session.
+
+**DEFERRED, NOT AN ST-25 CLAIM:** model calls still have no project-wide network
+deadline, so Cancel stops after the current provider call returns rather than
+interrupting that call. This affects every existing chat-model stage, not only
+the new summary. The next agent reliability story must verify supported timeout
+options for both Gemini and Ollama before adding one shared config setting; do
+not patch only the summarizer and create two timeout policies.
+
+**MERGE DEVIATION CLOSED:** PR #89 (ST-22) passed CI `verify` and was
+squash-merged by the assistant at the human's explicit instruction as `6a789b5`.
+That departs from the standing human-only merge practice for this one PR; the
+instruction and the independent review evidence are recorded rather than
+treated as a new default.
+
+**DOING 2026-09-09: ST-22 CLARIFICATION + QUERY SPLIT, branch
+`feat/S2-ST-22-clarification-split`, cut from `0cb80b4`. Ownership differs
+from BUILD-PLAN: the human explicitly approved taking all buildable work in
+this session. Blast radius, written before code:**
+
+1. **Who is touched:** every chat question, because the live composition will
+   replace ST-22's always-clear and one-query stubs. Ambiguous questions also
+   gain one saved clarification exchange before search.
+2. **Worst case:** a clear question is blocked by a needless clarification,
+   a split changes the user's meaning, or several searches flood the writer
+   with unordered passages and produce a wrong sourced answer.
+3. **How we find out:** scripted model tests pin clear, ambiguous, malformed,
+   over-wide and resumed flows; retrieval tests pin fair order, duplicate
+   removal and the configured total cap; the full suite checks existing chat
+   paths. The two-case real model check is recorded below.
+4. **How we undo it:** revert the one ST-22 commit. It changes no stored
+   document or database shape; existing conversations remain readable, and
+   the prior stubs restore the old one-query/no-clarification behavior.
+
+**SEARCH SCOPE:** the configured codebase-memory server is unavailable in
+this shell and there is no local `graphify-out/graph.json`, so structure is
+UNVERIFIED by graph. The fallback project-wide searches covered `ST-22`,
+`clarif*`, `rewrite`, `split`, `_merge_hits` and `AgentPorts` across Python
+and Markdown. Targeted caller reads follow before any exported seam changes.
+
+**REVIEWED AND HARDENED 2026-09-09:** a cold review plus the direct pass found
+three real defects after the first green: raw XML-style labels let a reply
+forge a clarification boundary; a configured depth below the split width ran
+a search then discarded every result from it; and a failed or cancelled reply
+lost its original clarification context, so resubmission searched the short
+reply alone. All three are fixed. The resumed exchange is now compact JSON
+data; merge depth has a one-result-per-search floor; failed resumed runs restore
+their claimed context. Both planner entry paths retain cancel checkpoints.
+
+Proof before the final gate: 136 focused tests passed; the context-loss test
+was first watched fail twice, for cancellation and model error, then pass. The
+JSON-boundary and split-floor guards were each broken deliberately; both tests
+failed, then 4 focused cases passed after restoration. A real two-call O2 check
+also passed: the ambiguous French request produced one clarification, and the
+clear compound request produced two French searches covering duration and
+renewal.
+
+**FINAL BRANCH GATE:** the project-local `.venv` remains unusable because of
+the inherited OneDrive access rule, so the same locked project was run from
+`C:\Users\lenovo\AppData\Local\Temp\opencode\sanad-st22-venv` instead:
+`uv sync --frozen` audited 141 packages; `uv run ruff check .` passed; `uv run
+pytest` produced **707 passed / 2 skipped / 1 third-party warning** in 203.59s.
+The staged secret scan covered all 20 ST-22 files including the three new
+files and the decision record, scanned 33.58 KB, and found no leaks. The
+BUILD-STATE result line itself was then scanned once more before commit.
+
+**ST-36's PROMPT FIX IS REAL AND THE GATE IS STILL RED, MEASURED 2026-09-09
+ON `fix/S3-ST-39-g-out-005-replacement` (ca3c134). NO CODE CHANGED BY THIS
+SESSION -- the tree was clean before and after, verified by hash.** The
+question put to this session was whether to fix `g-in-014` or record it as a
+known limitation. Neither: ST-36 had already fixed it, on a branch nobody had
+merged, and the claim rested on ONE run.
+
+**WHY "KNOWN LIMITATION" WAS NEVER AN OPTION, stated because it was the
+question asked:** G3 counts an in-scope refusal as a missing source
+(`evaluation/runner.py:176`, folded in at `:215`), so one refusing row makes
+sources 39/40 and the gate exits 1. ST-41's exit gate needs exit 0. Writing
+"known limitation" in a document changes nothing. The only routes to green are
+fixing the product or editing the row, and the row is sound -- unlike
+`g-out-005`, the corpus answers `g-in-014` TWICE (dahir art. 35 and the CLEISS
+guide), so editing it would be the cheating the core law bans.
+
+**THE FIX WORKS, AND THIS IS THE FIRST NUMBER ON THIS PROJECT WITH A
+SIGNIFICANCE TEST BEHIND IT.** `g-in-014`, ten runs each side, same machine,
+same Qdrant index, same corpus, ONE variable changed (`prompts/query-reword`
+0.1.0 -> ST-36's 0.2.0, swapped in byte-identical, hash `1b9aa9e`):
+
+| | main v0.1.0 | ST-36 v0.2.0 |
+|---|---|---|
+| answered | 2/10 | **10/10** |
+| missing a source (G3) | 8/10 | **0/10** |
+| cited dahir art. 35 | 0 | **10/10** |
+
+Fisher exact **p = 0.0007**. ST-36's own diagnosis (an acronym in the search
+pulls onto pages that DESCRIBE the institution instead of the page that STATES
+the rule) was re-derived independently here before its triage doc was read: of
+the seven queries the old prompt generated, six kept `CNSS` and none found
+article 35; a control query using the reference answer's own words returns it
+at **score 1.0**, proving the chunk is indexed and the retriever is not blind.
+
+**AND THE GATE IS STILL RED, WHICH IS THE PART THE TRIAGE DOC DOES NOT SAY.**
+A full sixty-question run with BOTH fixes (ST-36's prompt + ST-39's replaced
+`g-out-005`) -- the configuration main would have if #85 and ca3c134 both
+landed -- reports **G1 0.968 PASS, G2 20/20 PASS, G3 39/40 FAIL, exit 1**.
+`g-in-014` passed at 1.0 and sourced. The single miss MOVED to `g-in-037`.
+`docs/evals/ST-36-triage.md` says "a gate that was failing now passes"; one run
+supported that and four do not.
+
+**G2 20/20 IS NOW A FACT, NOT AN EXPECTATION.** The DECISIONS row of
+2026-09-09 closed by saying 20/20 was "expected and not yet a fact". Two full
+runs since have measured it (07:26 and 11:33), so ST-39's `g-out-005`
+replacement holds. Also settled: the worry that "drop the institution name"
+would break out-of-scope rows where the institution IS the subject did NOT
+materialise -- all twenty refused correctly.
+
+**`g-in-037` IS A WARNING, NOT A CONVICTION, AND IT IS WRITTEN THAT WAY ON
+PURPOSE.** It asks the deadline for declaring a sick note *to the CNSS*, and
+its pair `g-in-035` is the same event with a deadline to the EMPLOYER, so the
+institution is exactly what separates them. Ten runs each side:
+
+| | main v0.1.0 | ST-36 v0.2.0 | |
+|---|---|---|---|
+| refused | 1/10 | 5/10 | p = 0.14, **NOT significant** |
+| answers at/above 0.90 | 1/9 | **5/5** | p = 0.003, significant |
+| mean groundedness | 0.83 | **0.94** | |
+
+So the new prompt demonstrably makes the ANSWER BETTER and may or may not make
+the REFUSAL more likely. A five-fold jump at p = 0.14 on n=10 is underpowered:
+it cannot convict the prompt and it cannot clear it. Do not let this be
+repeated as "ST-36 broke g-in-037" -- that is not what was measured.
+
+**THE STRUCTURAL FINDING, which outlives both rows: G3 IS FORTY COIN FLIPS
+THAT MUST ALL LAND.** Across the four full runs, G3 has read 39/40, 40/40,
+39/40, 39/40 -- clean once in four, each time blocked by a DIFFERENT row. Six
+rows also changed verdict between the three earlier runs on an IDENTICAL
+prompt, so run-to-run noise of four to six rows is this suite's baseline. Two
+consequences nobody has ruled on: a green gate is reachable (run 2 would have
+been green had it carried ST-39's row) but not RELIABLE, and at a ~50% row like
+`g-in-037` the gate cannot pass dependably however good the rest is. A single
+lucky green would also HIDE a real defect, which is worse than a stable red.
+
+**PARKED, NOT IMPROVISED, AND FLAGGED BECAUSE IT WOULD CONVENIENTLY GO GREEN:**
+the signed PRD (section 3, G3) says "100% of **answers** display at least one
+source reference". A refusal is not an answer and by F-05's design carries
+none, yet `runner.py:176` marks an in-scope refusal `sources_present=False` and
+`:215` folds it into G3 -- so one failure is punished twice, once by G1 and
+again by G3. That reads like the implementation being STRICTER than the signed
+spec. It is not touched here: it is a spec-interpretation call for a human,
+exactly like the `g-out-005` ruling, and "fixing" it would turn the gate green
+while `g-in-014` stayed broken. Whoever rules on it should do so AFTER the
+product fix, never as the route to green.
+
+MEASUREMENT SCOPE, so nobody reads more into this than it holds: this session
+measured TWO rows deeply (`g-in-014`, `g-in-037`, ten runs each side) and ran
+ONE full sixty-question sweep with the new prompt. It did NOT measure the other
+38 in-scope rows at more than one run apiece, so per-row claims about them are
+single observations inside a suite already known to move four to six rows a
+run. Gate steps were NOT re-run: no code changed, so `uv run pytest` and ruff
+were not re-executed this session and this entry makes no claim about them.
+Gitleaks not run -- MB's clone, same as every other entry above.
 
 **ST-33 RELEASE GATE BUILT, 2026-09-05, ON BRANCH
 `feat/S3-ST-33-release-gate` cut from main at `8d89e94` (ST-32 merged, PR

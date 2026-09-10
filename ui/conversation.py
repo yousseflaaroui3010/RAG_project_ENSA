@@ -29,6 +29,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from agent.querying import ClarificationContext
 from agent.state import Answer, AnswerKind, Source, Turn
 from config import get_settings
 from ui.runs import Run, RunCancelled, find_span
@@ -123,11 +124,9 @@ class Message:
     retries: int = 0
     disclaimer: bool = False
     error: ErrorDetail | None = None
-    # UX spec 6.2: a clarification carries "two or three concrete choices
-    # as buttons" only "where the system can offer them". ST-22 owns the
-    # clarify port and is not built, so nothing can offer any, and this
-    # stays empty rather than being filled with plausible-looking guesses.
-    # The React reference invents three (`ChatScreen.tsx:163`).
+    # UX spec 6.2 allows concrete reply buttons where they can be offered.
+    # ST-22 currently generates one free-text question, not reply choices,
+    # so this stays empty rather than being filled with guesses.
     choices: tuple[str, ...] = ()
 
 
@@ -351,8 +350,12 @@ class Conversation:
     workspace_id: str
     session_id: str | None = None
     messages: list[Message] = field(default_factory=list)
+    # Completed turns stay here only until the next successful run folds them
+    # into this compact summary. The transcript remains in `messages`.
+    summary: str = ""
     turns: list[Turn] = field(default_factory=list)
     run: Run | None = None
+    pending_clarification: ClarificationContext | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
@@ -370,10 +373,14 @@ class Conversation:
         """New conversation. The session id goes too, which is what makes
         it new: `ask` mints a fresh one and F-07's memory starts clean."""
         with self._lock:
+            if self.run is not None:
+                self.run.cancel()
             self.messages.clear()
+            self.summary = ""
             self.turns.clear()
             self.session_id = None
             self.run = None
+            self.pending_clarification = None
 
     def begin(self, run: Run, question: str) -> bool:
         """Claim this conversation for one question. False if it is taken.
@@ -388,8 +395,17 @@ class Conversation:
         The user's message is appended here, under the same lock, so a
         transcript can never show a question whose run was never claimed."""
         with self._lock:
-            if self.run is not None and not self.run.done:
+            # A finished run still owns its answer until `settle` saves it.
+            # Replacing it here would erase both the answer and its memory.
+            if self.run is not None:
                 return False
+            # Take the three memory fields under the same lock that claims the
+            # run, so a poll cannot settle a prior answer between snapshots.
+            run.session_id = self.session_id
+            run.previous_summary = self.summary
+            run.history = tuple(self.turns)
+            run.clarification_context = self.pending_clarification
+            self.pending_clarification = None
             self.messages.append(Message(kind=MessageKind.USER, text=question))
             self.run = run
             return True
@@ -416,23 +432,38 @@ class Conversation:
 
             answer = run.answer
             if answer is not None:
-                self.messages.append(
-                    message_for(
-                        answer,
-                        run.reading.cited,
-                        run.reading.parents,
-                        legal_workspace=legal_workspace,
-                    )
+                message = message_for(
+                    answer,
+                    run.reading.cited,
+                    run.reading.parents,
+                    legal_workspace=legal_workspace,
                 )
+                self.messages.append(message)
                 self.session_id = answer.session_id
+                if run.updated_summary is not None:
+                    self.summary = run.updated_summary
+                    self.turns.clear()
+                if answer.kind is AnswerKind.CLARIFICATION:
+                    if run.clarification_context is not None:
+                        raise RuntimeError(
+                            "a resumed clarification asked a second question; "
+                            "agent.nodes must skip clarification after the reply"
+                        )
+                    self.pending_clarification = ClarificationContext(
+                        original=run.question, asked=answer.text
+                    )
                 if answer.kind is AnswerKind.ANSWER:
                     # F-07's in-session memory holds completed exchanges. A
                     # refusal or a clarifying question is not one, and
                     # feeding "I could not find this" back as history would
                     # teach the next turn a fact about the corpus that the
                     # corpus does not contain.
-                    self.turns.append(Turn(question=run.question, answer=answer.text))
+                    self.turns.append(
+                        Turn(question=run.question_for_agent, answer=answer.text)
+                    )
                 return
+            if run.clarification_context is not None:
+                self.pending_clarification = run.clarification_context
             error = run.error
             if isinstance(error, RunCancelled):
                 self.messages.append(
