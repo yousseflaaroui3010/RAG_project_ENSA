@@ -12,30 +12,15 @@ in 131.85s -- up from 623, which is exactly the two tests the prompt fix
 adds. Exit codes read from `$?`: `SYNC_EXIT=0`, `RUFF_EXIT=0`,
 `PYTEST_EXIT=0`.
 
-**THE `.env` BLOCKER IS HALF CLOSED, AND THE OTHER HALF IS WORSE THAN THE
-FIRST. THIS IS THE ENTRY TO READ.** The retired model name is fixed:
-`CHAT_MODEL_CLOUD` on this clone now reads `gemini-3.6-flash`, and the
-byte-order mark that was sitting at the top of `.env` was stripped at the
-same time (harmless only because line 1 is a comment that absorbed it --
-reorder that file so a real setting sits first and that setting silently
-stops working, which is the pydantic-settings failure PR #64 recorded).
-
-**But ONE LIVE CALL then proved THE KEY ITSELF IS INVALID.** Google answered
-`400 INVALID_ARGUMENT / API_KEY_INVALID`, "API key not valid. Please pass a
-valid API key." The key is present and 56 characters long, so nothing about
-its SHAPE says it is wrong; only using it does. Owner: whoever holds this
-clone -- a new Google AI Studio key in `.env`, which is git-ignored and holds
-a secret, so no merge and no agent can do it.
-
-**WHY THAT ONE CALL WAS WORTH THE CREDITS IT SPENT, spelled out because the
-project's own law says stop and ask before spending money and the human was
-asked:** the config was CORRECT and the product still could not answer. Every
-check available offline was green -- the setting loads, the model name is the
-one ST-24 proved live, the key is present and plausible -- and all of it was
-consistent with a product that cannot talk to a model at all. Without the
-call this would have surfaced at ST-36, in the middle of the first evaluation
-run, as sixty failures nobody could attribute. "It builds" is not "it works",
-and this is the cheapest instance of that lesson this project will get.
+**THE `.env` MODEL BLOCKER IS CLOSED ON THIS CLONE, RE-MEASURED 2026-09-09.**
+The retired model name remains fixed at `gemini-3.6-flash`, and ST-22 made two
+live planner calls through the configured model: an ambiguous French request
+returned one clarification; a clear compound request returned two French
+searches covering duration and renewal. Both completed without an auth error.
+The 2026-09-03 entry below was accurate when measured -- Google then returned
+`400 INVALID_ARGUMENT / API_KEY_INVALID` -- so the git-ignored secret changed
+outside this repository between the two runs. No key value was printed or
+stored. This closes live model access here; it says nothing about MB's clone.
 
 Plus the golden set's own corpus check, which is not in gate.yml because
 `data/` is git-ignored: `uv run python scripts/golden_grounding.py` ->
@@ -325,6 +310,57 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
+
+**DOING 2026-09-09: ST-22 CLARIFICATION + QUERY SPLIT, branch
+`feat/S2-ST-22-clarification-split`, cut from `0cb80b4`. Ownership differs
+from BUILD-PLAN: the human explicitly approved taking all buildable work in
+this session. Blast radius, written before code:**
+
+1. **Who is touched:** every chat question, because the live composition will
+   replace ST-22's always-clear and one-query stubs. Ambiguous questions also
+   gain one saved clarification exchange before search.
+2. **Worst case:** a clear question is blocked by a needless clarification,
+   a split changes the user's meaning, or several searches flood the writer
+   with unordered passages and produce a wrong sourced answer.
+3. **How we find out:** scripted model tests pin clear, ambiguous, malformed,
+   over-wide and resumed flows; retrieval tests pin fair order, duplicate
+   removal and the configured total cap; the full suite checks existing chat
+   paths. The two-case real model check is recorded below.
+4. **How we undo it:** revert the one ST-22 commit. It changes no stored
+   document or database shape; existing conversations remain readable, and
+   the prior stubs restore the old one-query/no-clarification behavior.
+
+**SEARCH SCOPE:** the configured codebase-memory server is unavailable in
+this shell and there is no local `graphify-out/graph.json`, so structure is
+UNVERIFIED by graph. The fallback project-wide searches covered `ST-22`,
+`clarif*`, `rewrite`, `split`, `_merge_hits` and `AgentPorts` across Python
+and Markdown. Targeted caller reads follow before any exported seam changes.
+
+**REVIEWED AND HARDENED 2026-09-09:** a cold review plus the direct pass found
+three real defects after the first green: raw XML-style labels let a reply
+forge a clarification boundary; a configured depth below the split width ran
+a search then discarded every result from it; and a failed or cancelled reply
+lost its original clarification context, so resubmission searched the short
+reply alone. All three are fixed. The resumed exchange is now compact JSON
+data; merge depth has a one-result-per-search floor; failed resumed runs restore
+their claimed context. Both planner entry paths retain cancel checkpoints.
+
+Proof before the final gate: 136 focused tests passed; the context-loss test
+was first watched fail twice, for cancellation and model error, then pass. The
+JSON-boundary and split-floor guards were each broken deliberately; both tests
+failed, then 4 focused cases passed after restoration. A real two-call O2 check
+also passed: the ambiguous French request produced one clarification, and the
+clear compound request produced two French searches covering duration and
+renewal.
+
+**FINAL BRANCH GATE:** the project-local `.venv` remains unusable because of
+the inherited OneDrive access rule, so the same locked project was run from
+`C:\Users\lenovo\AppData\Local\Temp\opencode\sanad-st22-venv` instead:
+`uv sync --frozen` audited 141 packages; `uv run ruff check .` passed; `uv run
+pytest` produced **707 passed / 2 skipped / 1 third-party warning** in 203.59s.
+The staged secret scan covered all 20 ST-22 files including the three new
+files and the decision record, scanned 33.58 KB, and found no leaks. The
+BUILD-STATE result line itself was then scanned once more before commit.
 
 **ST-36's PROMPT FIX IS REAL AND THE GATE IS STILL RED, MEASURED 2026-09-09
 ON `fix/S3-ST-39-g-out-005-replacement` (ca3c134). NO CODE CHANGED BY THIS

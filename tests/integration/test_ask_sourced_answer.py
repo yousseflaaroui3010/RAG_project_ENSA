@@ -303,12 +303,11 @@ def corpus(tmp_path, monkeypatch):
 
 
 def _ports(client, parents_dir, model, **overrides) -> AgentPorts:
-    """Every port on the answer path, real. Only ST-22's and ST-25's are
-    stubbed, and they are stubbed in the open."""
+    """Real answer-path ports with local summary and query-planning doubles."""
     base = AgentPorts(
         # ST-25's, stubbed: no session memory in this story.
         summarize=lambda history: "",
-        # ST-22's, stubbed: never ambiguous here, one query out.
+        # Local test doubles keep this answer test unambiguous and single-query.
         clarify=lambda question, summary: None,
         rewrite=lambda question, summary: (question,),
         retrieve=build_retrieve(client),

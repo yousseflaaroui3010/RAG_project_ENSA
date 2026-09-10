@@ -49,7 +49,16 @@ def _registry(tmp_path, prompt_id: str, text: str):
 # --- the prompts the product actually ships ---------------------------
 
 
-@pytest.mark.parametrize("prompt_id", ["relevance-grader", "query-reword"])
+@pytest.mark.parametrize(
+    "prompt_id",
+    [
+        "answer-writer",
+        "eval-judge",
+        "query-planner",
+        "query-reword",
+        "relevance-grader",
+    ],
+)
 def test_every_shipped_prompt_loads_with_both_halves_and_a_version(prompt_id):
     """The registry entries themselves, not a fixture shaped like one."""
     prompt = load_prompt(prompt_id)
@@ -58,6 +67,15 @@ def test_every_shipped_prompt_loads_with_both_halves_and_a_version(prompt_id):
     assert prompt.version, "a prompt with no version cannot be reproduced later"
     assert prompt.system.strip()
     assert prompt.user_template.strip()
+
+
+def test_query_planner_requires_clarification_in_the_users_language():
+    prompt = load_prompt("query-planner")
+
+    assert "same language as the user's request" in prompt.system
+    assert "original_question" in prompt.system
+    assert "clarifying_question" in prompt.system
+    assert "clarification_reply" in prompt.system
 
 
 def test_the_grader_prompt_asks_for_the_two_words_the_parser_reads():

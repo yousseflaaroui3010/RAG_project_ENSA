@@ -170,6 +170,7 @@ class AgentState(TypedDict):
     # refusal wording both read it, so they cannot disagree about which
     # refusal this is.
     parents_unreadable: bool
+    clarification_used: bool
     clarification: str | None
     steps: Annotated[list[TraceStep], operator.add]
     answer_kind: AnswerKind | None

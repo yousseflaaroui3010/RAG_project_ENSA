@@ -14,6 +14,7 @@ import time
 
 import pytest
 
+from agent.querying import ClarificationContext
 from agent.state import Answer, AnswerKind, Source, Turn
 from agent.trace import StepKind, Trace, TraceStep
 from ui.conversation import (
@@ -298,6 +299,57 @@ def test_only_a_real_answer_enters_the_conversation_memory():
     conversation.run = answered
     conversation.settle()
     assert conversation.turns == [Turn(question="Et pour les cadres ?", answer="Trois mois.")]
+
+
+def test_a_clarification_is_saved_then_consumed_by_exactly_one_reply():
+    original = "Parlez-moi de cette procedure."
+    conversation = Conversation(workspace_id="ws-1")
+    first = _run(original)
+    first._answer = _answer(AnswerKind.CLARIFICATION, "Which procedure?")  # noqa: SLF001
+    first._done = True  # noqa: SLF001
+    conversation.run = first
+
+    conversation.settle()
+    reply = _run("La procedure de licenciement.")
+    assert conversation.begin(reply, reply.question) is True
+
+    assert reply.clarification_context == ClarificationContext(
+        original=original, asked="Which procedure?"
+    )
+    assert conversation.pending_clarification is None
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [RunCancelled("cancelled during searching"), RuntimeError("model unavailable")],
+)
+def test_a_failed_clarification_reply_can_be_submitted_again(failure):
+    context = ClarificationContext(
+        original="Parlez-moi de cette procedure.", asked="Quelle procedure ?"
+    )
+    conversation = Conversation(
+        workspace_id="ws-1", pending_clarification=context
+    )
+    reply = _run("La procedure de licenciement.")
+    assert conversation.begin(reply, reply.question) is True
+    reply.fail(failure)
+
+    conversation.settle()
+
+    assert conversation.pending_clarification == context
+
+
+def test_a_new_conversation_drops_a_pending_clarification():
+    conversation = Conversation(
+        workspace_id="ws-1",
+        pending_clarification=ClarificationContext(
+            original="Which original question?", asked="Which subject?"
+        ),
+    )
+
+    conversation.reset()
+
+    assert conversation.pending_clarification is None
 
 
 class _SlowDone(Run):
