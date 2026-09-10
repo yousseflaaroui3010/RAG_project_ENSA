@@ -45,6 +45,9 @@ def test_defaults_match_architecture_pins():
     assert settings.embedding_passage_prefix == "passage: "
     assert settings.embedding_query_prefix == "query: "
     assert settings.embedding_model == "intfloat/multilingual-e5-base"
+    # Rolling F-07 memory has a finite input and output envelope.
+    assert settings.session_memory_input_max_chars == 16000
+    assert settings.session_summary_max_chars == 2000
 
 
 def test_get_settings_is_cached_singleton():

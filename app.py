@@ -760,8 +760,7 @@ def _start(runtime: Runtime, question: str) -> Response:
     run = Run(
         question=asked,
         workspace_id=active.id,
-        session_id=conversation.session_id,
-        history=tuple(conversation.turns),
+        session_id=None,
     )
     # THE CHECK AND THE CLAIM IN ONE STEP. Reading `busy` here and
     # assigning `conversation.run` on the next line is a race the screen

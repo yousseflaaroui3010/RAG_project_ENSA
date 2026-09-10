@@ -57,6 +57,7 @@ def _registry(tmp_path, prompt_id: str, text: str):
         "query-planner",
         "query-reword",
         "relevance-grader",
+        "session-summarizer",
     ],
 )
 def test_every_shipped_prompt_loads_with_both_halves_and_a_version(prompt_id):

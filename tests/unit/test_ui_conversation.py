@@ -14,6 +14,8 @@ import time
 
 import pytest
 
+import ui.runs
+from agent.ports import AgentPorts
 from agent.querying import ClarificationContext
 from agent.state import Answer, AnswerKind, Source, Turn
 from agent.trace import StepKind, Trace, TraceStep
@@ -26,7 +28,7 @@ from ui.conversation import (
     message_for,
     segments_for,
 )
-from ui.runs import Run, RunCancelled
+from ui.runs import Run, RunCancelled, Stage
 from vector_store import SearchHit
 
 SECTION = (
@@ -245,6 +247,19 @@ def _run(question: str = "Quelle duree ?") -> Run:
     return Run(question=question, workspace_id="ws-1", session_id=None)
 
 
+def _inert_ports(*, summarize=None) -> AgentPorts:
+    return AgentPorts(
+        summarize=summarize or (lambda memory: ""),
+        clarify=lambda question, summary: None,
+        rewrite=lambda question, summary: (question,),
+        retrieve=lambda workspace_id, query: (),
+        grade=lambda question, passages: False,
+        reword=lambda question, previous, attempt: (question,),
+        fetch_parents=lambda workspace_id, parent_ids: {},
+        write_answer=lambda question, passages, parents: "unused",
+    )
+
+
 def test_a_cancelled_run_is_marked_incomplete_and_is_not_an_answer():
     """Criterion 8: the partial text is visibly marked incomplete and no
     control presents it as a finished answer. There IS no partial text in
@@ -301,6 +316,149 @@ def test_only_a_real_answer_enters_the_conversation_memory():
     assert conversation.turns == [Turn(question="Et pour les cadres ?", answer="Trois mois.")]
 
 
+def test_completed_memory_rolls_forward_without_resending_old_turns():
+    old_turn = Turn(question="Quelle duree ?", answer="Trois mois.")
+    conversation = Conversation(
+        workspace_id="ws-1",
+        session_id="session-1",
+        summary="The contract concerns trial periods.",
+        turns=[old_turn],
+    )
+    run = _run("Et combien de renouvellements ?")
+
+    assert conversation.begin(run, run.question) is True
+    assert run.session_id == "session-1"
+    assert run.previous_summary == "The contract concerns trial periods."
+    assert run.history == (old_turn,)
+
+    run.updated_summary = "A manager has a three-month trial, renewable once."
+    run._answer = _answer(  # noqa: SLF001
+        AnswerKind.ANSWER, "Une fois.", (Source(FILE, LABEL),)
+    )
+    run.reading.cited = (_hit(SECTION[:30]),)
+    run.reading.parents = {PARENT: SECTION}
+    run._done = True  # noqa: SLF001
+    conversation.settle()
+
+    assert conversation.summary == "A manager has a three-month trial, renewable once."
+    assert conversation.turns == [
+        Turn(question="Et combien de renouvellements ?", answer="Une fois.")
+    ]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [RuntimeError("later stage failed"), RunCancelled("cancelled during checking")],
+)
+def test_failed_or_cancelled_run_keeps_uncommitted_memory_for_retry(failure):
+    old_turn = Turn(question="Quelle duree ?", answer="Trois mois.")
+    conversation = Conversation(
+        workspace_id="ws-1", summary="Trial periods.", turns=[old_turn]
+    )
+    run = _run()
+    assert conversation.begin(run, run.question) is True
+    run.updated_summary = "This must not be committed."
+    run.fail(failure)
+
+    conversation.settle()
+
+    assert conversation.summary == "Trial periods."
+    assert conversation.turns == [old_turn]
+
+
+def test_cancelled_before_start_never_calls_the_session_summarizer():
+    summary_calls = []
+    ports = _inert_ports(
+        summarize=lambda memory: summary_calls.append(memory) or ""
+    )
+    run = _run()
+
+    run.cancel()
+    run.start(ports)
+    for _ in range(100):
+        if run.done:
+            break
+        time.sleep(0.01)
+
+    assert run.done, "the cancelled run never stopped"
+    assert isinstance(run.error, RunCancelled)
+    assert summary_calls == []
+
+
+class _FirstBoundaryLock:
+    """Pause on the worker's first lock release and record its stage."""
+
+    def __init__(self, run: Run) -> None:
+        self._lock = threading.Lock()
+        self._run = run
+        self._seen_worker = False
+        self.reached = threading.Event()
+        self.release = threading.Event()
+        self.stage_at_boundary = None
+
+    def __enter__(self):
+        self._lock.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self._lock.release()
+        if threading.current_thread().name == "sanad-ask" and not self._seen_worker:
+            self._seen_worker = True
+            self.stage_at_boundary = self._run.stage
+            self.reached.set()
+            self.release.wait(timeout=10)
+
+
+def test_preparing_stage_and_cancel_check_are_one_boundary():
+    summary_calls = []
+    run = _run()
+    boundary = _FirstBoundaryLock(run)
+    run._lock = boundary  # noqa: SLF001 -- controlled race probe
+    run.start(
+        _inert_ports(
+            summarize=lambda memory: summary_calls.append(memory) or ""
+        )
+    )
+
+    assert boundary.reached.wait(10), "the worker never reached preparation"
+    run.cancel()
+    boundary.release.set()
+    for _ in range(100):
+        if run.done:
+            break
+        time.sleep(0.01)
+
+    assert boundary.stage_at_boundary is Stage.PREPARING
+    assert summary_calls, "Cancel arrived after preparation began, so that stage finishes"
+    assert isinstance(run.error, RunCancelled)
+
+
+def test_cancel_before_answer_publication_cannot_publish_the_answer(monkeypatch):
+    reached = threading.Event()
+    release = threading.Event()
+
+    def controlled_ask(**kwargs):
+        reached.set()
+        release.wait(timeout=10)
+        return _answer(AnswerKind.REFUSAL, "Not covered here.")
+
+    monkeypatch.setattr(ui.runs, "ask", controlled_ask)
+    run = _run()
+    run.start(_inert_ports())
+    assert reached.wait(10), "the run never reached its final hand-off"
+
+    run.cancel()
+    release.set()
+    for _ in range(100):
+        if run.done:
+            break
+        time.sleep(0.01)
+
+    assert run.done, "the cancelled run never settled"
+    assert run.answer is None
+    assert isinstance(run.error, RunCancelled)
+
+
 def test_a_clarification_is_saved_then_consumed_by_exactly_one_reply():
     original = "Parlez-moi de cette procedure."
     conversation = Conversation(workspace_id="ws-1")
@@ -355,7 +513,7 @@ def test_a_new_conversation_drops_a_pending_clarification():
 class _SlowDone(Run):
     """A run whose `done` read is slow enough to open the race window.
 
-    THIS CLASS IS THE TEST. A first version of both tests below released
+    THIS CLASS IS THE TEST. A first version of the settle test below released
     16 threads off a `threading.Barrier` and asserted the outcome -- and
     it PASSED with the locks taken out, because CPython does not switch
     threads inside a check that does no I/O and allocates nothing. It was
@@ -379,6 +537,14 @@ class _SlowDone(Run):
     def done(self) -> bool:
         time.sleep(0.02)
         return True
+
+
+class _SlowMessages(list):
+    """Release the interpreter between begin's empty check and its claim."""
+
+    def append(self, item) -> None:
+        time.sleep(0.02)
+        super().append(item)
 
 
 def _finished(question: str = "Quelle duree ?") -> _SlowDone:
@@ -428,14 +594,14 @@ def test_two_threads_asking_at_once_start_exactly_one_run():
     saw one answer and paid for two.
 
     `begin` returning False is the whole contract: exactly one caller may
-    be told to start a thread. The conversation starts holding a FINISHED
-    run, so every thread has to read `done` -- which is where the window
-    is -- rather than short-circuiting on `self.run is None`.
+    be told to start a thread. `_SlowMessages` opens the exact window after
+    the empty check; without the lock all callers enter it before any sets
+    `run`, while with the lock the winner completes the claim first.
 
     Proven discriminating: removing the lock from `begin` turns this
     red."""
     conversation = Conversation(workspace_id="ws-1")
-    conversation.run = _finished()
+    conversation.messages = _SlowMessages()
     claimed: list[bool] = []
     guard = threading.Lock()
 
@@ -450,16 +616,19 @@ def test_two_threads_asking_at_once_start_exactly_one_run():
     assert len(conversation.messages) == 1, "and only its question is shown"
 
 
-def test_a_finished_run_does_not_block_the_next_question():
-    """The control probe for the test above. Without it, `begin` could
-    simply always return False after the first call and both assertions
-    would still pass -- a chat screen that answers one question ever."""
+def test_a_finished_run_must_be_saved_before_the_next_question_can_replace_it():
+    """A fast answer remains owned by settle instead of being overwritten."""
     conversation = Conversation(workspace_id="ws-1")
-    first = _run()
-    assert conversation.begin(first, "one") is True
-    first.fail(RuntimeError("done"))
+    first = _finished("one")
+    conversation.run = first
+    second = _run("two")
+
+    assert conversation.begin(second, "two") is False
+    assert conversation.run is first
+
     conversation.settle()
-    assert conversation.begin(_run(), "two") is True
+    assert conversation.messages[-1].text == "Trois mois."
+    assert conversation.begin(second, "two") is True
 
 
 def test_settling_twice_does_not_double_the_transcript():
@@ -477,10 +646,17 @@ def test_settling_twice_does_not_double_the_transcript():
 
 
 def test_a_new_conversation_drops_the_session_so_memory_starts_clean():
-    conversation = Conversation(workspace_id="ws-1", session_id="old-session")
+    conversation = Conversation(
+        workspace_id="ws-1", session_id="old-session", summary="old summary"
+    )
+    abandoned = _run()
+    conversation.run = abandoned
     conversation.messages.append(error_message(RuntimeError("x"), "q"))
     conversation.turns.append(Turn(question="q", answer="a"))
     conversation.reset()
     assert conversation.messages == []
     assert conversation.turns == []
+    assert conversation.summary == ""
     assert conversation.session_id is None
+    assert conversation.run is None
+    assert abandoned.cancelled is True

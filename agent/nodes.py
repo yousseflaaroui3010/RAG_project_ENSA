@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 
 from agent.ports import AgentPorts, AnswerNotCoveredError
-from agent.state import AgentState, AnswerKind, Source
+from agent.state import AgentState, AnswerKind, SessionMemory, Source
 from agent.trace import StepKind, TraceStep, rewords_in, searches_in
 from config import get_settings
 from vector_store import SearchHit
@@ -234,7 +234,12 @@ def make_summarize(ports: AgentPorts) -> Callable[[AgentState], dict]:
     """Section 5.2 box M: summarize the session context (F-07)."""
 
     def summarize(state: AgentState) -> dict:
-        summary = ports.summarize(state["history"])
+        summary = ports.summarize(
+            SessionMemory(
+                summary=state["previous_summary"],
+                turns=state["history"],
+            )
+        )
         detail = summary if summary else "no earlier turns in this session"
         return {
             "summary": summary,
