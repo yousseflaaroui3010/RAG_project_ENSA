@@ -88,6 +88,11 @@ class Settings(BaseSettings):
     # that never passes through a route is otherwise unchecked.
     question_min_length: int = 1
     question_max_length: int = 2000
+    # Rolling session memory has two separate limits: what one consolidation
+    # call may send, and what may survive for the next question. Raising either
+    # increases every later model request in a long conversation.
+    session_memory_input_max_chars: int = 16000
+    session_summary_max_chars: int = 2000
     # How many sub-queries architecture 5.2's "rewrite and split" may
     # produce for one question. The retry ceiling bounds how many ROUNDS
     # run; this bounds how wide a round is, and without it a misbehaving

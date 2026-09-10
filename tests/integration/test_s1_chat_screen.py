@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import dataclasses
 import html
+import json
 import threading
 
 import pytest
@@ -149,10 +150,10 @@ class Gate:
     This is what makes the loading state observable: without it the run
     finishes in milliseconds and there is no in-flight page to fetch. It
     is also what makes the stage assertions DISCRIMINATING -- the same
-    question is blocked at three different ports and must report three
+    question is blocked at four different ports and must report four
     different stages. A timer-driven screen (which is what the React
     reference ships) would print the same label at the same elapsed time
-    in all three."""
+    in all four."""
 
     def __init__(self) -> None:
         self.reached = threading.Event()
@@ -374,6 +375,7 @@ def test_a_workspace_with_no_documents_disables_the_input_and_says_why(sanad):
 @pytest.mark.parametrize(
     ("port", "expected"),
     [
+        ("summarize", "Preparing the question"),
         ("retrieve", "Searching the workspace"),
         ("grade", "Checking the answer"),
         ("write_answer", "Writing"),
@@ -386,11 +388,11 @@ def test_the_loading_state_names_the_stage_the_agent_is_really_in(
     about them: "Never fake progress. Stage hints during a long operation
     say what is actually happening."
 
-    THE PARAMETRISATION IS THE TEST. One question is held at three
-    different ports and must report three different stages. A screen that
+    THE PARAMETRISATION IS THE TEST. One question is held at four
+    different ports and must report four different stages. A screen that
     advanced a counter on a timer -- which is exactly what
     `designrag-main/src/components/ChatScreen.tsx:111` does -- would show
-    the same label in all three rows and fail two of them."""
+    the same label in all four rows and fail three of them."""
     build, workspace, _ = sanad
     gate = Gate()
     client, runtime = build()
@@ -710,6 +712,83 @@ def test_an_unflagged_workspace_shows_no_disclaimer_anywhere(sanad):
 
 
 # --- new conversation (UX spec 6.2) ----------------------------------
+
+
+def test_a_follow_up_uses_the_completed_trial_period_exchange(sanad):
+    """F-07: follow-up resolves, then compact memory replaces old raw turns."""
+    build, workspace, _ = sanad
+    summary = "La conversation porte sur la periode d'essai des cadres."
+    rolled_summary = (
+        "La periode d'essai des cadres dure trois mois et se renouvelle une fois."
+    )
+    renewal_answer = "La periode d'essai peut etre renouvelee une seule fois."
+    notice_answer = "Le renouvellement doit etre notifie par ecrit."
+    model = ScriptedChat(
+        QUERY_PLAN,
+        "RELEVANT",
+        WRITTEN_ANSWER,
+        summary,
+        '{"clarification":null,"queries":["renouvellement periode essai"]}',
+        "RELEVANT",
+        renewal_answer,
+        rolled_summary,
+        '{"clarification":null,"queries":["notification renouvellement essai"]}',
+        "RELEVANT",
+        notice_answer,
+    )
+    client, runtime = build(model)
+
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    _ask(client, "Et combien de renouvellements ?")
+    page = _settled(client, runtime, workspace.id)
+
+    assert renewal_answer in _visible(page)
+    assert summary in model.calls[4][1]
+    assert runtime.conversation(workspace.id).messages[-1].searched == (
+        "renouvellement periode essai",
+    )
+
+    _ask(client, "Et comment est-il notifie ?")
+    page = _settled(client, runtime, workspace.id)
+
+    assert notice_answer in _visible(page)
+    payload = json.loads(model.calls[7][1].split("Session memory as JSON:\n", 1)[1])
+    assert payload == {
+        "previous_summary": summary,
+        "new_completed_turns": [
+            {
+                "question": "Et combien de renouvellements ?",
+                "answer": renewal_answer,
+            }
+        ],
+    }
+    assert QUESTION not in model.calls[7][1], "the first raw turn was already folded"
+    assert len(model.calls) == 11
+
+
+def test_a_follow_up_after_new_conversation_gets_no_earlier_context(sanad):
+    """F-07: New conversation removes both the transcript and its memory."""
+    build, workspace, _ = sanad
+    clarification = "De quel sujet demandez-vous le nombre de renouvellements ?"
+    model = ScriptedChat(
+        QUERY_PLAN,
+        "RELEVANT",
+        WRITTEN_ANSWER,
+        '{"clarification":"De quel sujet demandez-vous le nombre de '
+        'renouvellements ?","queries":[]}',
+    )
+    client, runtime = build(model)
+
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    client.post("/chat/new", follow_redirects=False)
+    _ask(client, "Et combien de renouvellements ?")
+    page = _settled(client, runtime, workspace.id)
+
+    assert clarification in _visible(page)
+    assert "Earlier conversation summary:\n(none)" in model.calls[3][1]
+    assert len(model.calls) == 4, "a cleared conversation must not call the summarizer"
 
 
 def test_a_new_conversation_clears_the_transcript(sanad):

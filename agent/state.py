@@ -75,6 +75,14 @@ class Turn:
 
 
 @dataclass(frozen=True)
+class SessionMemory:
+    """The compact memory already kept, plus completed turns not yet folded in."""
+
+    summary: str = ""
+    turns: tuple[Turn, ...] = ()
+
+
+@dataclass(frozen=True)
 class Answer:
     """One outcome of one question: an answer, an honest refusal, or a
     single clarifying question.
@@ -154,6 +162,7 @@ class AgentState(TypedDict):
     session_id: str
     question: str
     history: tuple[Turn, ...]
+    previous_summary: str
     summary: str
     # PLURAL, because architecture 5.2's box is "rewrite and SPLIT query":
     # one question can become several searches. One query is the ordinary

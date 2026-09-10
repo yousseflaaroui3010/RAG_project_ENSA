@@ -91,7 +91,7 @@ class _QueryPlanning:
     def _complete(self, question: str, summary: str) -> _QueryPlan:
         user = self._prompt.render(
             question=question,
-            summary=summary or "(none)",
+            summary=json.dumps(summary, ensure_ascii=False) if summary else "(none)",
             max_sub_queries=str(get_settings().max_sub_queries),
         )
         return _parse_plan(self._model.complete(self._prompt.system, user))

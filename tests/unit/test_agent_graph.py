@@ -31,7 +31,7 @@ import agent.nodes
 from agent.graph import ask
 from agent.ports import AgentPorts, AnswerNotCoveredError
 from agent.querying import ClarificationContext, clarified_question
-from agent.state import AnswerKind, Turn
+from agent.state import AnswerKind, SessionMemory, Turn
 from agent.trace import StepKind
 from config import get_settings
 from vector_store import SearchHit
@@ -427,9 +427,15 @@ def test_the_session_summary_reaches_the_step_that_rewrites_the_question():
     summarize = _Recorder("the user is asking about trial periods")
     rewrite = _Recorder(("renouvellement periode essai",))
 
-    _ask(ports=_ports(summarize=summarize, rewrite=rewrite), history=history)
+    _ask(
+        ports=_ports(summarize=summarize, rewrite=rewrite),
+        history=history,
+        previous_summary="the contract concerns a manager",
+    )
 
-    assert summarize.calls == [(history,)]
+    assert summarize.calls == [
+        (SessionMemory(summary="the contract concerns a manager", turns=history),)
+    ]
     assert rewrite.calls == [(QUESTION, "the user is asking about trial periods")]
 
 

@@ -311,6 +311,99 @@ copied.
 
 ## Now
 
+**DONE 2026-09-10: ST-25 SESSION MEMORY, branch
+`feat/S2-ST-25-session-memory`, cut from merged main at `6a789b5`. Exit gate:
+the follow-up "and how many renewals?" resolves to the earlier trial-period
+topic; a new conversation carries none of that context. BUILD-PLAN assigns the
+story to YL; the human has explicitly approved taking all buildable work. Blast
+radius, written before code:**
+
+1. **Who is touched:** every second and later answered question in one chat,
+   because the running composition will replace the summary stub. First
+   questions, refusals and clarification-only exchanges still have no completed
+   history to summarize.
+2. **Worst case:** a bad summary changes what a vague follow-up is searched as,
+   or context survives the New conversation action. Either can produce a
+   confidently sourced answer to the wrong subject; a blank model reply could
+   also erase memory silently if it were accepted.
+3. **How we find out:** unit checks pin empty history, exact JSON boundaries and
+   blank-output failure; shipping-level tests ask the signed two-turn example
+   and then repeat the vague follow-up after New conversation. Two prompt
+   golden cases and live model calls cover the model behavior the scripted
+   tests cannot.
+4. **How we undo it:** revert the one ST-25 commit. No stored document,
+   conversation, database or API shape changes; the old explicit no-summary
+   stub restores single-turn behavior.
+
+**SEARCH SCOPE:** codebase-memory was not attached, so Graphify indexed all 86
+code files locally: **2,237 nodes / 5,231 edges**, with the 49 signed/journal
+documents reviewed directly because Graphify's document pass could not read the
+project's differently named local model key. Graph queries traced every
+`AgentPorts` constructor and the complete Conversation -> Run -> graph -> summary
+-> query planner path. Project-wide searches also covered `summarize`, `history`,
+`Turn`, `build_ports`, `session_id`, `reset`, and F-07/ST-25 across Python and
+Markdown. The shared summary input must change to carry the previous summary and
+new turns together; the human approved that wider change after review found the
+first full-history design grows without bound.
+
+**APPROVED DESIGN:** use the existing provider-swappable chat model for a compact
+ROLLING summary. Each successful run folds only the completed turns since the
+last summary into the previous compact summary, so later calls stay bounded
+instead of resending the whole transcript. This follows architecture 5.2 and
+ADR-03's cited reference pattern. Summary input is JSON data; the summary is
+JSON-encoded again at the query-planner boundary so text resembling prompt
+labels cannot forge a field. Blank, oversized-input and oversized-output cases
+fail by name instead of silently forgetting context. The human approved the
+shared hand-off change on 2026-09-10 after both review passes found the unbounded
+first design.
+
+**APPROVED UI CHOICE:** add a fourth live stage, "Preparing the question", while
+summary and query planning run. The signed screen lists only Searching, Checking
+and Writing, but its higher rule says stage hints must report what is actually
+happening and bans a spinner without a stage. Calling a model summary "Searching
+the workspace" is false. The human explicitly chose the truthful fourth stage;
+it uses the existing polite live region and adds no new control.
+
+**LIVE PROMPT BACKTEST 2026-09-10:** the configured `gemini-3.6-flash` model
+returned a compact trial-period summary preserving three months and one renewal;
+the real query planner then produced `nombre de renouvellements periode d essai
+cadre` with no clarification. On the rolling hostile case it retained the trial
+period as the established subject, treated the instruction-shaped leave text as
+an unsuccessful exchange, and added no leave entitlement. This is the required
+O2 check for `session-summarizer` 0.1.0; the scripted tests prove transport and
+failure handling, while this call proves the behavior they cannot.
+
+**HTTP HAND-OFF FOR ST-51:** `agent.graph.ask` remains stateless: `session_id`
+identifies memory, while the owning conversation supplies the compact summary
+and pending turns. The in-process UI now does that under one lock. The future
+HTTP route must resolve those two values by the echoed session id to meet
+OpenAPI line 486; the id alone is not a storage mechanism and ST-25 does not add
+the route or a second session store early.
+
+**FINAL PROOF:** `uv run pytest` in the locked temporary environment produced
+**727 passed / 2 skipped / 1 third-party warning in 143.02s**; `uv run ruff
+check .` passed; `git diff --check` found no whitespace errors. Thirteen
+deliberate breaks were watched fail before restoration, covering missing and
+uncleared memory, unsafe boundaries, blank/invisible/oversized summaries,
+three cancellation races, and finished-answer overwrite. Two independent
+reviews found the original unbounded design and three race windows; the final
+acceptance recheck passed all ten ST-25 items. The polite loading announcement
+is covered through the real app and its existing `role=status`; no manual
+screen-reader walk was available in this tool session.
+
+**DEFERRED, NOT AN ST-25 CLAIM:** model calls still have no project-wide network
+deadline, so Cancel stops after the current provider call returns rather than
+interrupting that call. This affects every existing chat-model stage, not only
+the new summary. The next agent reliability story must verify supported timeout
+options for both Gemini and Ollama before adding one shared config setting; do
+not patch only the summarizer and create two timeout policies.
+
+**MERGE DEVIATION CLOSED:** PR #89 (ST-22) passed CI `verify` and was
+squash-merged by the assistant at the human's explicit instruction as `6a789b5`.
+That departs from the standing human-only merge practice for this one PR; the
+instruction and the independent review evidence are recorded rather than
+treated as a new default.
+
 **DOING 2026-09-09: ST-22 CLARIFICATION + QUERY SPLIT, branch
 `feat/S2-ST-22-clarification-split`, cut from `0cb80b4`. Ownership differs
 from BUILD-PLAN: the human explicitly approved taking all buildable work in
