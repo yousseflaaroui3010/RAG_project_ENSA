@@ -144,6 +144,28 @@ def test_the_graph_runs_end_to_end_and_returns_a_sourced_answer():
     assert answer.retries == 0
 
 
+@pytest.mark.parametrize(
+    "ports",
+    [
+        _ports(),
+        _ports(grade=lambda question, passages: False),
+        _ports(clarify=lambda question, summary: "Which procedure do you mean?"),
+    ],
+)
+def test_a_legal_workspace_marks_every_returned_answer_kind(ports):
+    """F-09 and OpenAPI Answer.disclaimer cover answers, refusals and
+    clarifications; the response field cannot disagree with the workspace."""
+    answer = _ask(ports=ports, legal_workspace=True)
+
+    assert answer.disclaimer is True
+
+
+def test_an_unflagged_workspace_never_marks_the_returned_answer():
+    answer = _ask(ports=_ports(), legal_workspace=False)
+
+    assert answer.disclaimer is False
+
+
 def test_the_answer_path_runs_every_box_section_5_2_draws_in_order():
     """The route itself, as an ordered list.
 

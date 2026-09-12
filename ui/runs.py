@@ -146,6 +146,7 @@ class Run:
     question: str
     workspace_id: str
     session_id: str | None
+    legal_workspace: bool = False
     history: tuple[Turn, ...] = ()
     previous_summary: str = ""
     clarification_context: ClarificationContext | None = None
@@ -355,6 +356,7 @@ class Run:
                 history=self.history,
                 previous_summary=self.previous_summary,
                 clarification_context=self.clarification_context,
+                legal_workspace=self.legal_workspace,
             )
         except BaseException as exc:  # noqa: BLE001 -- see below
             # EVERY failure is caught, including the ones a library author
