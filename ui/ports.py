@@ -3,7 +3,7 @@
 ADR-13 has the UI calling `agent.graph.ask` IN-PROCESS: there is no HTTP
 client here and no service boundary to cross. So "wiring the UI to the
 agent" is exactly this file -- build the eight callables of `AgentPorts`
-once for the process and hand them to every question.
+and hand them to the question.
 
 THE EIGHT REAL PORTS are built by their story-owned factories. ST-25's
 `build_summarize` supplies in-session memory; ST-22's `build_query_planning`
@@ -11,12 +11,9 @@ supplies `clarify` and `rewrite`; ST-23 and ST-24 supply `build_retrieve`,
 `build_grade`, `build_reword`, `parent_texts` and `build_write_answer`.
 Nothing is reimplemented here.
 
-WHY THE QDRANT CLIENT IS PASSED IN rather than opened here: embedded
-Qdrant is single-process by design (ADR-04) and `vector_store.open_store`
-raises on a second client for the same path, with an error about a lock
-folder that reads like stale state somebody should delete. One client is
-opened in the app's lifespan and closed with it; this module never opens
-one, so importing it costs nothing and a test can pass its own.
+The command-line evaluator owns embedded Qdrant for a whole run. The app's
+Runtime likewise owns it for one whole question, then releases it so Reports
+can remain open while the separate evaluator runs.
 """
 
 from __future__ import annotations
@@ -34,7 +31,7 @@ from agent.summarizing import build_summarize
 
 
 def build_ports(client: Any, model: ChatModel, *, parents_path: Any = None) -> AgentPorts:
-    """Every seam the graph needs, for one process.
+    """Every seam the graph needs, for one question or batch run.
 
     `parents_path` mirrors `agent.stores.parent_texts`'s own `base_path`
     and exists for tests; the app passes nothing and the configured store

@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import get_settings  # noqa: E402
-from evaluation.gate import evaluate_report  # noqa: E402
+from evaluation.gate import InvalidReportError, evaluate_report  # noqa: E402
 
 
 def _latest_report(workspace_id: str, reports_dir: Path | None = None) -> Path:
@@ -64,23 +64,25 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         verdict = evaluate_report(report)
-    except KeyError as exc:
-        print(f"cannot run the release gate: report is missing field {exc}")
+    except (KeyError, InvalidReportError) as exc:
+        detail = f"report is missing field {exc}" if isinstance(exc, KeyError) else str(exc)
+        print(f"cannot run the release gate: {detail}")
         return 1
 
     threshold = get_settings().eval_groundedness_threshold
     print(f"gate report: {report_path}")
     print(
         f"G1 groundedness {'PASS' if verdict.g1_passed else 'FAIL'} "
-        f"(got {report.get('groundedness')}, need >= {threshold})"
+        f"({verdict.grounded_pass}/{verdict.grounded_total} fully grounded, "
+        f"need >= {threshold * 100:.1f}%)"
     )
     print(
         f"G2 refusals     {'PASS' if verdict.g2_passed else 'FAIL'} "
-        f"({report.get('refusal_pass')}/{report.get('refusal_total')})"
+        f"({verdict.refusal_pass}/{verdict.refusal_total})"
     )
     print(
         f"G3 sources      {'PASS' if verdict.g3_passed else 'FAIL'} "
-        f"({report.get('sources_pass')}/{report.get('sources_total')})"
+        f"({verdict.sources_pass}/{verdict.sources_total})"
     )
 
     if verdict.passed:

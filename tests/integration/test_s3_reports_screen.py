@@ -7,15 +7,16 @@ the JSON file `run_evaluation` already wrote -- `Runtime(ports_factory=
 lambda: None, ...)` is the same lightweight, lifespan-skipping shape
 `test_s1_chat_screen.py` uses for routes that never touch the model.
 
-Loading is the one UX-spec-8.3 state this suite does not produce, and
-that is not an oversight -- see ui/reports_screen.py's module docstring
-for why no real signal for it exists yet, and BUILD-STATE for the parked
-note."""
+Running and Partial are seeded through the same public repository writes
+the evaluator uses, then exercised through the real list, detail, and
+export routes."""
 
 from __future__ import annotations
 
 import json
 import os
+import re
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -79,7 +80,7 @@ def _ports() -> AgentPorts:
 
 class _FakeScorer:
     def score(self, *, question, answer_text, contexts):
-        return ScoreResult(groundedness=0.95, relevancy=0.8)
+        return ScoreResult(groundedness=1.0, relevancy=0.8)
 
 
 def _app(tmp_path):
@@ -107,6 +108,71 @@ def _seed_report(tmp_path, db_path) -> str:
             "SELECT id FROM eval_run WHERE workspace_id = ?", (ws_id,)
         ).fetchone()
     return row["id"], report.report_path
+
+
+def _seed_incomplete_report(tmp_path, db_path, *, status: str) -> str:
+    report_path = tmp_path / f"{status}.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "status": status,
+                "question_total": 3,
+                "grounded_pass": 1,
+                "grounded_total": 1,
+                "sources_pass": 1,
+                "sources_total": 1,
+                "results": [
+                    {
+                        "question_id": "g-in-fake-001",
+                        "kind": "in_scope",
+                        "answer_kind": "answer",
+                        "answer_text": ANSWER_TEXT,
+                        "passed": True,
+                        "groundedness": 1.0,
+                        "relevancy": 0.8,
+                        "sources_present": True,
+                        "error": None,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with repo.session(db_path) as conn:
+        ws_id = repo.create_workspace(
+            conn, name=f"ws-{status}", folder_path=str(tmp_path)
+        )
+        run_id = repo.insert_eval_run(
+            conn,
+            workspace_id=ws_id,
+            status="running",
+            question_total=3,
+            report_path=str(report_path),
+        )
+        repo.insert_eval_result(
+            conn,
+            eval_run_id=run_id,
+            question_id="g-in-fake-001",
+            kind="in_scope",
+            answer_kind="answer",
+            answer_text=ANSWER_TEXT,
+            passed=True,
+            groundedness=1.0,
+            relevancy=0.8,
+            sources_present=True,
+        )
+        if status == "partial":
+            repo.update_eval_run(
+                conn,
+                run_id,
+                status="partial",
+                groundedness=1.0,
+                relevancy=0.8,
+                failed_question_number=2,
+                failed_question_id="g-in-fake-002",
+                error="RuntimeError: judge unavailable",
+            )
+    return run_id
 
 
 # --- Empty -------------------------------------------------------------------
@@ -148,6 +214,97 @@ def test_a_recorded_run_appears_in_the_list_with_a_real_pass_fail_badge(tmp_path
     assert "ws-eval" in page.text
     assert f"/reports/{eval_run_id}" in page.text
     assert "Pass" in page.text  # text label, never colour alone (UX spec 8.4)
+
+
+def test_report_list_shows_the_sources_score(tmp_path):
+    client, db_path = _app(tmp_path)
+    _seed_report(tmp_path, db_path)
+
+    page = client.get("/reports")
+
+    table_body = page.text.partition("<tbody>")[2].partition("</tbody>")[0]
+    cells = re.findall(r"<td(?: [^>]*)?>(.*?)</td>", table_body, re.DOTALL)
+    assert "1/1" in cells[4]
+
+
+def test_report_list_uses_the_grounded_row_count_not_answer_average(tmp_path):
+    client, db_path = _app(tmp_path)
+    _eval_run_id, path = _seed_report(tmp_path, db_path)
+    report_path = Path(path)
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["grounded_pass"] = 0
+    report["grounded_total"] = 1
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    page = client.get("/reports")
+
+    assert "0/1 fully grounded" in page.text
+    assert "100.0%" not in page.text
+
+
+def test_running_report_shows_real_progress_and_refreshes_without_script(tmp_path):
+    client, db_path = _app(tmp_path)
+    eval_run_id = _seed_incomplete_report(tmp_path, db_path, status="running")
+
+    page = client.get("/reports")
+
+    assert page.status_code == 200
+    assert f'data-eval-status="{eval_run_id}"' in page.text
+    assert f'data-report-focus="run-{eval_run_id}"' in page.text
+    assert "Running 1/3" in page.text
+    assert 'role="status"' in page.text
+    assert 'aria-live="polite"' in page.text
+    assert '<meta http-equiv="refresh" content="2">' in page.text
+
+
+def test_running_report_detail_labels_unfinished_gates_as_not_final(tmp_path):
+    client, db_path = _app(tmp_path)
+    eval_run_id = _seed_incomplete_report(tmp_path, db_path, status="running")
+
+    page = client.get(f"/reports/{eval_run_id}")
+
+    assert "Evaluation running: 1/3 questions completed." in page.text
+    assert page.text.count("Not final") == 3
+    assert 'data-report-refresh="true"' in page.text
+
+
+def test_partial_report_names_the_failure_and_keeps_completed_questions(tmp_path):
+    client, db_path = _app(tmp_path)
+    eval_run_id = _seed_incomplete_report(tmp_path, db_path, status="partial")
+
+    page = client.get(f"/reports/{eval_run_id}")
+
+    assert "Partial: stopped at question 2 of 3" in page.text
+    assert "g-in-fake-002" in page.text
+    assert "RuntimeError: judge unavailable" in page.text
+    assert "g-in-fake-001" in page.text
+    assert page.text.count("Not final") == 3
+    assert '<meta http-equiv="refresh"' not in page.text
+    assert 'data-report-focus="back"' in page.text
+    assert 'data-report-focus="export"' in page.text
+
+    exported = client.get(f"/reports/{eval_run_id}/export")
+    assert "Overall: PARTIAL" in exported.text
+    assert "Progress: 1/3 questions completed" in exported.text
+    assert "Stopped at question: 2 (g-in-fake-002)" in exported.text
+    assert "Error: RuntimeError: judge unavailable" in exported.text
+
+
+def test_partial_detail_uses_durable_rows_when_json_snapshot_is_stale(tmp_path):
+    client, db_path = _app(tmp_path)
+    eval_run_id = _seed_incomplete_report(tmp_path, db_path, status="partial")
+    with repo.session(db_path) as conn:
+        report_path = Path(repo.get_eval_run(conn, eval_run_id)["report_path"])
+    stale = json.loads(report_path.read_text(encoding="utf-8"))
+    stale["status"] = "running"
+    stale["results"] = []
+    report_path.write_text(json.dumps(stale), encoding="utf-8")
+
+    page = client.get(f"/reports/{eval_run_id}")
+
+    assert "out of date" in page.text
+    assert "g-in-fake-001" in page.text
+    assert "Yes" in page.text
 
 
 def test_the_detail_page_shows_all_three_gates_and_every_question(tmp_path):

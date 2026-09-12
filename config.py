@@ -176,10 +176,9 @@ class Settings(BaseSettings):
     sqlite_busy_timeout_seconds: float = 30.0
 
     # --- Evaluation (ST-32, F-08, architecture 5.3/9) ---
-    # G1: "≥ 90% of golden-set answers fully grounded". Read here, never
-    # hardcoded a second time, because ST-33's gate script applies the
-    # same PRD number to the same report and a literal duplicated in two
-    # files is two numbers free to disagree about one threshold.
+    # G1: at least 90% of in-scope rows must be fully grounded. A score of
+    # A score of 1.0 means every factual claim is supported; the 0.90
+    # value is the required share of rows, not an average-score threshold.
     eval_groundedness_threshold: float = 0.90
 
     # --- Server (ADR-13) ---
@@ -193,6 +192,9 @@ class Settings(BaseSettings):
     # workspaces.py; never hardcode these limits a second time.
     workspace_name_min_length: int = 1
     workspace_name_max_length: int = 100
+    # PRD section 10: warning only. Sync remains allowed above either limit.
+    workspace_soft_cap_pages: int = 1500
+    workspace_soft_cap_files: int = 50
     # Mirrors docs/phase2/openapi.yaml WorkspaceCreate `folder_path`
     # minLength. Checked against the stripped value so whitespace-only
     # paths are rejected too (openapi's raw minLength alone would not

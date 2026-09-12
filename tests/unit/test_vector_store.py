@@ -443,6 +443,23 @@ def test_the_lock_is_released_when_the_store_closes(tmp_path, encoders):
         assert client.collection_exists(HR_COLLECTION)
 
 
+def test_another_process_lock_is_translated_to_the_same_clear_error(
+    tmp_path, monkeypatch
+):
+    import qdrant_client
+
+    def externally_locked(*args, **kwargs):
+        raise RuntimeError(
+            "Storage folder is already accessed by another instance of Qdrant client"
+        )
+
+    monkeypatch.setattr(qdrant_client, "QdrantClient", externally_locked)
+
+    with pytest.raises(vector_store.StoreAlreadyOpenError, match="ADR-04"):
+        with vector_store.open_store(tmp_path / "qdrant"):
+            pass
+
+
 def test_the_lock_is_released_even_when_the_body_raises(tmp_path, encoders):
     path = tmp_path / "qdrant"
     with pytest.raises(RuntimeError, match="deliberate"):
@@ -875,3 +892,76 @@ def test_the_storage_path_comes_from_config(tmp_path, encoders, monkeypatch):
 
     assert configured.is_dir()
     assert any(configured.iterdir())
+
+
+# --- one shared client, several threads (review of d790e05) ---------------
+
+
+def _hammer(client, *, seconds: float = 3.0) -> list[BaseException]:
+    """One thread upserts and deletes points while two threads run filtered
+    searches on the SAME client. Returns every exception the threads hit."""
+    import threading
+    import time
+
+    from qdrant_client import models
+
+    client.create_collection(
+        "race",
+        vectors_config=models.VectorParams(size=4, distance=models.Distance.COSINE),
+    )
+
+    def point(n: int) -> models.PointStruct:
+        return models.PointStruct(
+            id=n, vector=[1.0, float(n % 7), 0.5, 0.25], payload={"file": f"f{n % 5}"}
+        )
+
+    client.upsert("race", points=[point(n) for n in range(400)])
+    errors: list[BaseException] = []
+    stop = time.monotonic() + seconds
+
+    def writer() -> None:
+        n = 400
+        try:
+            while time.monotonic() < stop:
+                client.upsert("race", points=[point(n + i) for i in range(50)])
+                client.delete(
+                    "race",
+                    points_selector=models.PointIdsList(points=list(range(n - 350, n - 300))),
+                )
+                n += 50
+        except BaseException as exc:  # noqa: BLE001 -- collected for the assertion
+            errors.append(exc)
+
+    def reader() -> None:
+        flt = models.Filter(
+            must=[models.FieldCondition(key="file", match=models.MatchValue(value="f1"))]
+        )
+        try:
+            while time.monotonic() < stop:
+                client.query_points("race", query=[1.0, 1.0, 0.5, 0.25], query_filter=flt, limit=5)
+        except BaseException as exc:  # noqa: BLE001 -- collected for the assertion
+            errors.append(exc)
+
+    threads = [threading.Thread(target=f) for f in (writer, reader, reader)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    return errors
+
+
+def test_a_serialized_client_survives_searches_during_writes(tmp_path):
+    """Embedded Qdrant has no locking of its own: unwrapped, this exact load
+    raised IndexError inside qdrant_client's payload filters. The app shares
+    one client between Chat and Sync, so every call goes through the lock."""
+    with vector_store.open_store(tmp_path / "qdrant") as raw:
+        errors = _hammer(vector_store.SerializedClient(raw))
+
+    assert errors == []
+
+
+def test_a_serialized_client_passes_calls_and_attributes_through(tmp_path):
+    with vector_store.open_store(tmp_path / "qdrant") as raw:
+        client = vector_store.SerializedClient(raw)
+        vector_store.ensure_collection(client, workspace_id="ws-1")
+        assert client.collection_exists(vector_store.collection_name("ws-1"))

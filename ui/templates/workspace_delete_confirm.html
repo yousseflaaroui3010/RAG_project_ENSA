@@ -9,15 +9,14 @@
   it is reachable without leaving it first.
 #}
 {% block main %}
-{#
-  A plain section, not role="dialog"/"alertdialog": those roles promise a
-  focus trap and a modal that a full page navigation does not build, and
-  an ARIA role the markup does not back up is worse than none (nothing
-  here CAN be reached without leaving this page first, which is the
-  property that matters -- it does not need the widget role to have it).
-#}
-<section class="panel panel--error">
+<dialog class="panel panel--error" open data-confirm-dialog
+        data-return-url="/workspaces?ws={{ target.id }}&amp;focus=delete">
   <h1>Delete "{{ target.name }}"?</h1>
+  {% if delete_error %}
+    <div role="alert">
+      <p class="error__sentence">{{ delete_error }}</p>
+    </div>
+  {% endif %}
   {#
     UX spec 7.2, verbatim: "states plainly that derived data goes and the
     source files on disk stay, because that is F-01's third criterion and
@@ -32,6 +31,6 @@
   <form method="post" action="/workspaces/{{ target.id }}/delete">
     <button class="btn btn--primary" type="submit">Yes, delete {{ target.name }}</button>
   </form>
-  <p><a href="/workspaces?ws={{ target.id }}">Cancel, keep this workspace</a></p>
-</section>
+  <p><a href="/workspaces?ws={{ target.id }}&amp;focus=delete" autofocus>Cancel, keep this workspace</a></p>
+</dialog>
 {% endblock %}

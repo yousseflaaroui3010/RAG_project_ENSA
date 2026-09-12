@@ -99,7 +99,7 @@ def _ports() -> AgentPorts:
 
 class _FakeScorer:
     def score(self, *, question, answer_text, contexts):
-        return ScoreResult(groundedness=0.95, relevancy=0.8)
+        return ScoreResult(groundedness=1.0, relevancy=0.8)
 
 
 def _run(tmp_path, *, corrupt_file: bool = False, delete_file: bool = False):
@@ -157,7 +157,8 @@ def test_list_reports_carries_the_workspace_name_and_formatted_scores(tmp_path):
     assert len(rows) == 1
     row = rows[0]
     assert row.workspace_name == "ws-eval"
-    assert row.groundedness_label == "95.0%"
+    assert row.groundedness_label == "1/1 fully grounded"
+    assert row.sources_label == "1/1"
     assert row.refusal_pass == row.refusal_total == 1
     assert row.passed is True
 
@@ -173,14 +174,15 @@ def test_report_detail_reads_the_rich_per_question_data_from_the_file(tmp_path):
     assert detail.file_error is None
     assert all(isinstance(q, QuestionRow) for q in detail.questions)
     by_id = {q.question_id: q for q in detail.questions}
-    # answer_kind is only ever populated from the file, never the DB
-    # degrade -- proof that this path really read the JSON.
+    # The values match the atomic JSON snapshot read by this path.
     assert by_id["g-in-fake-001"].answer_kind == "answer"
     assert by_id["g-out-fake-001"].answer_kind == "refusal"
 
     assert all(isinstance(s, ScoreRow) for s in detail.score_rows)
     by_metric = {s.metric: s for s in detail.score_rows}
     assert by_metric["G1 Groundedness"].passed is True
+    assert by_metric["G1 Groundedness"].value_label == "1/1 fully grounded"
+    assert by_metric["G1 Groundedness"].threshold_label == ">= 90.0%"
     assert by_metric["G2 Honest refusals"].passed is True
     assert by_metric["G3 Sources on every answer"].passed is True
 
@@ -196,17 +198,15 @@ def test_report_detail_degrades_to_the_database_when_the_file_is_missing(tmp_pat
     assert detail.file_error is not None
     assert "missing" in detail.file_error.lower()
     # the summary (from the DB row itself) is unaffected
-    assert detail.summary.groundedness_label == "95.0%"
-    # the degrade: real pass/fail per question, but no answer_kind/sources
+    assert detail.summary.groundedness_label == "100.0%"
+    # The durable database row now retains the rich fields needed for a
+    # partial report even when its matching JSON snapshot is unavailable.
     by_id = {q.question_id: q for q in detail.questions}
     assert len(by_id) == 2
-    assert by_id["g-in-fake-001"].answer_kind is None
-    assert by_id["g-in-fake-001"].sources_label == "—"
-    # G3 has no source of truth left when the file is gone -- neither
-    # eval_run nor eval_result stores sources_pass/total (schema read
-    # directly) -- so it reports "not judged" rather than a guess.
+    assert by_id["g-in-fake-001"].answer_kind == "answer"
+    assert by_id["g-in-fake-001"].sources_label == "Yes"
     by_metric = {s.metric: s for s in detail.score_rows}
-    assert by_metric["G3 Sources on every answer"].passed is None
+    assert by_metric["G3 Sources on every answer"].passed is True
     assert by_metric["G1 Groundedness"].passed is True  # unaffected
 
 
@@ -217,6 +217,25 @@ def test_report_detail_degrades_when_the_file_is_present_but_corrupt(tmp_path):
     assert detail is not None
     assert detail.file_error is not None
     assert len(detail.questions) == 2
+
+
+def test_report_detail_derives_g1_counts_from_an_older_report_file(tmp_path):
+    eval_run_id, db_path = _run(tmp_path)
+    with repo.session(db_path) as conn:
+        report_path = repo.get_eval_run(conn, eval_run_id)["report_path"]
+    with open(report_path, encoding="utf-8") as report_file:
+        report = json.load(report_file)
+    report.pop("grounded_pass")
+    report.pop("grounded_total")
+    with open(report_path, "w", encoding="utf-8") as report_file:
+        json.dump(report, report_file)
+
+    detail = report_detail(eval_run_id, db_path=db_path)
+
+    assert detail is not None
+    by_metric = {score.metric: score for score in detail.score_rows}
+    assert by_metric["G1 Groundedness"].value_label == "1/1 fully grounded"
+    assert by_metric["G1 Groundedness"].passed is True
 
 
 # --- report_detail: not found ---------------------------------------------

@@ -1,5 +1,59 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
+## STATE AT 2026-09-12 (read this block first; older headers below are history)
+
+**main has not moved since 8ce4818 (#90).** Everything after it is on
+branches and PRs, none merged. The PR template makes the partner's
+approval the merge key, so merging is MB's call.
+
+| Branch | Stories | PR | Clean-checkout tests | Review |
+|---|---|---|---|---|
+| `fix/S3-ST-39-evaluation-failures` (A) | ST-36 (#85's commits) + ST-39 | #92 -> main | 787 passed, 2 skipped, ruff clean, CI green | briefed review MERGE AFTER FIXES + cold re-check NOT CLEAN; every blocking finding fixed, 11/11 deliberate breaks caught |
+| `feat/S3-ST-51-thin-api` (B, on A) | ST-51 + ST-52 | #95 -> A | 812 passed, 2 skipped, ruff clean | MERGE AFTER FIXES (Sev1: drift tests missed 11 of 14 breaks); fixed, now 12/12 caught; API Sync uses the screen's starter; start-up recovery lives here |
+| `feat/S3-ST-05-local-container` (C, on B) | ST-05 | #96 -> B | B + 2 packaging tests | competes with MB's #86; recommendation: keep #86, close #96 (nothing else is lost) |
+| `docs/S3-ST-38-manual-qa-results` | ST-38 | #93 | docs only | 35 pass, 6 blocked on a human screen-reader pass |
+| `docs/S4-ST-44-defense-kit` | ST-30/43/44/45/46 drafts | #94 | docs only | drafts, not rehearsed |
+
+**Measured, with sources:** release gate on the final report G1 37/40, G2
+20/20, G3 37/37, `RELEASE GATE: PASS` (re-run 2026-09-12). G4 median 8.3 s,
+p95 18.1 s, cold first question 23.2 s (`data/spike-st18/traces.json`,
+2026-09-11): PASS. **G5, measured twice with `scripts/spike_st18.py index`,
+cold, model load included:** 2026-09-11 while other work ran, 823 s for 225
+pages = 731.6 s per 200 pages (FAIL); **2026-09-12 on a quiet laptop, twice:
+505.5 s = 449.4 s per 200 pages, then 422.2 s = 375.3 s per 200 pages, both
+PASS vs 600 s**. Parts timed separately: embedding
+0.29 s/chunk x 1,121 chunks = about 320 s, PDF conversion about 100 s.
+VARIANCE WARNING: the Manuals workspace took 421 s in the first run and
+1,121 s in the second, so this laptop's timings swing widely; quote both
+G5 runs, not only the pass, and a third quiet run would firm it up. Both
+result files are kept in `data/measurements/` (git-ignored); the 2026-09-11
+`traces.json` there is the only G4 evidence, since the script wipes
+`data/spike-st18/` on every run.
+
+**Environment trap found:** this laptop's `.venv` held 29 packages the lock
+no longer lists (RAGAS era); a half-deleted `aiohttp` made one test fail.
+They were removed; `uv sync --frozen --dry-run` reports no changes. A red
+suite on this machine should be checked against `uv sync --frozen
+--dry-run` before blaming the code.
+
+**Decided 2026-09-12 (YL, DECISIONS rows):** the defense runs in cloud mode
+(ST-44's offline rehearsal descoped); every response from a legal workspace,
+refusals included, carries the disclaimer (#91 merges; this SUPERSEDES the
+same day's no-disclaimer-on-refusals ruling); one more paid 60-question
+run (~284 calls) is approved for AFTER #92 and #95 merge, and v1.0.0 is
+tagged only if it passes.
+
+**Still waiting on the humans:** (1) MB's review and merge, in order #85,
+#92, #95, then #93 and #94; (2) which ST-05 ships, #96 or MB's #86;
+(3) the screen-reader pass (ST-38's 6 blocked rows); (4) rehearsals (G6),
+the backup video, slides and report chapters -- "not now" per YL.
+
+**Not started:** ST-41 tag v1.0.0 (after merges), report chapters ST-31,
+ST-40, ST-42 (MB; not in the repo), ST-50 interviews. ST-47/48/49 descoped
+(DECISIONS 2026-09-12).
+
+---
+
 Last verified commit: **fd2e6fa on main**, 2026-09-03. One PR landed since
 the previous header: #79, the ST-21 and ST-23 reviews -- ST-21 clean, ST-23's
 prompt-template leak fixed and its fusion gap parked. See the review section
@@ -310,6 +364,242 @@ harness payload out): ruff clean, 191 passed / 1 skipped -- matching what
 copied.
 
 ## Now
+
+**DOING 2026-09-10: ST-39 EVALUATION BUGFIX BUFFER, branch
+`fix/S3-ST-39-evaluation-failures`, based on ST-36 at `b4a11d3`.** The corrected
+release run has thirteen G1 failures: five honest refusals for covered questions
+and eight sourced answers below full grounding. ST-39 must improve the product,
+not lower the signed 1.00 row rule. ST-38 has not run, so this work can close
+ST-36 defects but cannot yet claim ST-39's full exit gate.
+
+1. **Who is touched:** every question sent through retrieval, grading, and answer
+   writing if a shared search or prompt rule changes. The frozen 40/20 set and
+   G2 refusal behavior are controls, not tuning targets to rewrite.
+2. **Worst case:** a broader search makes the five covered rows answerable while
+   also turning a correct out-of-scope refusal into a plausible legal answer, or
+   an answer prompt suppresses useful facts merely to please the judge.
+3. **How we find out:** inspect the exact five corpus targets and local search
+   rankings first; then add focused regressions at the failing layer. Re-run all
+   frozen rows before accepting a fix, with G2 still 20/20 and G3 still complete.
+   No paid model call runs without fresh human approval.
+4. **How we undo it:** keep each prompt's prior version byte-for-byte and revert
+   the ST-39 commit. No source document, stored index, schema, or signed file is
+   changed by a query or answer-behavior fix.
+
+**ROOT-CAUSE CANDIDATES BEFORE EDITING:** the original planner may produce weak
+queries; a good target may rank below depth five; split-result merging may drop
+it; the relevance grader may reject a retrieved target; or the writer may
+decline parent sections that do answer. The saved report has answer text but no
+trace or passage text, so it cannot distinguish these mechanisms. The target
+phrases were present in the three source files on disk, which ruled out an
+absent upstream file but did not prove the evaluation workspace had indexed
+them. The workspace registry and local retrieval were the next checks.
+
+**FIRST ROOT CAUSE FOUND, NO MODEL CREDIT SPENT:** the corrected-run workspace
+did not contain the CLEISS guide. The registry listed only the labour code and
+the security-social dahir, and no guide parent or vector existed. The tracked
+guide URL returned 404; its permanent URL with the publisher suffix returns a
+208,172-byte PDF through the same `urllib` client. A regression test was watched
+fail on the short URL, then pass after `scripts/corpus.py` was corrected.
+`corpus.py fetch` downloaded the guide, `corpus.py verify` met the 3-HR/10-
+manual exit gate, and Sync reported **1 added, 2 unchanged, 0 failed**. The
+golden grounding command then reported **60 rows grounded (40 in, 20 out)**.
+
+This explains three refusals (`g-in-028`, `039`, `040`) and the incomplete
+guide-dependent answer `g-in-030`; they were evaluated without their named
+source. After Sync, free local search ranks the target first, first, and third
+for those refusal rows. It does not explain `g-in-017` or `033`: their correct
+labour-code passages already rank third and first within depth five. The report
+did not save traces, so fresh model-backed asks were required to separate query
+planning, relevance grading, and writer decline.
+
+**FOCUSED ST-39 RESULT 2026-09-10:** the human approved at most 104 provider
+calls; three diagnostic rounds plus two prompt cases used **97**, with no
+provider error. All thirteen failed rows reached groundedness 1.00 in at least
+one focused run. The first complete 13-row trace cleared seven (`013`, `017`,
+`027`, `028`, `033`, `037`, `039`). A temporary answer-writer experiment then
+cleared `024`, `030`, and `040` in a focused run.
+
+The remaining partial scores exposed an evaluator defect, not a weaker gate:
+the writer saw labels such as the file name and Article 34, but
+`evaluation.capture` stripped those labels before handing the same passage to
+the judge. The judge therefore treated a valid source attribution as an
+unsupported claim. The new regression was watched fail on the missing label.
+After capture reused the writer's labeled section blocks, `025`, `026`, and the
+otherwise unchanged `038` answer all scored **1.00**. The signed threshold and
+judge prompt were not loosened. One separate `026` attempt still showed useful
+model variation: a nearby death-benefit section passed the child grader and the
+full-section writer correctly refused it; a later attempt found Article 44 and
+scored 1.00.
+
+**COLD-REVIEW CORRECTION:** the temporary answer-writer experiment did not hold
+in its first full run: `g-in-024` still added the nearby rates its own case said
+to omit. The prompt, cases, archive, and shared loader change were removed rather
+than called successful. Answer-writer 0.1.0 is restored byte-for-byte at git
+object `93a8a2935498fcd5a0cbd38f286455be8362c12e`. The 38/40 report produced with
+the rejected prompt is historical evidence, not the current release result.
+
+**FINAL-CODE RELEASE RUN 2026-09-10:** under a fresh human-approved 360-call
+ceiling, the official evaluator used **284 calls**, produced no provider error,
+and wrote `2026-09-10T21-11-27.750175+00-00.json`. Result: **G1 37/40 PASS, G2
+20/20 PASS, G3 37/37 PASS**; groundedness and relevancy were both 1.0 across
+the 37 scored answers. The separate release command read that exact file and
+printed `RELEASE GATE: PASS`. `g-in-014`, `017`, and `033` were the three
+in-scope refusals; each has answered correctly in an earlier controlled or
+focused run, and all remain within the signed allowance of four misses. ST-36's
+evaluation findings are closed. ST-39 remains open until ST-38 supplies its
+manual-QA findings. Offline verification is **743 passed / 2 skipped**, ruff
+clean, and **60 rows grounded (40 in scope, 20 out)**.
+
+**RELEASE-GATE HARDENING AFTER COLD REVIEW:** altered copies proved that a
+partial, duplicate, relabeled, or boolean-score report could previously pass.
+The release command now requires all frozen IDs exactly once and in order,
+checks each ID's frozen in/out category, and accepts only real numeric scores in
+the 0.0-1.0 range. Every new guard was watched fail first. The hardened command
+still passes the genuine final report. Final offline verification is **743
+passed / 2 skipped**, ruff clean, `git diff --check` clean, and the changed-file
+secret scan found no leaks.
+
+**RELEASE-GATE INTEGRITY FIX:** final cold review proved a hand-truncated report
+with one passing row of each kind could pass as 1/1. The gate now compares the
+report's ordered IDs with the frozen set before calculating G1-G3 and rejects
+missing, extra, duplicate, or reordered rows. The duplicate test was watched
+fail before implementation. Fifteen focused gate tests pass, and the hardened
+command still prints `RELEASE GATE: PASS` for the final 60-row report.
+
+**DONE ON BRANCH 2026-09-11: S3 RUNNING/PARTIAL STATES AND INDEX LIFECYCLE.**
+The evaluator now creates a Running row before question one, commits each
+completed question, keeps atomic JSON snapshots, and records fatal interruption
+as Partial with the failed number, ID, safe error text, and earlier rows intact.
+Reports shows and announces real progress, marks unfinished gates Not final,
+preserves keyboard focus when polling settles, and exports Partial details.
+
+The web app no longer holds embedded Qdrant for its whole lifetime. Reports can
+stay open while the command-line evaluator owns the index; Chat holds one index
+version for its whole question, while Sync and Delete use the same guarded
+operation scope. Delete during an evaluation returns a clear 409 instead of a
+server error. Old SQLite databases receive additive, writer-locked migration.
+
+Proof: every new lifecycle and RTL guard was watched fail before its fix. Real
+Chrome 153 changed one open page from Running 1/3 to Partial 1/3, kept the first
+question, named question 2, removed polling, kept focus on Export, exposed zero
+unnamed controls, and showed no real horizontal overflow in LTR or RTL. Evidence:
+`C:/Users/lenovo/AppData/Local/Temp/opencode/st38-s3-evidence/`. Full offline gate:
+`uv run pytest` **763 passed / 2 skipped**, `uv run ruff check .` passed,
+`node --check ui/static/sanad.js` passed, and `git diff --check` found no errors.
+The hardened release command still prints `RELEASE GATE: PASS` with G1 37/40,
+G2 20/20, and G3 37/37 for the final report.
+
+Two cold reviews first found stranded-Running, stale-progress, export, focus, and
+index-lifetime defects; those findings are fixed and covered. A requested repeat
+of both independent reviews did not run because the review service reached its
+usage limit. ST-38 therefore remains open: its complete twelve-row checklist and
+an actual screen-reader pass are still unrecorded. ST-39 cannot close until that
+manual QA evidence is classified.
+
+**DOING 2026-09-10: ST-36 REVIEW FIXES, branch
+`feat/S3-ST-36-first-evaluation-run`, updated from main at `8ce4818`. The
+signed PRD settles the disputed meanings: G1 counts the share of in-scope
+answers with every factual claim grounded; G2 requires a refusal on every
+out-of-scope row; G3 applies only to answers. Blast radius, written before
+code:**
+
+1. **Who is touched:** release reports and the S3 report screen, because they
+   currently call an average score G1 and count an in-scope refusal as a G3
+   source miss. Future evaluation JSON also gains the exact answer text needed
+   to inspect a low score without asking the model again.
+2. **Worst case:** a wrong denominator makes a release pass when fewer than 90%
+   of in-scope questions are fully grounded, or a prompt that drops `CNSS`
+   merges the employer's 48-hour deadline with the fund's 30-day deadline.
+3. **How we find out:** focused tests pin the 9/10 G1 boundary, exclude refusals
+   from G3, preserve answer text, require two prompt golden cases, and require
+   the old prompt file plus a narrowed institution rule. The prompt cases still
+   need a live model backtest, which spends provider credit and will not run
+   without human approval.
+4. **How we undo it:** revert the ST-36 review commit. Reports already written
+   remain readable because the gate derives the corrected counts from each
+   report's existing per-question rows; no stored document or database shape
+   changes.
+
+**ROOT-CAUSE CHECK:** three candidate mechanisms were checked. The scorer is
+not losing rows: every in-scope answer has a per-row score. The threshold is not
+misconfigured: `config.py` carries the signed 0.90. The surviving cause is the
+aggregation itself: `runner.py` and `gate.py` compare the MEAN fractional score
+to 0.90 instead of counting rows scored 1.00, while `runner.py` writes no answer
+text and marks a refusal `sources_present=False`. The prompt gaps are separate
+artifact defects: its broad instruction, multiline flat metadata, missing two
+cases, and missing rollback copy are all present in the branch diff.
+
+**OFFLINE FIX VERIFIED 2026-09-10:** future reports now save answer text and
+G1's fully-grounded count; the runner, release command and S3 screen all use the
+same G1/G2/G3 meanings. The prompt keeps institutions when they distinguish
+rules, adds two regression cases, uses flat metadata, and retains the exact
+0.1.0 file -- its git hash `5bafa263` matches main's old prompt byte for byte.
+The first focused run was watched fail in 9 places before implementation; the
+four affected areas now pass **57 tests**. A later output check was watched fail
+on the stale command-line G1 average, then pass after correction. Final offline
+gate in the locked temporary environment: `uv sync --frozen` audited 141
+packages, `uv run ruff check .` passed, and `uv run pytest` produced **735
+passed / 2 skipped / 1 third-party warning**. `git diff --check` found no
+whitespace errors. The staged gitleaks scan after the live records were added
+covered all 19 intended files, 36.11 KB, and found no leaks.
+
+**LIVE ST-36 RESULT 2026-09-10, APPROVED BY THE HUMAN:** both query-reword
+golden cases passed. The benefit-amount case produced two searches without
+`CNSS`; the separate deadline case kept `CNSS` or its full name in two searches.
+The corrected 60-question run is persisted in SQLite and at
+`data/reports/14b81a1d-.../2026-09-10T16-01-42.812227+00-00.json`:
+**G1 27/40 FAIL, G2 20/20 PASS, G3 35/35 PASS**, mean groundedness 0.9686
+and relevancy 1.0. The release command exited 1 and named all thirteen G1 rows.
+Five are in-scope refusals (`017`, `028`, `033`, `039`, `040`); eight answered
+with sources but scored below 1.00 (`013`, `024`-`027`, `030`, `037`, `038`).
+Every saved output is triaged in `docs/evals/ST-36-triage.md`. ST-36's exit gate
+is met; ST-41 remains correctly blocked and these thirteen rows are ST-39 input.
+
+**BUG FOUND BY THE LIVE COMMAND AND FIXED BEFORE RETRY:** the historical
+workspace id is absent on this clone. The old runner turned that into sixty
+collection errors and then failed its database foreign key only after building
+the report. It made no model scores, but it was still sixty repetitions of one
+bad input. `run_evaluation` now checks the workspace before processing any row;
+the new test proves zero scorer calls and no report, and the real command now
+prints one clear error for `missing-workspace`. The verified local workspace and
+collection both use `14b81a1d-5af0-4fb9-a46a-493fad3eb650`. The first correct-id
+run exceeded the 30-minute tool limit and left no report; the human approved one
+retry with a 60-minute limit, which completed and produced the result above.
+
+**DONE 2026-09-10: ST-26 LEGAL DISCLAIMER, branch
+`feat/S2-ST-26-legal-disclaimer`, cut from merged main at `8ce4818`. Exit gate:
+a legal-flagged workspace marks every returned answer for the fixed disclaimer;
+an unflagged workspace marks none. Blast radius, written before code:**
+
+1. **Who is touched:** every answer, refusal and clarification returned from a
+   legal workspace, in both the in-process screen and ST-51's future HTTP API.
+2. **Worst case:** the line disappears on legal material, appears on an ordinary
+   workspace, or the screen and API report different values for one answer.
+3. **How we find out:** graph-level tests pin all three answer kinds plus the
+   unflagged control; the real S1 route pins the line's presence and placement.
+4. **How we undo it:** revert the one ST-26 commit. No database or stored
+   document changes; the existing workspace flag remains intact.
+
+**SEARCH SCOPE:** the existing Graphify graph (2,237 nodes) traced `Answer`,
+`ask`, `Run`, `Conversation`, `build_ports` and `Workspace.legal_flag`.
+Project-wide searches covered `disclaimer`, `legal_flag`, every `Answer(` and
+every `AgentPorts(` across Python, templates, tests and the signed documents.
+The temporary UI shortcut reads the workspace flag only while rendering, while
+the returned `Answer.disclaimer` remains false. PRD F-09 and the frozen OpenAPI
+contract require the returned flag to match the workspace. The old unit claim
+that a legal-workspace refusal carries no disclaimer conflicts with OpenAPI's
+unqualified "True on legal-flagged workspaces" and is corrected by this story;
+the signed files are not changed.
+
+**FINAL PROOF:** the three focused files produced **124 passed**, then removing
+the workspace-to-run hand-off made both legal-workspace route checks fail and
+restoring it made both pass. The complete locked gate produced **732 passed / 2
+skipped / 1 third-party warning in 137.64s**; dependency sync audited 141
+packages and ruff passed. The real FastAPI route was exercised through
+TestClient for sourced answers, honest refusals and the unflagged control. A
+manual browser and screen-reader walk was not available in this tool session;
+ST-38 still owns that check.
 
 **DONE 2026-09-10: ST-25 SESSION MEMORY, branch
 `feat/S2-ST-25-session-memory`, cut from merged main at `6a789b5`. Exit gate:
