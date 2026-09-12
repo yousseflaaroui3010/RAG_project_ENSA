@@ -90,7 +90,13 @@ class Runtime:
     conversations: dict[str, Conversation] = field(default_factory=dict)
     active_workspace_id: str | None = None
     client: Any = None
-    store_lock: threading.RLock = field(default_factory=threading.RLock)
+    # Guards the three fields below, never a whole operation. See `store`.
+    store_lock: threading.Lock = field(default_factory=threading.Lock)
+    _store_users: int = field(default=0, repr=False, compare=False)
+    _store_client: Any = field(default=None, repr=False, compare=False)
+    _store_exit: contextlib.ExitStack | None = field(
+        default=None, repr=False, compare=False
+    )
     # ST-28, S2. Sync has no per-request object the way chat's `Run` is one
     # (sync_workspace is one blocking call handed to a background thread,
     # not something the request that started it keeps a handle on), so the
@@ -119,12 +125,113 @@ class Runtime:
 
     @contextlib.contextmanager
     def store(self) -> Iterator[Any]:
-        """Hold the embedded index only for one Chat, Sync, or delete operation."""
+        """Share one embedded index between the Chat, Sync and delete
+        operations running in this process; close it when the last ends.
+
+        OPEN ONLY WHILE SOMETHING NEEDS IT, so the separate command-line
+        evaluator can own the index while this server keeps showing
+        Reports. If the evaluator has it, `open_store` raises
+        `StoreAlreadyOpenError` at once and the caller shows that.
+
+        SHARED, NOT ONE AT A TIME: a lock held for a whole Sync -- minutes
+        on a real corpus -- made a Chat question wait silently behind it and
+        a delete hang, with nothing on screen saying why (rule-5 review of
+        57187cf). One client per process is still the ADR-04 rule: a second
+        in-process `open_store` on the same path raises, which is why this
+        counts users instead of opening per operation."""
         if self.client is not None:
             yield self.client
             return
-        with self.store_lock, vector_store.open_store() as client:
+        with self.store_lock:
+            if self._store_users == 0:
+                stack = contextlib.ExitStack()
+                self._store_client = stack.enter_context(vector_store.open_store())
+                self._store_exit = stack
+            self._store_users += 1
+            client = self._store_client
+        try:
             yield client
+        finally:
+            with self.store_lock:
+                self._store_users -= 1
+                if self._store_users == 0:
+                    stack, self._store_exit = self._store_exit, None
+                    self._store_client = None
+                    if stack is not None:
+                        stack.close()
+
+    def start_sync(self, workspace_id: str) -> sync.SyncClaim:
+        """Claim a Sync run in the caller's thread, then do the work on a
+        background thread; return the claim.
+
+        CLAIMED HERE, BEFORE THE THREAD, so a second click is refused with
+        `sync.SyncInProgressError` while the first is still waiting for the
+        index, instead of both being accepted with no run row, no progress
+        and a cancel event the second click silently replaced (rule-5
+        review of 57187cf; F-02, UX spec 7.3). Also raises
+        `workspaces.WorkspaceNotFoundError` for an unknown id.
+
+        A claim is a promise to finish the run row. `sync_workspace`
+        keeps it once it starts; `_finish_unstarted` keeps it when the
+        index cannot even be opened, or no run would ever start again."""
+        claim = sync.claim_sync(workspace_id=workspace_id, db_path=self.db_path)
+        self.sync_errors.pop(workspace_id, None)
+        cancel_event = threading.Event()
+        self.sync_cancel_events[workspace_id] = cancel_event
+
+        def _work() -> None:
+            try:
+                with self.store() as client:
+                    report = sync.sync_workspace(
+                        workspace_id=workspace_id,
+                        db_path=self.db_path,
+                        client=client,
+                        cancel_requested=cancel_event.is_set,
+                        claim=claim,
+                    )
+            except Exception as exc:  # noqa: BLE001 -- mirrors _start's own catch-all
+                # PRD section 11: "folder missing or unreadable shows the
+                # exact path plus a fix hint" -- `FolderNotFoundError`'s
+                # own message already carries both, so it is shown as-is.
+                logger.exception("sync failed for workspace %s", workspace_id)
+                self.sync_errors[workspace_id] = str(exc)
+                self._finish_unstarted(claim)
+            else:
+                # THE LOAD-BEARING LINE: the finished report stays reachable
+                # even when nobody polled while it ran (a small corpus can
+                # finish before any request observes it as running).
+                self.last_sync_run_id[workspace_id] = report.sync_run_id
+            finally:
+                if self.sync_cancel_events.get(workspace_id) is cancel_event:
+                    self.sync_cancel_events.pop(workspace_id, None)
+
+        try:
+            threading.Thread(target=_work, daemon=True, name="sanad-sync").start()
+        except BaseException:
+            self.sync_cancel_events.pop(workspace_id, None)
+            self._finish_unstarted(claim)
+            raise
+        return claim
+
+    def _finish_unstarted(self, claim: sync.SyncClaim) -> None:
+        """Close a claimed run that never reached `sync_workspace`, with
+        zero counts. A run that did start is already finished by
+        `sync_workspace`'s own `finally`, so this leaves it alone."""
+        with repo.session(self.db_path) as conn:
+            run = repo.get_sync_run(conn, claim.sync_run_id)
+            if run is None or run["finished_at"] is not None:
+                return
+            repo.finish_sync_run(
+                conn,
+                sync_run_id=claim.sync_run_id,
+                finished_at=repo.utc_now(),
+                added=0,
+                changed=0,
+                unchanged=0,
+                failed=0,
+                removed=0,
+                skipped=0,
+            )
 
     def conversation(self, workspace_id: str) -> Conversation:
         """The one conversation for this workspace.
@@ -682,58 +789,18 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     def start_sync_route(request: Request, workspace_id: str) -> Response:
         """Start a Sync in the background and return immediately, mirroring
         `ui.runs.Run.start` -- the request thread never blocks for the
-        length of a run.
-
-        THE DOUBLE-SYNC CHECK IS HERE, BEFORE THE THREAD STARTS, on
-        purpose (F-02, UX spec 7.3: "blocked with a message, first run
-        continues"). `sync_workspace` itself refuses a second concurrent
-        run too (`SyncInProgressError`), but that refusal would fire
-        inside the background thread where nothing reads it back to this
-        request -- this pre-check is what turns "blocked" into a message
-        the operator who clicked Sync actually sees. The tiny window
-        between this read and the thread's own claim is the same one
-        `sync._claim_sync_run`'s docstring already names and accepts."""
-        with repo.session(runtime.db_path) as conn:
-            running = repo.get_running_sync_run(conn, workspace_id)
-        if running is not None:
+        length of a run. The double-sync refusal (F-02, UX spec 7.3:
+        "blocked with a message, first run continues") is the claim
+        `Runtime.start_sync` makes in THIS thread, so the operator who
+        clicked sees it; see that method for why the claim moved here."""
+        try:
+            runtime.start_sync(workspace_id)
+        except sync.SyncInProgressError:
             return RedirectResponse(
                 f"/workspaces?ws={workspace_id}&sync_blocked=1", status_code=SEE_OTHER
             )
-        runtime.sync_errors.pop(workspace_id, None)
-        cancel_event = threading.Event()
-        runtime.sync_cancel_events[workspace_id] = cancel_event
-
-        def _work() -> None:
-            try:
-                with runtime.store() as client:
-                    report = sync.sync_workspace(
-                        workspace_id=workspace_id,
-                        db_path=runtime.db_path,
-                        client=client,
-                        cancel_requested=cancel_event.is_set,
-                    )
-            except Exception as exc:  # noqa: BLE001 -- mirrors _start's own catch-all
-                # PRD section 11: "folder missing or unreadable shows the
-                # exact path plus a fix hint" -- `FolderNotFoundError`'s
-                # own message already carries both, so it is shown as-is
-                # rather than re-worded here.
-                logger.exception("sync failed for workspace %s", workspace_id)
-                runtime.sync_errors[workspace_id] = str(exc)
-            else:
-                # THE LOAD-BEARING LINE, not a nicety: `sync_workspace`
-                # hands back its own `sync_run_id` on the SyncReport it
-                # returns, so the finished report is reachable even when
-                # nobody polled while it was running (a small corpus can
-                # finish before any request ever observes it as running,
-                # which is exactly the gap a poll-only cache would have
-                # -- proven by a real run in
-                # tests/integration/test_s2_workspaces_screen.py).
-                runtime.last_sync_run_id[workspace_id] = report.sync_run_id
-            finally:
-                if runtime.sync_cancel_events.get(workspace_id) is cancel_event:
-                    runtime.sync_cancel_events.pop(workspace_id, None)
-
-        threading.Thread(target=_work, daemon=True, name="sanad-sync").start()
+        except workspaces.WorkspaceNotFoundError:
+            return RedirectResponse("/workspaces", status_code=SEE_OTHER)
         return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
 
     @app.post("/workspaces/{workspace_id}/sync/cancel")
