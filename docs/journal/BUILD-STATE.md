@@ -1,6 +1,28 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-12, `feat/S4-ST-05-railway-hosting` (read this block first; older headers below are history)
+## STATE AT 2026-09-12, RAILWAY LIVE (read this block first; older headers below are history)
+
+**RAILWAY IS FIXED AND VERIFIED LIVE** on main `dd2243b` (#105 + #106),
+deploy SUCCESS on MB's `sanad-web` service. Checked against the public URL,
+not assumed: `/api/v1/health` 200 `{"status":"ok","version":"1.0.1"}` with
+no auth; `/`, `/workspaces`, `/reports`, `/docs`, `/api/v1/workspaces` 401
+without a password and with a wrong one; the real ACCESS_PASSWORD (read from
+Railway, never printed) gets 200 on all of them; the server binds Railway's
+PORT (8080); the two workspaces already on the disk ("HR Policies", "hr")
+are intact and the entrypoint logged "corpus not seeded (already present)".
+#86 closed as superseded; MB credited as co-author on #105.
+
+**#106, the last trap:** Railway's first build of #105 passed torch and the
+model bake, then died on the seed download -- adala.justice.gov.ma (the
+Ministry of Justice) times out from Railway's builders while it works from
+Morocco. The fetch is now best-effort: no seed rather than a failed deploy,
+never a partial seed, and a fetched seed is still verified. Proven both
+ways (no-network run exits 0 with a warning and no seed; normal build
+"EXIT GATE MET"). Suite **866 passed, 2 skipped**.
+
+---
+
+## STATE AT 2026-09-12, `feat/S4-ST-05-railway-hosting` (the branch as built; history now)
 
 **WHY THIS BRANCH EXISTS.** Every Railway build died at "scheduling build"
 starting 2026-09-12: main's Dockerfile has a `VOLUME ["/app/data"]` line
