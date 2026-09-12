@@ -120,3 +120,33 @@ def test_the_corpus_seed_survives_two_boots_sharing_one_volume():
             "Every container's entrypoint is pid 1, so `$$` collides between "
             "two boots sharing one volume and they corrupt each other's copy."
         )
+
+
+def test_an_unreachable_corpus_source_cannot_fail_the_build():
+    """PROVEN on Railway, 2026-09-12: the first corpus source (the Labour
+    Code on adala.justice.gov.ma) timed out from Railway's builders while it
+    downloads fine from Morocco, and `set -eu` turned that into a failed
+    deploy. The seed is the least important thing the image carries (the
+    live volume already has the documents, and evidence-only mode cannot
+    index them anyway), so the FETCH must sit behind an `if`. The VERIFY
+    stays inside that branch: a seed that is shipped must still be one
+    Sanad can read."""
+    code = [
+        line.strip()
+        for line in (ROOT / "Dockerfile").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    fetches = [line for line in code if "scripts/corpus.py fetch" in line]
+
+    assert fetches, "the Dockerfile no longer fetches a seed corpus at all"
+    for line in fetches:
+        assert line.startswith("if python scripts/corpus.py fetch"), (
+            f"the corpus fetch is not guarded ({line!r}). Under `set -eu` a "
+            "single unreachable source -- the Ministry of Justice site times "
+            "out from Railway's builders -- fails the whole deploy. Wrap it: "
+            "`if python scripts/corpus.py fetch; then ... verify ...; else "
+            "<warn, ship no seed>; fi`."
+        )
+    assert any("scripts/corpus.py verify" in line for line in code), (
+        "the corpus verify step is gone: a shipped seed must still be checked"
+    )

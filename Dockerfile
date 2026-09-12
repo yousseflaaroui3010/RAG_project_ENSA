@@ -229,13 +229,35 @@ COPY --chown=sanad:sanad . .
 # container start, which would hide anything written under /app/data at
 # build time. `docker-entrypoint.sh` copies from here into the volume on
 # first boot only.
+#
+# THE FETCH IS BEST-EFFORT, THE VERIFY IS NOT. PROVEN on Railway's builder,
+# 2026-09-12: the very first source (the Labour Code on
+# adala.justice.gov.ma, the Moroccan Ministry of Justice) timed out from
+# Railway's build servers while it downloads fine from Morocco -- and a
+# build that dies whenever a foreign government site is slow or blocks a
+# region is a build nobody controls. The seed is also the least important
+# thing in this image: the live Railway disk already holds the documents,
+# the entrypoint copies the seed only onto an EMPTY volume, and in
+# evidence-only mode Sync is refused, so a seeded corpus cannot even be
+# indexed there. So:
+#   * fetch fails  -> ship NO seed at all (never a partial one), say so
+#                     loudly in the build log, and the entrypoint prints
+#                     "no seed shipped" at boot;
+#   * fetch works  -> `verify` still FAILS THE BUILD on a bad file, so a
+#                     shipped seed is always one Sanad can read.
 RUN set -eu; \
-    python scripts/corpus.py fetch; \
-    python scripts/corpus.py verify; \
-    mv /app/data/corpus /app/seed-corpus; \
+    if python scripts/corpus.py fetch; then \
+        python scripts/corpus.py verify; \
+        mv /app/data/corpus /app/seed-corpus; \
+        chown -R sanad:sanad /app/seed-corpus; \
+    else \
+        echo "WARNING: corpus fetch failed (a source was unreachable from" >&2; \
+        echo "this builder). The image ships WITHOUT a seed corpus; an" >&2; \
+        echo "empty volume will start with no documents. See Dockerfile." >&2; \
+    fi; \
     rm -rf /app/data; \
     mkdir -p /app/data; \
-    chown -R sanad:sanad /app/seed-corpus /app/data
+    chown -R sanad:sanad /app/data
 
 # NO `VOLUME` INSTRUCTION HERE, AND THAT IS DELIBERATE.
 # Railway's builder rejects the image outright if there is one: "docker
