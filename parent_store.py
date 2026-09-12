@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +52,15 @@ _FIELD_SECTION_LABEL = "section_label"
 _TEMP_SUFFIX = ".tmp"
 
 _JSON_SUFFIX = ".json"
+
+# A file that exists but fails an OS-level read gets this many tries before
+# it counts as unavailable rather than momentarily busy. The waits between
+# attempts are seconds well below one, on purpose: this is bridging a lock
+# held by antivirus or by OneDrive sync (this repo lives under OneDrive) for
+# a moment, not waiting out anything with its own retry policy. One fewer
+# entry than _MAX_READ_ATTEMPTS -- no wait after the last, failing, attempt.
+_MAX_READ_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = (0.05, 0.15)
 
 
 class ParentStoreError(Exception):
@@ -80,6 +90,20 @@ class CorruptParentError(ParentStoreError):
     """Raised when a parent file exists but cannot be trusted: unreadable
     JSON, a missing required field, or an `id` inside that disagrees with
     the file name it was loaded from."""
+
+
+class ParentUnavailableError(ParentStoreError):
+    """Raised when a parent file exists but an OS-level read on it kept
+    failing (a sharing violation, `PermissionError`, or similar) after
+    `_MAX_READ_ATTEMPTS` tries with a short backoff between them.
+
+    Deliberately NOT `CorruptParentError`. This repo lives under OneDrive,
+    and on Windows a file antivirus or the sync client is holding for a
+    moment raises the exact same `OSError` family a truly damaged file
+    would -- but the content here was never even reached, let alone found
+    wrong. Reporting it as corrupt sent the reader to distrust a section
+    that was actually fine a second later. This is a "the answer can be
+    retried" failure, not a "do not trust this file" one -- issue #50."""
 
 
 def _check_identifier(value: str, kind: str) -> str:
@@ -151,6 +175,15 @@ def save_parents(
     return len(parents)
 
 
+def _read_file(path: Path) -> str:
+    """The literal read, isolated to one call site.
+
+    Two reasons this is its own function rather than inline in `get_parent`:
+    tests can make it fail on demand without a real OS lock, and the retry
+    loop below has exactly one place to wrap."""
+    return path.read_text(encoding="utf-8")
+
+
 def get_parent(
     *,
     workspace_id: str,
@@ -163,20 +196,39 @@ def get_parent(
     loaded from. That guards the case a filename alone cannot: a file
     copied, renamed or restored from the wrong workspace's backup would
     otherwise be served as a section it is not, and the answer would cite
-    the wrong source with complete confidence."""
+    the wrong source with complete confidence.
+
+    Three OS-level outcomes are told apart on purpose (issue #50):
+    * absent -> `ParentNotFoundError`, unchanged;
+    * exists but a read kept failing (a lock antivirus or OneDrive sync is
+      briefly holding) -> retried up to `_MAX_READ_ATTEMPTS` times, then
+      `ParentUnavailableError` -- NOT corrupt, because the content was
+      never reached;
+    * exists, was read, and the JSON or its shape is wrong -> still
+      `CorruptParentError`, because that failure is about content this
+      function actually looked at."""
     path = _parent_path(workspace_id, parent_id, base_path)
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except FileNotFoundError as exc:
-        raise ParentNotFoundError(
-            f"no stored parent {parent_id!r} in workspace {workspace_id!r}. "
-            f"Its chunk may have been indexed before the parent was written, "
-            f"or the workspace may need a re-sync."
-        ) from exc
-    except OSError as exc:
-        raise CorruptParentError(
-            f"could not read parent {parent_id!r}: {exc.strerror or exc}"
-        ) from exc
+    raw: str | None = None
+    attempt = 0
+    while raw is None:
+        try:
+            raw = _read_file(path)
+        except FileNotFoundError as exc:
+            raise ParentNotFoundError(
+                f"no stored parent {parent_id!r} in workspace {workspace_id!r}. "
+                f"Its chunk may have been indexed before the parent was written, "
+                f"or the workspace may need a re-sync."
+            ) from exc
+        except OSError as exc:
+            attempt += 1
+            if attempt >= _MAX_READ_ATTEMPTS:
+                raise ParentUnavailableError(
+                    f"parent {parent_id!r} in workspace {workspace_id!r} could "
+                    f"not be read after {attempt} attempt(s): the section file "
+                    f"is temporarily locked ({exc.strerror or exc}). This "
+                    f"question can be retried."
+                ) from exc
+            time.sleep(_RETRY_BACKOFF_SECONDS[attempt - 1])
 
     try:
         payload = json.loads(raw)

@@ -336,6 +336,77 @@ def test_a_parent_file_whose_id_disagrees_with_its_name_is_refused(store):
     assert "renamed" in str(caught.value) or "id" in str(caught.value)
 
 
+def test_a_lock_that_clears_within_the_retry_window_still_returns_the_parent(
+    store, monkeypatch
+):
+    """Issue #50: a file merely held for a moment -- antivirus, OneDrive
+    sync, this repo lives under OneDrive -- must not fail the question.
+    `PermissionError` twice, then a normal read, must come back as a normal
+    parent rather than raising anything at all.
+
+    The file-open seam (`parent_store._read_file`) is monkeypatched instead
+    of relying on a real OS lock, which would be slow and flaky. The first
+    two calls fail; the third delegates to the real reader."""
+    parent = _parent()
+    parent_store.save_parents(workspace_id=WS_HR, parents=[parent], base_path=store)
+    real_read = parent_store._read_file
+    calls = {"n": 0}
+
+    def flaky(path):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError(
+                "The process cannot access the file because it is being "
+                "used by another process"
+            )
+        return real_read(path)
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(parent_store, "_read_file", flaky)
+    monkeypatch.setattr(parent_store.time, "sleep", sleeps.append)
+
+    loaded = parent_store.get_parent(
+        workspace_id=WS_HR, parent_id=parent.id, base_path=store
+    )
+
+    assert loaded.text == parent.text
+    assert calls["n"] == 3
+
+
+def test_a_lock_that_never_clears_is_reported_unavailable_not_corrupt(
+    store, monkeypatch
+):
+    """The other half of issue #50: once retries are exhausted, the file is
+    reported as temporarily locked, not as corrupt -- its content was never
+    even reached, so "do not trust this file" would be the wrong message.
+
+    Also proves the backoff has both a FLOOR (it actually paused between
+    attempts, not a hot spin that pegs a core) and a CEILING (the whole
+    wait stays well under a second -- this bridges a momentary lock, not a
+    real outage, and a caller retrying the whole question should not be
+    made to wait behind it)."""
+    parent = _parent()
+    parent_store.save_parents(workspace_id=WS_HR, parents=[parent], base_path=store)
+
+    def always_locked(path):
+        raise PermissionError("sharing violation")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(parent_store, "_read_file", always_locked)
+    monkeypatch.setattr(parent_store.time, "sleep", sleeps.append)
+
+    with pytest.raises(parent_store.ParentUnavailableError) as caught:
+        parent_store.get_parent(
+            workspace_id=WS_HR, parent_id=parent.id, base_path=store
+        )
+
+    assert "corrupt" not in str(caught.value).lower()
+    assert "retr" in str(caught.value).lower()  # "retry" / "retried"
+    assert len(sleeps) == parent_store._MAX_READ_ATTEMPTS - 1
+    assert all(wait > 0 for wait in sleeps)  # floor: it really paused
+    assert sum(sleeps) < 1.0  # ceiling: nowhere near a full second
+
+
 def test_a_parent_file_missing_a_required_field_is_refused(store):
     directory = store / WS_HR
     directory.mkdir(parents=True)
