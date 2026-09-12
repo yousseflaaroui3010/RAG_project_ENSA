@@ -10,6 +10,7 @@ import yaml
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
+import app as app_module
 import sync
 import ui.conversation
 import vector_store
@@ -657,6 +658,35 @@ def test_start_sync_unknown_workspace_is_404(tmp_path):
         )
         assert missing.status_code == 404
         assert missing.json()["code"] == "WORKSPACE_NOT_FOUND"
+    finally:
+        store.__exit__(None, None, None)
+
+
+def test_start_sync_in_evidence_only_mode_is_409_with_no_run_claimed(
+    tmp_path, monkeypatch
+):
+    """ST-05: the `/api/v1` path takes the SAME evidence-only refusal the
+    S2 screen takes (`app.Runtime.start_sync`), mapped to 409 -- the status
+    the contract documents for this operation, reused here for a second
+    reason beyond "a sync is already running" (docs/journal/DECISIONS.md
+    ST-05 escalation row). `ContractClient` stays in use: the response body
+    is still {code, message, next_step}, which is what the contract's
+    schema actually checks -- see tests/integration/contract.py."""
+    client, db_path, store = api(tmp_path)
+    try:
+        workspace = create_workspace(client, tmp_path)
+
+        settings = get_settings().model_copy(update={"evidence_only": True})
+        monkeypatch.setattr(app_module, "get_settings", lambda: settings)
+
+        response = client.post(f"/api/v1/workspaces/{workspace['id']}/sync")
+
+        assert response.status_code == 409
+        assert response.json()["code"] == "EVIDENCE_ONLY"
+
+        with repo.session(db_path) as conn:
+            rows = list(conn.execute("SELECT COUNT(*) FROM sync_run"))
+        assert rows[0][0] == 0, "evidence-only mode must not claim a sync run"
     finally:
         store.__exit__(None, None, None)
 
