@@ -1,80 +1,44 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-12, AFTER RELEASE (read this block first; older headers below are history)
+## STATE AT 2026-09-12, v1.0.1 (read this block first; older headers below are history)
 
-**v1.0.0 IS TAGGED** on `ae0bcbb` (main, #94), annotated tag pushed. ST-41's
-exit gate -- "gate exit 0 on the frozen golden set; annotated tag pushed" --
-is met on the exact commit that was evaluated.
+**v1.0.1 IS TAGGED** on `2b44491` (main, #103); v1.0.0 stays on `ae0bcbb`.
+Release run on golden set **v2**: **G1 37/40, G2 20/20, G3 37/37**,
+`scripts/release_gate.py` exit 0; the three misses (g-in-014, 026, 033) are
+refusals. Report: `docs/evals/release-v1.0.1-2026-09-12.json`.
 
-**RELEASE RUN, on ae0bcbb, 2026-09-12:** `scripts/run_evaluation.py`, 60
-frozen rows, report `data/reports/14b81a1d-.../2026-09-12T09-59-19.303304+00-00.json`
-(copied to `docs/evals/release-v1.0.0-2026-09-12.json`, status completed).
-**G1 36/40 (target 36 -- passes with ZERO margin), G2 20/20, G3 36/36**;
-`scripts/release_gate.py` exit 0. The four misses (g-in-014, 026, 033, 040)
-are all refusals, never invented answers. The 2026-09-10 run scored 37/40
-with 014, 017, 033 missing: 014 and 033 miss in both, 017 recovered, 026 and
-040 are new. Treat G1 as passing at the edge; model variation alone can move
-it by one row.
+**Merged since v1.0.0 (plan #98):** #99 locked parent file (fixes #50),
+#100 model-call time limit and retries, #101 background warm-up with a
+single-flight model loader, #102 golden set v2 (fixes #88; post-freeze edits
+recorded), #103 version 1.0.1 + DECISIONS.md text again + #51 ruled +
+docs/known-issues.md. Each: cold review findings fixed, every new guard
+broken on purpose, CI green. main suite **836 passed, 2 skipped**.
 
-**MERGED TO MAIN 2026-09-12, in order:** #85 ST-36 (MB), #91 ST-26
-disclaimer, #92 ST-39, #95 ST-51+52 API, #96 ST-05 container, #93 ST-38 QA
-results, #94 defense kit. Each merge's tree was checked identical to a
-tested tree (`git diff --quiet`), and CI `verify` passed on every one.
-**MB's #86 stays open** (DECISIONS 2026-09-12: data/ files in the diff,
-hosting and a password gate against the non-goals).
+**G1 triage (docs/evals/v1.0.1-g1-triage.md):** 3 of v1.0.0's 4 misses were
+model variation; g-in-033 is a real limit (the grader reads ~500-char
+chunks; Article 66's delay sits outside) kept for V1.1.
 
-**PRE-MERGE CHECKS (phase-4 / prove-it / gates):** full suite on main
-**821 passed, 2 skipped**, ruff clean, golden grounding 60 rows. Every new
-guard broken on purpose and watched fail (about 30 across the branches).
-Graph (codebase-memory, re-indexed): every new function has a production
-caller; no product-to-product duplicate; complexity over 15 only in
-`app.create_app` (31) and `api.routes.build_router` (28) -- named shortcut,
-DECISIONS row. Real run on the final tree: live server, 13 of 13 checks
-(legal workspace create, Sync, double Sync refused, sourced answer with
-disclaimer, refusal with disclaimer, delete; 0 errors in the server log).
+**Demo safety (Phase 2):** a copy of v1.0.1 runs outside OneDrive at
+`C:\sanad`; `data/` backed up to `C:\sanad-backup\sanad-data-v1.0.1-2026-09-12.zip`
+(15.9 MB) and RESTORED from it into the copy: the HR workspace, 5 evaluation
+runs and a Sync reporting 3 unchanged / 0 failed. The copy needs `.env`
+copied by hand to answer questions. Docker image rebuilt from main: health
+1.0.1 in ~6 s, runs as user `sanad`; 9.3 GB because of CUDA PyTorch.
 
-**Measured speed:** G4 median 8.3 s, p95 18.1 s (20 questions, 2026-09-11).
-G5 cold intake on this laptop: 375.3 s and 449.4 s per 200 pages in two
-quiet runs (PASS vs 600 s), 731.6 s in one run under load. Results in
-`data/measurements/` (git-ignored; the speed script wipes
-`data/spike-st18/` on every run).
+**RAILWAY (MB's project `sanad`, service `sanad-web`) -- IN PROGRESS.** It
+auto-deploys from GitHub `main`; every deploy since today's merges FAILED at
+"scheduling build" because main's Dockerfile has `VOLUME` (banned by
+Railway) and cache mounts without Railway's `id=` format. The live site still
+serves MB's Sep 9 build behind ACCESS_PASSWORD (401), so nothing is exposed.
+Fixing the build alone would publish main WITHOUT the password gate and with
+a start-up model load too big for the trial box. Decision (YL): port MB's
+hosting (gate, evidence-only mode, PORT entrypoint, CPU-only PyTorch) onto
+main, fetch the public corpus at build time instead of committing data/.
+Branch `feat/S4-ST-05-railway-hosting`.
 
-**Decided 2026-09-12 (YL):** defense runs in cloud mode (ST-44 offline
-rehearsal descoped); every response from a legal workspace carries the
-disclaimer (#91; supersedes the same day's opposite ruling).
-
-**Left, owned by the humans:** ST-38's screen-reader pass (6 blocked rows);
-#86; rehearsals (G6) and the recorded fallback; slides and report chapters
-(ST-31/40/42/43/45/46, "not now" per YL). Small follow-up: the app still
-reports version 0.1.0 (pyproject) under the v1.0.0 tag; bumping it changes
-metadata only, so it was left out of the evaluated commit on purpose.
-
-**Environment trap:** a red suite on this laptop should be checked against
-`uv sync --frozen --dry-run` before blaming code (29 stale packages were
-removed on 2026-09-12).
-
-**POST-RELEASE FIX 2026-09-12, branch `fix/S4-ST-39-model-timeout` (cut from
-main 2e3f66c, not yet merged):** model calls had no time limit -- a stalled
-network call could hang a question indefinitely with nothing for Cancel to
-cancel, against PRD section 11's "answering service unreachable -> clear
-error and a retry action". Added `model_call_timeout_seconds` (60, the G4
-p95 ceiling) and `model_call_max_retries` (2) to config.py/.env.example;
-wired into `ChatGoogleGenerativeAI(timeout=, max_retries=)`. ChatOllama
-(installed langchain-ollama 1.1.0) has no such fields -- checked its
-`model_fields` directly, not memory -- so its timeout goes through
-`client_kwargs={"timeout": ...}` to `ollama.Client` instead, and no retry
-setting exists for it at any layer. `agent/chat.py::_LangChainChat.complete`
-now catches `httpx.TimeoutException` and re-raises the existing
-`ChatUnavailableError` (already mapped to 503 MODEL_UNREACHABLE in
-api/routes.py). 3 new tests in tests/unit/test_agent_chat.py, each proven
-red on a targeted revert of the change it guards, then restored green.
-Full suite 824 passed (main was 821), 2 skipped, ruff clean. Note: `httpx`
-is imported directly in agent/chat.py (production code) but is declared in
-pyproject.toml only under the `dev` group; it is a hard dependency of both
-google-genai and ollama (the packages this file already wires up), so it
-is always present, but this mirrors the exact undeclared-import shape
-ST-27 warned about -- flagged for a human call on whether to also declare
-it under `[project.dependencies]`.
+**Still for humans:** Narrator pass (6 ST-38 rows), 10 rehearsals + fallback
+video (G6), a mock defense, the `.env` copy into `C:\sanad`, #86 once the
+port lands.
 
 ---
 

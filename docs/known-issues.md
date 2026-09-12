@@ -19,6 +19,7 @@ breaks a signed gate (G1-G3 pass on the golden set).
 |---|---|---|---|
 | Ollama's timeout is per wait for data, not per call, and it has no retry setting | A slow local model can fail at 60 s before its first word | The defense runs in cloud mode (DECISIONS 2026-09-12) | Measure strict-local mode, then set its own timeout |
 | `agent/chat.py` imports httpx, declared only as a dev dependency | None today: both provider clients require httpx and it is pinned in uv.lock | Declaring it changes the dependency list (partner sign-off) | Declare httpx as a runtime dependency |
+| The Docker image is about 9 GB | It bundles the CUDA build of PyTorch, unused on CPU | Not on the demo path (the defense runs `uv run python app.py`) | Port #86's CPU-only PyTorch build |
 | Intake speed depends on machine load | G5 375-449 s per 200 pages quiet, 731.6 s under load | Measured and reported, as the V1.0 gate requires | Batch or smaller embedding model, re-measured against G5 |
 
 ## Data layer (from the ST-17 reviews and the data-layer follow-ups)
