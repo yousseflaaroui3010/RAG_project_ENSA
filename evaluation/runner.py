@@ -22,7 +22,8 @@ failing questions and that has to mean something precise:
   reading a fact, not making a judgement call.
 - **in-scope**: passed iff the answer's kind is ANSWER (a refusal or a
   clarification is not what the golden row's reference answer models)
-  AND `groundedness >= config.eval_groundedness_threshold` (G1).
+  AND groundedness is 1.00, meaning every factual claim is supported.
+  G1 passes when at least 90% of in-scope rows meet that full-grounding bar.
 - **either kind**, if the question raised before an `Answer` came back:
   failed, recorded with the exception text and no score, rather than
   aborting the other fifty-nine questions.
@@ -57,9 +58,14 @@ from agent.ports import AgentPorts
 from agent.state import AnswerKind
 from config import get_settings
 from db import repo
+from evaluation import FULLY_GROUNDED_SCORE
 from evaluation.capture import ask_and_capture
 from evaluation.golden import OUT_OF_SCOPE, GoldenRow, load_golden_set
 from evaluation.scoring import Scorer
+
+
+class EvaluationWorkspaceNotFoundError(Exception):
+    """The requested workspace is absent, so no paid evaluation may start."""
 
 
 @dataclass(frozen=True)
@@ -71,6 +77,7 @@ class QuestionResult:
     question_id: str
     kind: str
     answer_kind: str | None
+    answer_text: str | None
     passed: bool
     groundedness: float | None
     relevancy: float | None
@@ -90,6 +97,8 @@ class EvalReport:
     results: tuple[QuestionResult, ...]
     groundedness: float | None
     relevancy: float | None
+    grounded_pass: int
+    grounded_total: int
     refusal_pass: int
     refusal_total: int
     sources_pass: int
@@ -104,6 +113,8 @@ class EvalReport:
             "run_at": self.run_at,
             "groundedness": self.groundedness,
             "relevancy": self.relevancy,
+            "grounded_pass": self.grounded_pass,
+            "grounded_total": self.grounded_total,
             "refusal_pass": self.refusal_pass,
             "refusal_total": self.refusal_total,
             "sources_pass": self.sources_pass,
@@ -115,6 +126,7 @@ class EvalReport:
                     "question_id": r.question_id,
                     "kind": r.kind,
                     "answer_kind": r.answer_kind,
+                    "answer_text": r.answer_text,
                     "passed": r.passed,
                     "groundedness": r.groundedness,
                     "relevancy": r.relevancy,
@@ -136,6 +148,7 @@ def _judge_row(
             question_id=row.id,
             kind=row.kind,
             answer_kind=None,
+            answer_text=None,
             passed=False,
             groundedness=None,
             relevancy=None,
@@ -156,10 +169,11 @@ def _judge_row(
             question_id=row.id,
             kind=row.kind,
             answer_kind=answer_kind,
+            answer_text=answer.text,
             passed=answer.kind is AnswerKind.REFUSAL,
             groundedness=None,
             relevancy=None,
-            sources_present=None,
+            sources_present=(len(answer.sources) > 0 if answer.kind is AnswerKind.ANSWER else None),
         )
 
     # in-scope
@@ -170,22 +184,23 @@ def _judge_row(
             question_id=row.id,
             kind=row.kind,
             answer_kind=answer_kind,
+            answer_text=answer.text,
             passed=False,
             groundedness=None,
             relevancy=None,
-            sources_present=False,
+            sources_present=None,
         )
 
     sources_present = len(answer.sources) > 0
     score = scorer.score(
         question=row.question, answer_text=answer.text, contexts=captured.contexts
     )
-    threshold = get_settings().eval_groundedness_threshold
     return QuestionResult(
         question_id=row.id,
         kind=row.kind,
         answer_kind=answer_kind,
-        passed=score.groundedness >= threshold,
+        answer_text=answer.text,
+        passed=score.groundedness == FULLY_GROUNDED_SCORE,
         groundedness=score.groundedness,
         relevancy=score.relevancy,
         sources_present=sources_present,
@@ -197,8 +212,9 @@ def _aggregate(
 ) -> EvalReport:
     grounded_scores = [r.groundedness for r in results if r.groundedness is not None]
     relevancy_scores = [r.relevancy for r in results if r.relevancy is not None]
+    grounded_rows = [r for r in results if r.kind != OUT_OF_SCOPE]
     refusal_rows = [r for r in results if r.kind == OUT_OF_SCOPE]
-    sourced_rows = [r for r in results if r.sources_present is not None]
+    answer_rows = [r for r in results if r.answer_kind == AnswerKind.ANSWER.value]
 
     overall_groundedness = (
         sum(grounded_scores) / len(grounded_scores) if grounded_scores else None
@@ -207,14 +223,22 @@ def _aggregate(
         sum(relevancy_scores) / len(relevancy_scores) if relevancy_scores else None
     )
     refusal_pass = sum(1 for r in refusal_rows if r.passed)
-    sources_pass = sum(1 for r in sourced_rows if r.sources_present)
+    grounded_pass = sum(
+        1
+        for r in grounded_rows
+        if r.answer_kind == AnswerKind.ANSWER.value
+        and r.groundedness == FULLY_GROUNDED_SCORE
+    )
+    sources_pass = sum(1 for r in answer_rows if r.sources_present)
 
     threshold = get_settings().eval_groundedness_threshold
-    g1 = overall_groundedness is not None and overall_groundedness >= threshold
+    g1 = bool(grounded_rows) and grounded_pass / len(grounded_rows) >= threshold
     g2 = bool(refusal_rows) and refusal_pass == len(refusal_rows)
-    g3 = bool(sourced_rows) and sources_pass == len(sourced_rows)
+    g3 = sources_pass == len(answer_rows)
 
-    failing = tuple(r.question_id for r in results if not r.passed)
+    failing = tuple(
+        r.question_id for r in results if not r.passed or r.sources_present is False
+    )
 
     return EvalReport(
         workspace_id=workspace_id,
@@ -222,10 +246,12 @@ def _aggregate(
         results=results,
         groundedness=overall_groundedness,
         relevancy=overall_relevancy,
+        grounded_pass=grounded_pass,
+        grounded_total=len(grounded_rows),
         refusal_pass=refusal_pass,
         refusal_total=len(refusal_rows),
         sources_pass=sources_pass,
-        sources_total=len(sourced_rows),
+        sources_total=len(answer_rows),
         passed=g1 and g2 and g3,
         failing_question_ids=failing,
     )
@@ -266,6 +292,12 @@ def run_evaluation(
     `reports_dir` defaults to `config.reports_path`
     (`data/reports/`); tests pass `tmp_path` so a test run never writes
     into the real operator-controlled reports folder."""
+    with repo.session(db_path) as conn:
+        if repo.get_workspace(conn, workspace_id) is None:
+            raise EvaluationWorkspaceNotFoundError(
+                f"workspace {workspace_id!r} does not exist in the evaluation registry"
+            )
+
     rows = load_golden_set(golden_dir)
     run_at = repo.utc_now()
 

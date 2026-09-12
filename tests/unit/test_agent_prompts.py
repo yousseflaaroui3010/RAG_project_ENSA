@@ -13,6 +13,9 @@ does not contain, so those get a `tmp_path` registry.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from agent.prompts import (
@@ -77,6 +80,37 @@ def test_query_planner_requires_clarification_in_the_users_language():
     assert "original_question" in prompt.system
     assert "clarifying_question" in prompt.system
     assert "clarification_reply" in prompt.system
+
+
+def test_query_reword_narrows_institution_dropping_without_merging_distinct_rules():
+    prompt = load_prompt("query-reword")
+
+    assert prompt.version == "0.2.0"
+    assert "Keep the body or scheme" in prompt.system
+    assert "responsible party, deadline, eligibility, or procedure" in prompt.system
+    assert "DROP the name of the body or scheme" not in prompt.system
+
+
+def test_query_reword_keeps_a_flat_changelog_and_the_previous_version_for_rollback():
+    prompt_dir = Path(__file__).resolve().parents[2] / "prompts" / "query-reword"
+    current = (prompt_dir / "PROMPT.md").read_text(encoding="utf-8")
+    previous = (prompt_dir / "PROMPT.0.1.0.md").read_text(encoding="utf-8")
+
+    assert "changelog: |" not in current
+    assert "version: 0.1.0" in previous
+    assert "DROP the name of the body or scheme" not in previous
+
+
+def test_query_reword_020_has_two_golden_backtest_cases():
+    path = Path(__file__).resolve().parents[2] / "docs" / "evals" / "golden.jsonl"
+    cases = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+    matching = [
+        case
+        for case in cases
+        if case.get("prompt_id") == "query-reword" and case.get("version") == "0.2.0"
+    ]
+    assert len(matching) >= 2
 
 
 def test_the_grader_prompt_asks_for_the_two_words_the_parser_reads():

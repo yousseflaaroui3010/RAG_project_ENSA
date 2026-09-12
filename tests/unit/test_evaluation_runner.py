@@ -21,7 +21,12 @@ from config import get_settings
 from db import repo
 from evaluation.capture import ask_and_capture
 from evaluation.golden import GoldenRow, load_golden_set
-from evaluation.runner import run_evaluation
+from evaluation.runner import (
+    EvaluationWorkspaceNotFoundError,
+    QuestionResult,
+    _aggregate,
+    run_evaluation,
+)
 from evaluation.scoring import JudgeReplyError, LLMJudgeScorer, ScoreResult
 from tests.fake_chat import ScriptedChat
 from vector_store import SearchHit
@@ -105,7 +110,7 @@ def _ports(*, out_of_scope_answerable: bool = False, raise_on: str | None = None
 
 
 class FakeScorer:
-    def __init__(self, groundedness: float = 0.95, relevancy: float = 0.8):
+    def __init__(self, groundedness: float = 1.0, relevancy: float = 0.8):
         self.groundedness = groundedness
         self.relevancy = relevancy
         self.calls: list[tuple] = []
@@ -212,7 +217,7 @@ def test_a_clean_run_passes_all_three_gates_and_persists_both_places(tmp_path):
     report = run_evaluation(
         workspace_id=ws_id,
         ports=_ports(),
-        scorer=FakeScorer(groundedness=0.95, relevancy=0.8),
+        scorer=FakeScorer(groundedness=1.0, relevancy=0.8),
         golden_dir=tmp_path,
         db_path=db_path,
         reports_dir=tmp_path / "reports",
@@ -220,9 +225,10 @@ def test_a_clean_run_passes_all_three_gates_and_persists_both_places(tmp_path):
 
     assert report.refusal_pass == report.refusal_total == 1
     assert report.sources_pass == report.sources_total == 1
-    assert report.groundedness == pytest.approx(0.95)
+    assert report.groundedness == pytest.approx(1.0)
     assert report.relevancy == pytest.approx(0.8)
-    assert report.groundedness >= settings.eval_groundedness_threshold
+    assert report.grounded_pass == report.grounded_total == 1
+    assert report.grounded_pass / report.grounded_total >= settings.eval_groundedness_threshold
     assert report.passed is True
     assert report.failing_question_ids == ()
 
@@ -235,6 +241,9 @@ def test_a_clean_run_passes_all_three_gates_and_persists_both_places(tmp_path):
         "g-in-fake-001",
         "g-out-fake-001",
     }
+    saved = {r["question_id"]: r for r in on_disk["results"]}
+    assert saved["g-in-fake-001"]["answer_text"] == ANSWER_TEXT
+    assert saved["g-out-fake-001"]["answer_text"]
 
     # the database
     conn = repo.get_connection(db_path)
@@ -248,6 +257,94 @@ def test_a_clean_run_passes_all_three_gates_and_persists_both_places(tmp_path):
     ).fetchall()
     assert len(result_rows) == 2
     conn.close()
+
+
+def _result(
+    question_id: str,
+    *,
+    groundedness: float | None,
+    answer_kind: str = "answer",
+    kind: str = "in_scope",
+    sources_present: bool | None = True,
+) -> QuestionResult:
+    return QuestionResult(
+        question_id=question_id,
+        kind=kind,
+        answer_kind=answer_kind,
+        answer_text="saved output",
+        passed=groundedness == 1.0 if kind == "in_scope" else answer_kind == "refusal",
+        groundedness=groundedness,
+        relevancy=1.0 if groundedness is not None else None,
+        sources_present=sources_present,
+    )
+
+
+def test_g1_counts_fully_grounded_answers_instead_of_averaging_partial_scores():
+    results = tuple(
+        [_result(f"g-in-{number:03}", groundedness=1.0) for number in range(8)]
+        + [_result("g-in-008", groundedness=0.95), _result("g-in-009", groundedness=0.95)]
+        + [
+            _result(
+                "g-out-001",
+                kind="out_of_scope",
+                answer_kind="refusal",
+                groundedness=None,
+                sources_present=None,
+            )
+        ]
+    )
+
+    report = _aggregate("ws-1", "2026-09-10T00:00:00+00:00", results)
+
+    assert report.groundedness == pytest.approx(0.99)
+    assert (report.grounded_pass, report.grounded_total) == (8, 10)
+    assert report.passed is False
+
+
+def test_g1_passes_at_exactly_nine_fully_grounded_answers_out_of_ten():
+    results = tuple(
+        [_result(f"g-in-{number:03}", groundedness=1.0) for number in range(9)]
+        + [_result("g-in-009", groundedness=0.1)]
+        + [
+            _result(
+                "g-out-001",
+                kind="out_of_scope",
+                answer_kind="refusal",
+                groundedness=None,
+                sources_present=None,
+            )
+        ]
+    )
+
+    report = _aggregate("ws-1", "2026-09-10T00:00:00+00:00", results)
+
+    assert report.groundedness == pytest.approx(0.91)
+    assert (report.grounded_pass, report.grounded_total) == (9, 10)
+    assert report.passed is True
+
+
+def test_an_in_scope_refusal_fails_g1_without_becoming_a_g3_source_miss():
+    results = (
+        _result("g-in-001", groundedness=1.0),
+        _result(
+            "g-in-002",
+            groundedness=None,
+            answer_kind="refusal",
+            sources_present=None,
+        ),
+        _result(
+            "g-out-001",
+            kind="out_of_scope",
+            answer_kind="refusal",
+            groundedness=None,
+            sources_present=None,
+        ),
+    )
+
+    report = _aggregate("ws-1", "2026-09-10T00:00:00+00:00", results)
+
+    assert (report.sources_pass, report.sources_total) == (1, 1)
+    assert report.passed is False
 
 
 # --- evaluation.runner: failure path ----------------------------------------
@@ -268,6 +365,7 @@ def test_a_false_answer_on_an_out_of_scope_row_fails_g2_and_is_named(tmp_path):
 
     assert report.refusal_pass == 0
     assert report.refusal_total == 1
+    assert report.sources_pass == report.sources_total == 2
     assert report.passed is False
     assert "g-out-fake-001" in report.failing_question_ids
     # the in-scope row is unaffected
@@ -293,3 +391,23 @@ def test_a_question_that_raises_is_recorded_as_a_failing_row_not_a_crash(tmp_pat
     assert failed["g-in-fake-001"].passed is False
     assert "g-in-fake-001" in report.failing_question_ids
     assert report.passed is False
+
+
+def test_an_unknown_workspace_stops_before_any_question_or_score(tmp_path):
+    _write_golden(tmp_path)
+    db_path = tmp_path / "sanad.db"
+    repo.ensure_schema(db_path)
+    scorer = FakeScorer()
+
+    with pytest.raises(EvaluationWorkspaceNotFoundError, match="missing-workspace"):
+        run_evaluation(
+            workspace_id="missing-workspace",
+            ports=_ports(),
+            scorer=scorer,
+            golden_dir=tmp_path,
+            db_path=db_path,
+            reports_dir=tmp_path / "reports",
+        )
+
+    assert scorer.calls == []
+    assert not (tmp_path / "reports").exists()

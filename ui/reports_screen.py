@@ -50,6 +50,7 @@ from typing import Any
 
 from config import get_settings
 from db import repo
+from evaluation import FULLY_GROUNDED_SCORE
 from evaluation.golden import OUT_OF_SCOPE
 
 
@@ -146,28 +147,35 @@ class ScoreRow:
 def _score_rows(
     summary: ReportSummary,
     *,
+    grounded_pass: int | None,
+    grounded_total: int | None,
     sources_pass: int | None,
     sources_total: int | None,
 ) -> list[ScoreRow]:
-    """G1/G2/G3 (PRD section 3), recomputed from the same stored numbers
-    `evaluation.runner._aggregate` used to decide `passed` in the first
-    place -- that function is private to ST-32's module, so this is the
-    one other place this exact condition is written; see its own
-    docstring for the definition this must not drift from."""
+    """G1/G2/G3 (PRD section 3), shown from the stored pass counts."""
     threshold = get_settings().eval_groundedness_threshold
-    g1_pass = summary.groundedness is not None and summary.groundedness >= threshold
+    g1_pass = (
+        None
+        if grounded_total is None or grounded_pass is None
+        else (grounded_total > 0 and grounded_pass / grounded_total >= threshold)
+    )
     g2_pass = summary.refusal_total > 0 and summary.refusal_pass == summary.refusal_total
     g3_pass = (
         None
         if sources_total is None or sources_pass is None
-        else (sources_total > 0 and sources_pass == sources_total)
+        else sources_pass == sources_total
+    )
+    g1_value = (
+        "—"
+        if grounded_total is None
+        else f"{grounded_pass}/{grounded_total} fully grounded"
     )
     g3_value = "—" if sources_total is None else f"{sources_pass}/{sources_total}"
     g3_threshold = "—" if sources_total is None else f"{sources_total}/{sources_total}"
     return [
         ScoreRow(
             metric="G1 Groundedness",
-            value_label=summary.groundedness_label,
+            value_label=g1_value,
             threshold_label=f">= {_pct(threshold)}",
             passed=g1_pass,
         ),
@@ -209,6 +217,8 @@ def _kind_label(kind: str) -> str:
 @dataclass(frozen=True)
 class _FileReport:
     questions: list[QuestionRow]
+    grounded_pass: int
+    grounded_total: int
     sources_pass: int
     sources_total: int
 
@@ -224,10 +234,18 @@ def _report_from_file(report_path: str) -> _FileReport | None:
     try:
         data = json.loads(Path(report_path).read_text(encoding="utf-8"))
         rows = data["results"]
+        grounded_pass = data.get("grounded_pass")
+        grounded_total = data.get("grounded_total")
         sources_pass = data["sources_pass"]
         sources_total = data["sources_total"]
     except (OSError, json.JSONDecodeError, KeyError, TypeError):
         return None
+    if not isinstance(grounded_pass, int) or not isinstance(grounded_total, int):
+        in_scope = [r for r in rows if r.get("kind") != OUT_OF_SCOPE]
+        grounded_pass = sum(
+            r.get("groundedness") == FULLY_GROUNDED_SCORE for r in in_scope
+        )
+        grounded_total = len(in_scope)
     questions = [
         QuestionRow(
             question_id=r["question_id"],
@@ -242,7 +260,11 @@ def _report_from_file(report_path: str) -> _FileReport | None:
         for r in rows
     ]
     return _FileReport(
-        questions=questions, sources_pass=sources_pass, sources_total=sources_total
+        questions=questions,
+        grounded_pass=grounded_pass,
+        grounded_total=grounded_total,
+        sources_pass=sources_pass,
+        sources_total=sources_total,
     )
 
 
@@ -296,16 +318,29 @@ def report_detail(
             f"cannot be judged until it is restored."
         )
         questions = _questions_from_db(db_rows)
+        grounded_rows = [r for r in db_rows if r["kind"] != OUT_OF_SCOPE]
+        grounded_pass = sum(
+            r["groundedness"] == FULLY_GROUNDED_SCORE for r in grounded_rows
+        )
+        grounded_total = len(grounded_rows)
         sources_pass: int | None = None
         sources_total: int | None = None
     else:
         questions = file_report.questions
+        grounded_pass = file_report.grounded_pass
+        grounded_total = file_report.grounded_total
         sources_pass = file_report.sources_pass
         sources_total = file_report.sources_total
 
     return ReportDetail(
         summary=summary,
-        score_rows=_score_rows(summary, sources_pass=sources_pass, sources_total=sources_total),
+        score_rows=_score_rows(
+            summary,
+            grounded_pass=grounded_pass,
+            grounded_total=grounded_total,
+            sources_pass=sources_pass,
+            sources_total=sources_total,
+        ),
         questions=questions,
         file_error=file_error,
     )
