@@ -16,6 +16,9 @@
       {% endif %}
     </div>
     <p class="mono ws-detail__path">{{ selected.folder_path }}</p>
+    {% if capacity_warning %}
+      <p class="notice" role="status">{{ capacity_warning }}</p>
+    {% endif %}
 
     <details class="ws-detail__settings">
       <summary>Rename, legal flag, delete</summary>
@@ -52,7 +55,8 @@
         destructive action always costs a deliberate second step with
         scripting on or off.
       #}
-      <a class="btn btn--quiet" href="/workspaces/{{ selected.id }}/delete">Delete workspace…</a>
+      <a class="btn btn--quiet" href="/workspaces/{{ selected.id }}/delete"
+         data-delete-trigger>Delete workspace…</a>
     </details>
 
     <div class="ws-sync">
@@ -85,6 +89,11 @@
           </span>
         </div>
         <p class="muted">Started at {{ running.started_at }}.</p>
+        {% if sync_can_cancel %}
+          <form method="post" action="/workspaces/{{ selected.id }}/sync/cancel">
+            <button class="btn btn--quiet" type="submit">Cancel after current file</button>
+          </form>
+        {% endif %}
       {% else %}
         <form method="post" action="/workspaces/{{ selected.id }}/sync">
           <button class="btn btn--primary" type="submit">Run Sync</button>

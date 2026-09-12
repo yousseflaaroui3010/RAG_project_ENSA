@@ -19,6 +19,7 @@ race the route's own pre-check exists to catch (see app.py's
 
 from __future__ import annotations
 
+import threading
 import time
 
 from fastapi.testclient import TestClient
@@ -63,10 +64,8 @@ def _app(tmp_path, monkeypatch, *, client):
     install_fake_encoders(monkeypatch)
     db_path = tmp_path / "sanad.db"
     repo.ensure_schema(db_path)
-    # `client` already set means the app's own lifespan skips opening a
-    # second one on the same Qdrant path (ADR-04) -- see app.py's
-    # `lifespan`. None of these tests hit a `/chat/*` route, so no
-    # `ports_factory` is needed either.
+    # The injected client keeps these Sync tests on one embedded store.
+    # None of them hits Chat, so no ports factory is needed.
     runtime = Runtime(db_path=db_path, client=client)
     return TestClient(create_app(runtime)), runtime, db_path
 
@@ -191,6 +190,29 @@ def test_a_second_sync_is_blocked_with_a_message_and_the_first_keeps_going(
         assert still_running is not None and still_running["id"] == running_id
 
 
+def test_running_sync_offers_cancel_and_the_route_sets_its_event(tmp_path, monkeypatch):
+    with vector_store.open_store(tmp_path / "qdrant") as client:
+        app_client, runtime, db_path = _app(tmp_path, monkeypatch, client=client)
+        workspace = workspaces.create_workspace(
+            name="Cancelable", folder_path=str(tmp_path), db_path=db_path
+        )
+        with repo.session(db_path) as conn:
+            repo.insert_sync_run(
+                conn, workspace_id=workspace.id, started_at=repo.utc_now()
+            )
+        event = threading.Event()
+        runtime.sync_cancel_events[workspace.id] = event
+
+        page = app_client.get(f"/workspaces?ws={workspace.id}")
+        assert "Cancel after current file" in page.text
+
+        response = app_client.post(
+            f"/workspaces/{workspace.id}/sync/cancel", follow_redirects=False
+        )
+        assert response.status_code == 303
+        assert event.is_set()
+
+
 def test_folder_missing_shows_the_exact_path_and_a_fix_hint(tmp_path, monkeypatch):
     """PRD section 11 / UX spec 7.3: folder missing or unreadable."""
     with vector_store.open_store(tmp_path / "qdrant") as client:
@@ -209,6 +231,26 @@ def test_folder_missing_shows_the_exact_path_and_a_fix_hint(tmp_path, monkeypatc
         assert "Check the path" in page.text
 
 
+def test_workspace_over_file_soft_cap_shows_measured_size_and_split_hint(
+    tmp_path, monkeypatch
+):
+    with vector_store.open_store(tmp_path / "qdrant") as client:
+        app_client, _runtime, db_path = _app(tmp_path, monkeypatch, client=client)
+        folder = tmp_path / "large-workspace"
+        folder.mkdir()
+        for number in range(51):
+            (folder / f"file-{number:02}.txt").write_text("x", encoding="utf-8")
+        workspace = workspaces.create_workspace(
+            name="Large", folder_path=str(folder), db_path=db_path
+        )
+
+        page = app_client.get(f"/workspaces?ws={workspace.id}")
+
+        assert "51 files and 0 measured PDF pages" in page.text
+        assert "recommended limit of 50 files or 1500 pages" in page.text
+        assert "Split it into smaller workspace folders" in page.text
+
+
 def test_delete_confirm_page_states_derived_data_goes_and_files_stay(tmp_path, monkeypatch):
     with vector_store.open_store(tmp_path / "qdrant") as client:
         app_client, _runtime, db_path = _app(tmp_path, monkeypatch, client=client)
@@ -220,9 +262,36 @@ def test_delete_confirm_page_states_derived_data_goes_and_files_stay(tmp_path, m
         confirm = app_client.get(f"/workspaces/{workspace.id}/delete")
         assert str(folder) in confirm.text
         assert "does" in confirm.text and "not</strong> touch" in confirm.text
+        assert "<dialog" in confirm.text
+        assert "data-confirm-dialog" in confirm.text
+        assert "focus=delete" in confirm.text
+
+        workspaces_page = app_client.get(f"/workspaces?ws={workspace.id}")
+        assert "data-delete-trigger" in workspaces_page.text
 
         deleted = app_client.post(
             f"/workspaces/{workspace.id}/delete", follow_redirects=True
         )
         assert "HR" not in deleted.text or "Create your first workspace" in deleted.text
         assert workspaces.list_workspaces(db_path=db_path) == []
+
+
+def test_delete_reports_a_busy_index_instead_of_crashing(tmp_path, monkeypatch):
+    settings = vector_store.get_settings().model_copy(
+        update={"qdrant_storage_path": str(tmp_path / "qdrant")}
+    )
+    monkeypatch.setattr(vector_store, "get_settings", lambda: settings)
+    db_path = tmp_path / "sanad.db"
+    repo.ensure_schema(db_path)
+    runtime = Runtime(db_path=db_path, ports_factory=lambda: None)
+    app_client = TestClient(create_app(runtime), raise_server_exceptions=False)
+    workspace = workspaces.create_workspace(
+        name="Busy", folder_path=str(tmp_path), db_path=db_path
+    )
+
+    with vector_store.open_store():
+        response = app_client.post(f"/workspaces/{workspace.id}/delete")
+
+    assert response.status_code == 409
+    assert "cannot be deleted while its document index is in use" in response.text
+    assert workspaces.get_workspace(workspace_id=workspace.id, db_path=db_path)

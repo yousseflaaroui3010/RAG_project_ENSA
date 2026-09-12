@@ -1,8 +1,11 @@
 # ST-36 - first full evaluation run and tuning triage
 
-Workspace: `392ffb55-12a4-4c91-b2b2-25395c1a703f` ("HR (Moroccan labour law)").
-The measured workspace held the consolidated 2011 labour code, the 1972
-social-security dahir, and the CLEISS guide.
+Historical workspace: `392ffb55-12a4-4c91-b2b2-25395c1a703f` ("HR (Moroccan
+labour law)"). Corrected-run workspace:
+`14b81a1d-5af0-4fb9-a46a-493fad3eb650` ("RH - Code du travail"). Despite the
+earlier triage claim, the corrected-run workspace held only the consolidated
+2011 labour code and the 1972 social-security dahir. The CLEISS guide was
+missing from both the registry and the index.
 
 Golden set: v1, 40 in-scope questions and 20 out-of-scope questions.
 
@@ -145,6 +148,23 @@ refusals for questions the corpus answers. These are product failures, not
 judge noise. Their saved output is the refusal text; each needs its retrieval
 trace inspected and a focused regression before ST-41.
 
+ST-39 found a corpus setup failure behind three of the five refusals. The
+tracked CLEISS URL returned 404 because its permanent suffix was missing, so
+`g-in-028`, `g-in-039`, and `g-in-040` were evaluated without their named
+source. The same missing guide explains why answered row `g-in-030` explicitly
+said that none of its passages contained the requested child ages. The URL is
+corrected and pinned by a regression test. `scripts/corpus.py fetch` downloaded
+the 208,172-byte PDF, `verify` passed all three HR files, Sync added the guide,
+and `scripts/golden_grounding.py` reported all 60 rows grounded. A model-backed
+rerun is still required; local retrieval now ranks the guide passage first for
+`g-in-028`, first for `g-in-039`, and third for `g-in-040`.
+
+The other two refusals have a different mechanism. Free local probes already
+rank the answer passage within the configured top five: third for `g-in-017`
+and first for `g-in-033`. Their refusal therefore cannot be repaired by adding
+the guide or merely raising retrieval depth. The saved report has no trace, so
+a focused model-backed rerun must distinguish planner, grader, and writer.
+
 ### Eight answered rows below full grounding
 
 All eight answers had sources and scored 1.00 for relevancy:
@@ -166,6 +186,100 @@ cited source passages before deciding whether the product or judge is wrong.
 That work belongs to ST-39; changing the 1.00 definition to make this run green
 would weaken the signed gate.
 
+### ST-39 focused reruns and evaluator correction
+
+The human approved a maximum of 104 provider calls for focused diagnosis. The
+three diagnostic rounds plus two experimental prompt cases used 97 calls and
+produced no provider errors. Every one of the thirteen failed rows reached
+groundedness 1.00 in at least one focused run:
+
+| Focused run | Rows at 1.00 |
+|---|---|
+| Complete 13-row trace capture after restoring the guide | `g-in-013`, `017`, `027`, `028`, `033`, `037`, `039` |
+| Six-row run during the later-rejected answer-writer experiment | `g-in-024`, `030`, `040` |
+| Three-row run after preserving source labels for the judge | `g-in-025`, `026`, `038` |
+
+The traces separated two confirmed mechanisms from one rejected experiment:
+
+1. The missing CLEISS guide caused the guide-dependent failures described
+   above. Once indexed, those rows retrieved and answered from the guide.
+2. The evaluator dropped the file and section label before sending a passage
+   to its judge, even though the writer had seen that label and was explicitly
+   allowed to name it. This made valid claims such as "Article 34 of Dahir
+   1-72-184" look unsupported. A regression was watched fail on the missing
+   label. After the capture used the same labeled block as the writer,
+   `g-in-025`, `g-in-026`, and the otherwise unchanged `g-in-038` answer all
+   scored 1.00. The gate threshold and judge scoring rule were not changed.
+
+The answer-writer experiment was not kept. Although its two isolated cases
+passed, the first full run still made `g-in-024` add nearby caps and contribution
+rates, contrary to the experiment's own expected behavior. Cold review caught
+that mismatch. The prompt, its cases, its archive, and the shared loader change
+were removed; `prompts/answer-writer/PROMPT.md` is byte-for-byte back at 0.1.0
+with git object id `93a8a2935498fcd5a0cbd38f286455be8362c12e`.
+
+One focused `g-in-026` attempt still refused after a nearby death-benefit
+section passed the child-chunk grader but failed the full-section writer's
+stricter check. A later retry found Article 44 and scored 1.00. This is useful
+variation evidence, not a new official gate result.
+
+At that point these rows had passed across focused runs, not one frozen 60-row
+run. The persisted release result therefore still remained 27/40, and the
+approved diagnostic budget had only seven calls left.
+
+### Experimental full run - 2026-09-10T20:32:30Z
+
+The human separately approved a full run capped at 360 provider calls. The
+evaluator used 289 calls, produced no provider error, and persisted:
+
+`data/reports/14b81a1d-5af0-4fb9-a46a-493fad3eb650/2026-09-10T20-32-30.708771+00-00.json`
+
+| Gate | Result | Verdict |
+|---|---|---|
+| G1 fully grounded in-scope rows | **38/40 (95%)** | PASS; needs at least 36/40 |
+| G2 clear out-of-scope refusals | **20/20** | PASS |
+| G3 sources on actual answers | **38/38** | PASS |
+| Mean groundedness of scored answers | **1.0000** | supporting metric only |
+| Mean relevancy of scored answers | **1.0000** | supporting metric only |
+
+The separate release command read this exact report and printed `RELEASE GATE:
+PASS`. `g-in-026` and `g-in-033` were the two in-scope refusals. Both had
+answered at 1.00 in a focused run, so they remain measured model variation, not
+missing-corpus or evaluator defects. They are within the signed allowance of at
+most four non-fully-grounded in-scope rows; the threshold was not changed.
+
+This report is historical rather than current release evidence because it used
+the answer-writer experiment that cold review subsequently rejected.
+
+### Final-code full run - 2026-09-10T21:11:27Z
+
+After restoring answer-writer 0.1.0, the human approved one final run capped at
+360 calls. The official evaluator used 284 calls, produced no provider error,
+and persisted:
+
+`data/reports/14b81a1d-5af0-4fb9-a46a-493fad3eb650/2026-09-10T21-11-27.750175+00-00.json`
+
+| Gate | Result | Verdict |
+|---|---|---|
+| G1 fully grounded in-scope rows | **37/40 (92.5%)** | PASS; needs at least 36/40 |
+| G2 clear out-of-scope refusals | **20/20** | PASS |
+| G3 sources on actual answers | **37/37** | PASS |
+| Mean groundedness of scored answers | **1.0000** | supporting metric only |
+| Mean relevancy of scored answers | **1.0000** | supporting metric only |
+
+The separate release command read this exact report and printed `RELEASE GATE:
+PASS`. `g-in-014`, `g-in-017`, and `g-in-033` were the three in-scope refusals.
+Each has answered correctly in an earlier controlled or focused run, so the
+result records model variation rather than an absent source. Three misses remain
+within the signed allowance of four.
+
+Cold review then tested the release command itself with altered copies of the
+report. It had accepted partial, duplicate, relabeled, and boolean-score rows.
+The gate now requires every frozen ID exactly once and in order, verifies each
+row's frozen in/out category, and rejects booleans or out-of-range score values.
+Each new control was watched fail before the guard. The hardened command still
+prints `RELEASE GATE: PASS` for the genuine final report.
+
 ### Failed first attempt and new early guard
 
 The first corrected command used the old workspace ID from the historical
@@ -180,12 +294,17 @@ and exits before evaluation work.
 
 ## Current release position
 
-- Query-reword 0.2.0 passed both live prompt cases and fixes `g-in-014` in the
-  corrected run.
-- The ST-39 row replacement reaches G2 20/20.
-- G3 passes 35/35 under the signed answer-only denominator.
-- G1 fails 27/40. The five retrieval failures and eight scored answers above
-  are the ST-39 input before ST-41 can release.
-- The corrected evaluator, release command, and report screen passed the full
-  automated gate after the early-workspace guard was added: 735 passed and 2
-  skipped; lint passed.
+- Query-reword 0.2.0 passed both controlled prompt cases, but `g-in-014` remains
+  variable and was one of three refusals in the final run.
+- The final-code frozen run passes G1 at 37/40, G2 at 20/20, and G3 at 37/37.
+- `g-in-014`, `g-in-017`, and `g-in-033` remain in-scope refusals within G1's
+  signed 90% boundary; all three have also produced correct answers in earlier
+  controlled or focused runs.
+- The corrected evaluator, release command, and report screen pass the full
+  offline gate: 743 passed and 2 skipped; lint passed. The corpus check reports
+  60 rows grounded (40 in scope, 20 out).
+- The release command now rejects missing, extra, duplicate, or reordered
+  frozen rows before calculating the three gates. It still passes the final
+  report after confirming all 60 expected IDs are present once and in order.
+- ST-36's evaluation findings are closed. ST-39 as a whole still waits for
+  ST-38's manual QA findings because its story gate covers both inputs.

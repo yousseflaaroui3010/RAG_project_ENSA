@@ -2,9 +2,7 @@
 {% block title %}Reports — Sanad{% endblock %}
 
 {#
-  S3, Reports (UX spec 8, PRD F-08). Read-only over runs
-  `scripts/run_evaluation.py` already wrote -- see ui/reports_screen.py
-  for why this screen has no "run now" action and no Loading state.
+  S3, Reports (UX spec 8, PRD F-08). Read-only over evaluation runs.
 #}
 
 {% block main %}
@@ -22,7 +20,8 @@
     <p class="mono">uv run python scripts/run_evaluation.py --workspace-id &lt;id&gt;</p>
   </section>
 {% else %}
-  <section aria-label="Evaluation reports">
+  <section aria-label="Evaluation reports"
+           {% if busy %}data-report-refresh="true"{% endif %}>
     <h1>Reports</h1>
     <table class="file-table">
       <caption class="sources__title">Evaluation runs</caption>
@@ -41,16 +40,18 @@
           <tr>
             <td class="mono">
               <a href="/reports/{{ r.id }}"
+                 data-report-focus="run-{{ r.id }}"
                  aria-label="Open the {{ r.run_at }} report for {{ r.workspace_name }}">{{ r.run_at }}</a>
             </td>
             <td>{{ r.workspace_name }}</td>
-            <td class="mono">{{ r.groundedness_label }}</td>
-            <td class="mono">{{ r.refusal_pass }}/{{ r.refusal_total }}</td>
-            <td class="mono">{{ r.sources_pass }}/{{ r.sources_total }}</td>
+            <td class="mono" data-report-value="{{ r.id }}-grounded">{{ r.groundedness_label }}</td>
+            <td class="mono" data-report-value="{{ r.id }}-refusals">{{ r.refusal_pass }}/{{ r.refusal_total }}</td>
+            <td class="mono" data-report-value="{{ r.id }}-sources">{{ r.sources_label }}</td>
             <td>
-              <span class="status-pill">
-                <span class="status-dot status-dot--{{ 'positive' if r.passed else 'danger' }} status-dot--{{ 'filled-circle' if r.passed else 'filled-square' }}" aria-hidden="true"></span>
-                {{ 'Pass' if r.passed else 'Fail' }}
+              <span class="status-pill" data-eval-status="{{ r.id }}"
+                    {% if r.is_running %}role="status" aria-live="polite"{% endif %}>
+                <span class="status-dot status-dot--{{ r.status_tone }} status-dot--{{ r.status_shape }}" aria-hidden="true"></span>
+                <span data-status-label>{{ r.status_label }}</span>
               </span>
             </td>
           </tr>

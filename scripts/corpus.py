@@ -208,7 +208,8 @@ MANIFEST: tuple[Document, ...] = (
         file_name="cnss-regime-securite-sociale-cleiss.pdf",
         url=(
             "https://www.univ-tlse2.fr/medias/fichier/"
-            "maroc-regime-de-securite-sociale-pour-salaries-version-n2"
+            "maroc-regime-de-securite-sociale-pour-salaries-version-n2_"
+            "1418995412210-pdf"
         ),
         title="Le régime marocain de sécurité sociale (salariés)",
         publisher=(

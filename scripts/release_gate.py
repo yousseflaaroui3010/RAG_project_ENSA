@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import get_settings  # noqa: E402
-from evaluation.gate import evaluate_report  # noqa: E402
+from evaluation.gate import InvalidReportError, evaluate_report  # noqa: E402
 
 
 def _latest_report(workspace_id: str, reports_dir: Path | None = None) -> Path:
@@ -64,8 +64,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         verdict = evaluate_report(report)
-    except KeyError as exc:
-        print(f"cannot run the release gate: report is missing field {exc}")
+    except (KeyError, InvalidReportError) as exc:
+        detail = f"report is missing field {exc}" if isinstance(exc, KeyError) else str(exc)
+        print(f"cannot run the release gate: {detail}")
         return 1
 
     threshold = get_settings().eval_groundedness_threshold

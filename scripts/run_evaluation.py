@@ -38,7 +38,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import vector_store  # noqa: E402
 from agent.chat import ChatUnavailableError, build_chat_model  # noqa: E402
-from evaluation.runner import EvaluationWorkspaceNotFoundError, run_evaluation  # noqa: E402
+from evaluation.runner import (  # noqa: E402
+    EvaluationPartialError,
+    EvaluationWorkspaceNotFoundError,
+    run_evaluation,
+)
 from evaluation.scoring import build_llm_judge_scorer  # noqa: E402
 from ui.ports import build_ports  # noqa: E402
 
@@ -66,6 +70,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
     except EvaluationWorkspaceNotFoundError as exc:
         print(f"cannot run the evaluation: {exc}")
+        return 1
+    except EvaluationPartialError as exc:
+        report = exc.report
+        print(f"partial report written to {report.report_path}")
+        print(str(exc))
         return 1
 
     print(f"report written to {report.report_path}")

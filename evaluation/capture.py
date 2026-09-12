@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agent.answering import section_blocks
 from agent.graph import ask
 from agent.ports import AgentPorts
 from agent.state import Answer
@@ -34,11 +35,13 @@ from ui.runs import Run
 class Captured:
     """One golden question's outcome, with what the writer actually read.
 
-    `contexts` is the deduplicated parent-section TEXT behind
-    `Run.reading.cited`, in first-seen order -- what RAGAS calls
-    "retrieved contexts". Empty on a refusal or a clarification: neither
-    reaches `write_answer`, so `Run.reading` stays at its default (see
-    `ui/runs.py::Reading`)."""
+    `contexts` is the deduplicated, labeled parent-section text behind
+    `Run.reading.cited`, in first-seen order. The labels matter: the writer
+    can name a file or article because it sees those labels, so a judge that
+    receives only the section body would wrongly call that attribution
+    unsupported. Empty on a clarification or a refusal reached before the
+    writer. A writer-level refusal retains its labeled contexts, although
+    the runner does not score refusal text. See `ui/runs.py::Reading`."""
 
     answer: Answer | None
     error: BaseException | None
@@ -67,10 +70,12 @@ def ask_and_capture(
     except BaseException as exc:  # noqa: BLE001 -- see ui/runs.py::Run._work
         return Captured(answer=None, error=exc, contexts=())
 
-    parents = run.reading.parents
-    seen: dict[str, None] = {}
-    for hit in run.reading.cited:
-        if hit.parent_id in parents:
-            seen.setdefault(hit.parent_id, None)
-    contexts = tuple(parents[parent_id] for parent_id in seen)
+    try:
+        contexts = (
+            section_blocks(run.reading.cited, run.reading.parents)
+            if run.reading.cited
+            else ()
+        )
+    except BaseException as exc:  # noqa: BLE001 -- one bad row must not stop the batch
+        return Captured(answer=None, error=exc, contexts=())
     return Captured(answer=answer, error=None, contexts=contexts)

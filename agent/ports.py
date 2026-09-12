@@ -70,13 +70,10 @@ Rewrite = Callable[[str, str], Sequence[str]]
 # encoding, so nothing on this side of the seam ever holds a vector.
 #
 # WHERE THE QDRANT CLIENT COMES FROM, because this signature has no room
-# for one and `vector_store.search` takes it as its first argument: the
-# client is CLOSED OVER when the port is built, from one `open_store` for
-# the process. Do not open one inside the port. ADR-04 is single-process
-# for a reason, and `vector_store.open_store` raises on a second client
-# for the same storage path -- with an error about a lock folder that
-# reads exactly like stale state somebody should delete, which is how
-# that mistake usually ends.
+# for one and `vector_store.search` takes it as its first argument: batch
+# commands close over their one client, while the app holds one for the
+# whole question. Runtime serializes app-side openings;
+# this keeps Reports usable while the separate evaluator owns the store.
 Retrieve = Callable[[str, str], Sequence[SearchHit]]
 
 # (question, passages) -> do these passages actually address it? (F-04)

@@ -352,6 +352,18 @@ def index() -> int:
                 )
             print(f"  restored, fingerprint unchanged "
                   f"({after.hex_digest[:16]})", flush=True)
+            restored = sync.sync_workspace(
+                workspace_id=hr.id,
+                db_path=DB,
+                client=client,
+                parent_base_path=PARENTS,
+            )
+            if restored.counts[sync.SyncResult.CHANGED] != 1:
+                raise RuntimeError(
+                    "the source file was restored, but the measurement index "
+                    "did not replace its probed copy"
+                )
+            print("  restored copy re-indexed", flush=True)
 
     measured["notes"].append(
         "The cost of RE-ATTEMPTING a failed or skipped file on every sync is "

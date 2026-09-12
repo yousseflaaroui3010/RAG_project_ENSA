@@ -443,6 +443,23 @@ def test_the_lock_is_released_when_the_store_closes(tmp_path, encoders):
         assert client.collection_exists(HR_COLLECTION)
 
 
+def test_another_process_lock_is_translated_to_the_same_clear_error(
+    tmp_path, monkeypatch
+):
+    import qdrant_client
+
+    def externally_locked(*args, **kwargs):
+        raise RuntimeError(
+            "Storage folder is already accessed by another instance of Qdrant client"
+        )
+
+    monkeypatch.setattr(qdrant_client, "QdrantClient", externally_locked)
+
+    with pytest.raises(vector_store.StoreAlreadyOpenError, match="ADR-04"):
+        with vector_store.open_store(tmp_path / "qdrant"):
+            pass
+
+
 def test_the_lock_is_released_even_when_the_body_raises(tmp_path, encoders):
     path = tmp_path / "qdrant"
     with pytest.raises(RuntimeError, match="deliberate"):

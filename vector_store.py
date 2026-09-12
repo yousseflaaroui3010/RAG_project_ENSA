@@ -237,6 +237,15 @@ def open_store(storage_path: str | Path | None = None) -> Iterator[Any]:
     try:
         Path(path).mkdir(parents=True, exist_ok=True)
         client = QdrantClient(path=path)
+    except RuntimeError as exc:
+        _open_paths.discard(resolved)
+        if "already accessed by another instance" in str(exc).lower():
+            raise StoreAlreadyOpenError(
+                f"a Qdrant client is already open on {resolved}. Embedded Qdrant "
+                "is single-process by design (ADR-04): wait for the other "
+                "operation to finish."
+            ) from None
+        raise
     except BaseException:
         _open_paths.discard(resolved)
         raise

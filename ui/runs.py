@@ -51,11 +51,17 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from agent.graph import ask
 from agent.ports import AgentPorts
 from agent.querying import ClarificationContext, clarified_question
 from agent.state import Answer, Turn
 from vector_store import SearchHit
+
+
+def ask(*args: Any, **kwargs: Any) -> Answer:
+    """Load the answer graph only when a question actually starts."""
+    from agent.graph import ask as graph_ask
+
+    return graph_ask(*args, **kwargs)
 
 
 class Stage(StrEnum):
@@ -373,6 +379,10 @@ class Run:
                 self._answer = answer
             self._done = True
 
+    def execute(self, ports: AgentPorts) -> None:
+        """Run synchronously for callers such as the HTTP API."""
+        self._work(ports)
+
     def start(self, ports: AgentPorts) -> None:
         """Run the question on a worker thread and return immediately.
 
@@ -380,6 +390,25 @@ class Run:
         that may take thirty seconds."""
         threading.Thread(
             target=self._work, args=(ports,), daemon=True, name="sanad-ask"
+        ).start()
+
+    def _work_with(self, ports_context: Any) -> None:
+        try:
+            with ports_context as ports:
+                self._work(ports)
+        except BaseException as exc:  # noqa: BLE001 -- same worker rule as _work
+            with self._lock:
+                self._answer = None
+                self._error = exc
+                self._done = True
+
+    def start_with(self, ports_context: Any) -> None:
+        """Run with resources held from the first port through settlement."""
+        threading.Thread(
+            target=self._work_with,
+            args=(ports_context,),
+            daemon=True,
+            name="sanad-ask",
         ).start()
 
 
