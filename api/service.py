@@ -4,7 +4,6 @@ import dataclasses
 import threading
 from typing import Any
 
-import recovery
 import sync
 import workspaces
 from db import repo
@@ -96,33 +95,11 @@ class ApiService:
             )
 
     def start_sync(self, workspace_id: str) -> str:
-        claim = sync.claim_sync(workspace_id=workspace_id, db_path=self.runtime.db_path)
-        cancel_event = threading.Event()
-        self.runtime.sync_cancel_events[workspace_id] = cancel_event
-
-        def work() -> None:
-            try:
-                with self.runtime.store() as client:
-                    report = sync.sync_workspace(
-                        workspace_id=workspace_id,
-                        db_path=self.runtime.db_path,
-                        client=client,
-                        cancel_requested=cancel_event.is_set,
-                        claim=claim,
-                    )
-                self.runtime.last_sync_run_id[workspace_id] = report.sync_run_id
-            except Exception as exc:
-                self.runtime.sync_errors[workspace_id] = str(exc)
-                with repo.session(self.runtime.db_path) as conn:
-                    recovery.finish_abandoned_sync_run(
-                        conn, claim.sync_run_id, finished_at=repo.utc_now()
-                    )
-            finally:
-                if self.runtime.sync_cancel_events.get(workspace_id) is cancel_event:
-                    self.runtime.sync_cancel_events.pop(workspace_id, None)
-
-        threading.Thread(target=work, daemon=True, name="sanad-api-sync").start()
-        return claim.sync_run_id
+        """The screen's own starter (`Runtime.start_sync`), so the API and
+        the Sync button claim, run, log, cancel and clean up one way. A
+        second copy lived here and had already drifted: it logged nothing
+        and left a stale error banner on the screen (rule-5 review)."""
+        return self.runtime.start_sync(workspace_id).sync_run_id
 
     @staticmethod
     def sync_summary(row: Any) -> dict[str, Any]:

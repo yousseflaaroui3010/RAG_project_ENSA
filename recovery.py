@@ -78,7 +78,6 @@ def recover_abandoned_runs(
     recovered_sync = 0
     recovered_eval = 0
     finished_at = repo.utc_now()
-    index_busy = _index_is_open_elsewhere(qdrant_storage_path)
     with repo.session(db_path) as conn:
         sync_rows = conn.execute(
             "SELECT id FROM sync_run WHERE finished_at IS NULL"
@@ -88,10 +87,13 @@ def recover_abandoned_runs(
                 conn, run["id"], finished_at=finished_at
             )
 
-        if not index_busy:
-            eval_rows = conn.execute(
-                "SELECT id, question_total FROM eval_run WHERE status = 'running'"
-            ).fetchall()
+        eval_rows = conn.execute(
+            "SELECT id, question_total FROM eval_run WHERE status = 'running'"
+        ).fetchall()
+        # The index is probed ONLY when a Running evaluation exists: opening
+        # embedded Qdrant loads every collection into memory, and doing it
+        # on every start would cost the fast boot this app was tuned for.
+        if eval_rows and not _index_is_open_elsewhere(qdrant_storage_path):
             for run in eval_rows:
                 completed = repo.eval_run_progress(conn, run["id"])
                 repo.update_eval_run(

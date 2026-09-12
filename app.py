@@ -44,6 +44,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import recovery
 import sync
 import vector_store
 import workspaces
@@ -565,6 +566,17 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         # operator ever sees -- failing with a stack trace. `ensure_schema`
         # is idempotent, so an existing database is untouched.
         repo.ensure_schema(runtime.db_path)
+        # A Sync or evaluation stranded by a killed process would otherwise
+        # read Running forever (and a stranded Sync blocks every later one).
+        # Recovery leaves an evaluation alone while another process still
+        # holds the index -- that is the live command-line evaluator.
+        recovered = recovery.recover_abandoned_runs(db_path=runtime.db_path)
+        if recovered.sync_runs or recovered.evaluation_runs:
+            logger.warning(
+                "recovered %s abandoned sync run(s) and %s evaluation run(s)",
+                recovered.sync_runs,
+                recovered.evaluation_runs,
+            )
 
         # Reports and workspace metadata do not need Qdrant. Keeping the
         # embedded store closed here lets the separate evaluation command

@@ -87,3 +87,49 @@ def test_startup_recovery_leaves_a_live_evaluation_running_when_the_index_is_bus
         eval_run = repo.get_eval_run(conn, eval_id)
         assert eval_run["status"] == "partial"
         assert eval_run["error"] == ABANDONED_ERROR
+
+
+def test_recovery_never_opens_the_index_when_no_evaluation_is_running(
+    tmp_path, monkeypatch
+):
+    """Opening embedded Qdrant loads every collection into memory. With no
+    Running evaluation there is nothing to decide, so start-up must not pay
+    for it -- and must not touch the real data/qdrant from a test."""
+    db_path = tmp_path / "sanad.db"
+    with repo.session(db_path) as conn:
+        workspace_id = repo.create_workspace(
+            conn, name="Quiet", folder_path=str(tmp_path)
+        )
+        repo.insert_sync_run(
+            conn, workspace_id=workspace_id, started_at=repo.utc_now()
+        )
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("recovery opened the index with no running evaluation")
+
+    monkeypatch.setattr(vector_store, "open_store", forbidden)
+
+    result = recover_abandoned_runs(db_path=db_path)
+
+    assert result == RecoveryResult(sync_runs=1, evaluation_runs=0)
+
+
+def test_starting_the_app_settles_a_sync_a_killed_process_left_running(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app import Runtime, create_app
+
+    db_path = tmp_path / "sanad.db"
+    with repo.session(db_path) as conn:
+        workspace_id = repo.create_workspace(
+            conn, name="Stranded", folder_path=str(tmp_path)
+        )
+        repo.insert_sync_run(
+            conn, workspace_id=workspace_id, started_at=repo.utc_now()
+        )
+
+    with TestClient(create_app(Runtime(db_path=db_path))):
+        pass
+
+    with repo.session(db_path) as conn:
+        assert repo.get_running_sync_run(conn, workspace_id) is None
