@@ -1,0 +1,80 @@
+# Sanad demo script (ST-30 v0, draft for ST-44 v1)
+
+Status: DRAFT, 2026-09-12. Written from the code and the measured numbers,
+not yet rehearsed. ST-30 is MB's story and ST-44 is YL's: both owners
+review, then rehearse it (see `rehearsal-log.md`) before calling it v1.
+
+Target length: **7 minutes of demo** inside a 15-minute defense. Ten steps.
+Each step lists what to do, what the jury should see, what to say in one
+line, and what to do if it goes wrong.
+
+## Before the jury walks in (T-20 minutes)
+
+These are not optional. Each one removes a failure we have already seen.
+
+1. Close every other heavy program. Speed numbers were measured on a quiet
+   machine; a busy one is visibly slower.
+2. Check the model key works: the evaluation ran on `gemini-3.6-flash`
+   in cloud mode. Cloud mode needs internet. **Offline (strict-local)
+   mode is not set up** (Ollama was declined); see "Open decision" below.
+3. Start the app from the repository folder:
+
+   ```
+   uv run python app.py
+   ```
+
+   Then open `http://127.0.0.1:8000` in the browser.
+4. Confirm on the Workspaces screen that both workspaces show as synced:
+   **HR** (legal flag on, 3 documents, 225 pages) and **Manuals**
+   (10 documents). Indexing HR from scratch takes about 14 minutes, so it
+   must already be done.
+5. **Ask one warm-up question** in HR (any sample question). The first
+   question after a start loads the search models and took 23 s when
+   measured; the second took seconds. Never let the jury see the cold one.
+6. Click **New conversation** so the screen starts clean.
+7. Have the recorded fallback video open in a second window (ST-45). If a
+   step fails twice, switch to the video at that step and say so plainly.
+
+## The ten steps
+
+| # | Do | Jury sees | Say (one line) | If it fails |
+|---|---|---|---|---|
+| 1 | Open **Workspaces** | Two workspaces, HR marked Legal, per-file report | "Each workspace is a folder of documents; nothing leaves this machine except the question sent to the model." | Refresh once |
+| 2 | Select HR, press **Sync** | Report: 3 unchanged, in about 0.1 s | "Only new or changed files are re-read, so a second Sync is instant." | Skip; say the number |
+| 3 | Go to **Chat** (HR). Ask: *Quelle est la durée de la période d'essai pour un cadre en contrat à durée indéterminée ?* | Stage hints, then an answer from Article 14, source cards, legal disclaimer line | "Every answer names its sources, and legal workspaces always carry the disclaimer." | Ask it again; then use the video |
+| 4 | Press **Tab** to a source card, press **Enter** | Passage viewer with the exact excerpt marked; **Esc** closes and focus returns | "You can check the exact passage, with the keyboard only." | Click with the mouse |
+| 5 | Ask: *À quel âge et avec combien de jours de cotisation peut-on obtenir une pension de vieillesse de la CNSS ?* | Answer citing Article 53 of the social-security dahir | "Different document, same promise: sources on every answer." | Skip to step 6 |
+| 6 | Ask: *Quelles sont les règles applicables au télétravail ?* | Honest refusal, the searches it tried, no sources | "The documents do not cover remote work, so Sanad says so instead of inventing." | If it answers, say it is a known risk and show the Reports numbers |
+| 7 | Ask: *Quel est le délai ?* | One clarifying question (which deadline?) | "An ambiguous question gets exactly one clarifying question." | Model-driven: if it answers instead, move on; do not retry twice |
+| 8 | Switch the workspace selector to **Manuals**. Ask: *Comment définir une classe en Python ?* | Answer from `tutorial-classes.txt` only | "Workspaces are isolated: HR documents can never answer here." | Skip |
+| 9 | Open **Reports**, then the latest run | G1 37/40, G2 20/20, G3 37/37, pass/fail per question; **Export** Markdown | "This is the release gate: 60 frozen questions, and the version only ships if all three pass." | Show `docs/evals/` export instead |
+| 10 | Open `http://127.0.0.1:8000/docs` | The 9-endpoint API contract | "The same engine is available to other programs through a signed contract." | Skip |
+
+Optional, only if time remains: add `?dir=rtl` to the Chat address to show
+the right-to-left layout preview, and press **Dark theme** in the header.
+
+## Close (30 seconds): say the limits before the jury asks
+
+- Document intake is slower than our target: **731.6 s per 200 pages
+  against a 600 s goal** (G5, measured and reported, per the release rule).
+- Answers need the cloud model today; offline mode is designed but not
+  rehearsed.
+- Scanned PDFs are skipped with a reason; there is no text recognition (OCR).
+- A human screen-reader pass is still pending (6 manual QA rows).
+
+## Open decision that changes this script
+
+ST-44's exit gate asks for **one full offline run with the network
+disabled** (ADR-06 strict-local mode). That needs a local model (Ollama),
+which was declined. Either install it and rehearse offline, or record a
+written ruling that the defense runs in cloud mode. Until then, step 0.2
+above stays cloud-only.
+
+## Numbers used above, and where they come from
+
+| Claim | Number | Source |
+|---|---|---|
+| Release gate | G1 37/40, G2 20/20, G3 37/37 | `data/reports/14b81a1d-.../2026-09-10T21-11-27.750175+00-00.json`, re-read by `scripts/release_gate.py` |
+| Answer speed (G4) | median 8.3 s, slowest 18.1 s, 20 questions; first question 23.2 s | `data/spike-st18/traces.json` |
+| Intake speed (G5) | 823 s for 225 pages = 731.6 s per 200 pages; unchanged re-Sync 0.13 s | `data/spike-st18/results.json` |
+| Corpus | HR: 3 files, 225 pages; Manuals: 10 files | same |
