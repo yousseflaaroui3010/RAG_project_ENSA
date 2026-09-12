@@ -28,6 +28,7 @@ import contextlib
 import logging
 import sqlite3
 import threading
+import time
 import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -44,6 +45,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import embeddings
 import recovery
 import sync
 import vector_store
@@ -98,6 +100,12 @@ class Runtime:
 
     ports_factory: Any = None
     db_path: str | Path | None = None
+    # ST-39 warm-up. Off by default so a test that builds a `Runtime`
+    # directly -- which is every test in this codebase -- never spends a
+    # real model download by accident. `main()` is the only place that
+    # turns it on, because that is the only caller building the real
+    # server rather than a test double.
+    warm_up: bool = False
     conversations: dict[str, Conversation] = field(default_factory=dict)
     active_workspace_id: str | None = None
     client: Any = None
@@ -552,6 +560,45 @@ async def _form(request: Request) -> dict[str, str]:
     return dict(parse_qsl(body, keep_blank_values=True, encoding="utf-8"))
 
 
+# Any short, non-blank string works: warm-up cares about walking the same
+# loading path a question uses, not about the text itself, and the E5 and
+# BM25 models are both loaded regardless of what string triggers them.
+_WARM_UP_TEXT = "warm-up"
+
+
+def _warm_up_models() -> None:
+    """Load both search encoders once, off the request path.
+
+    THE LIVE RUN, 2026-08-30 (BUILD-STATE): a fresh process's first
+    question paid 23s loading `sentence-transformers` (dense E5) and
+    `fastembed` (sparse BM25) with the server serving nothing else
+    meanwhile. Calling the exact PUBLIC functions a real question goes
+    through -- `embeddings.embed_query` and `embeddings.embed_sparse_query`,
+    the same two `vector_store.hybrid_search` calls -- walks the identical
+    `_load_model` / `_load_sparse_model` path, so the models a question
+    finds are the ones this already loaded, not a second copy.
+
+    Runs on its own daemon thread (see the lifespan below): this function
+    itself blocks for the length of the load, and it must not hold up
+    start-up or any request being served while it works.
+
+    A FAILURE HERE IS LOGGED AND SWALLOWED, NEVER RAISED. This is a
+    latency optimization, not a required step -- the first real question
+    loads the model itself exactly as it did before this existed, so a
+    warm-up that cannot finish (no network for a first-ever download, a
+    corrupt cache, anything) must not take the server down with it."""
+    started = time.monotonic()
+    try:
+        embeddings.embed_query(_WARM_UP_TEXT)
+        embeddings.embed_sparse_query(_WARM_UP_TEXT)
+    except Exception:  # noqa: BLE001 -- warm-up must never crash the server
+        logger.exception(
+            "model warm-up failed; the first question will load it instead"
+        )
+        return
+    logger.info("model warm-up ready in %.1fs", time.monotonic() - started)
+
+
 def create_app(runtime: Runtime | None = None) -> FastAPI:
     """Build the host. One function so tests get a real app, not a mock."""
     runtime = runtime or Runtime()
@@ -577,6 +624,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 recovered.sync_runs,
                 recovered.evaluation_runs,
             )
+
+        # ST-39: on the real server only (see `Runtime.warm_up`), load both
+        # search encoders on a background thread now rather than paying for
+        # it on the first real question. Daemon and fire-and-forget --
+        # nothing here waits on it, which is what keeps start-up at ~2s.
+        if runtime.warm_up:
+            threading.Thread(
+                target=_warm_up_models, daemon=True, name="sanad-warmup"
+            ).start()
 
         # Reports and workspace metadata do not need Qdrant. Keeping the
         # embedded store closed here lets the separate evaluation command
@@ -980,9 +1036,15 @@ app = create_app()
 
 def main() -> None:
     settings = get_settings()
+    # ST-39: a fresh `Runtime` with warm-up ON, rather than reusing the
+    # module-level `app` above -- that one keeps `warm_up=False` so any
+    # other importer of this module (every test in this codebase builds its
+    # own `Runtime` directly) never downloads a model by accident. Only the
+    # real server built here does.
+    real_app = create_app(Runtime(warm_up=True))
     # 127.0.0.1 only (ADR-13, LD-07): single user, no authentication, and
     # nothing about this server is safe to expose on a network.
-    uvicorn.run(app, host=settings.server_host, port=settings.server_port)
+    uvicorn.run(real_app, host=settings.server_host, port=settings.server_port)
 
 
 if __name__ == "__main__":
