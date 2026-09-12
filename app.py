@@ -50,12 +50,14 @@ import recovery
 import sync
 import vector_store
 import workspaces
+from agent.chat import ChatUnavailableError
 from agent.ports import AgentPorts
 from api.routes import build_router
 from api.service import ApiService
 from config import get_settings
 from db import repo
 from ui import reports_screen, screen, workspaces_screen
+from ui.access_gate import AccessGate
 from ui.conversation import Conversation, MessageKind
 from ui.ports import build_default_ports
 from ui.runs import Run
@@ -81,6 +83,19 @@ SEE_OTHER = 303
 # room for percent-escaped multibyte French and every other field on the
 # page many times over. A body past this is dropped rather than buffered.
 MAX_FORM_BYTES = 64 * 1024
+
+# ST-05 (Railway hosting). The one sentence both refusals show, written
+# once. Sync and Chat decline for the SAME reason, so two hand-written
+# strings would be two things free to drift apart -- and the operator
+# would be told two different stories about one limit. See
+# `config.evidence_only` for why the limit exists and why it is not a bug
+# to be worked around.
+EVIDENCE_ONLY_MESSAGE = (
+    "This published instance is read-only: it shows evaluation reports and "
+    "workspace details, but cannot answer questions or run a Sync. Both need "
+    "the embedding model, which is larger than this container's memory "
+    "limit. Run Sanad locally to ask questions or index documents."
+)
 
 
 @dataclass
@@ -136,6 +151,18 @@ class Runtime:
 
     @contextlib.contextmanager
     def ports(self) -> Iterator[AgentPorts]:
+        # ST-05 evidence-only mode. Checked HERE, before the ports_factory
+        # branch a test double uses, because this is the one seam both the
+        # chat screen (`_start` -> `start_with`) and the `/api/v1/ask`
+        # route (`api.service.ApiService.ask`) call: raising the SAME
+        # exception type a missing model key raises means one error path,
+        # one template, and one set of tests, not a second way for either
+        # caller to say no. `_work_with` (ui/runs.py) and `ApiService.ask`
+        # both already catch whatever entering this context manager raises
+        # and settle the run as failed -- UX spec 11's "answering service
+        # unreachable" panel, and 503 MODEL_UNREACHABLE over the API.
+        if get_settings().evidence_only:
+            raise ChatUnavailableError(EVIDENCE_ONLY_MESSAGE)
         if self.ports_factory is not None:
             yield self.ports_factory()
             return
@@ -198,7 +225,16 @@ class Runtime:
 
         A claim is a promise to finish the run row. `sync_workspace`
         keeps it once it starts; `_finish_unstarted` keeps it when the
-        index cannot even be opened, or no run would ever start again."""
+        index cannot even be opened, or no run would ever start again.
+
+        Raises `sync.EvidenceOnlyError` FIRST, before any claim, when
+        `config.evidence_only` is on -- the one seam both the S2 Sync
+        button (`start_sync_route`) and the `/api/v1` startSync route
+        (`api.service.ApiService.start_sync`) call, so neither has to
+        re-check the setting itself and a caller cannot race a claim in
+        ahead of the refusal."""
+        if get_settings().evidence_only:
+            raise sync.EvidenceOnlyError(EVIDENCE_ONLY_MESSAGE)
         claim = sync.claim_sync(workspace_id=workspace_id, db_path=self.db_path)
         self.sync_errors.pop(workspace_id, None)
         cancel_event = threading.Event()
@@ -641,6 +677,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     app = FastAPI(title="Sanad", lifespan=lifespan)
     app.state.runtime = runtime
+
+    # ST-05 (Railway hosting). Installed ALWAYS, active only when a
+    # password is configured. Adding it unconditionally is the point: a
+    # gate you have to remember to switch on at deploy time is a gate that
+    # gets forgotten exactly once. With `access_password` empty -- the
+    # default, and what every test and every laptop gets -- this
+    # middleware passes every request straight through, so ADR-13's
+    # local-first behaviour is unchanged.
+    app.add_middleware(AccessGate, password=get_settings().access_password)
+
     api_service = ApiService(runtime)
     app.include_router(build_router(api_service, version=APP_VERSION))
 
@@ -928,6 +974,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         clicked sees it; see that method for why the claim moved here."""
         try:
             runtime.start_sync(workspace_id)
+        except sync.EvidenceOnlyError as exc:
+            # Reuses `sync_errors`, the channel the S2 panel already
+            # renders (PRD section 11's "Sync could not run" box), so this
+            # needs no new template and no new state -- the operator sees
+            # the same box a missing folder produces, carrying a sentence
+            # that explains the limit instead of a path.
+            runtime.sync_errors[workspace_id] = str(exc)
+            return RedirectResponse(
+                f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER
+            )
         except sync.SyncInProgressError:
             return RedirectResponse(
                 f"/workspaces?ws={workspace_id}&sync_blocked=1", status_code=SEE_OTHER
@@ -1041,7 +1097,15 @@ def main() -> None:
     # other importer of this module (every test in this codebase builds its
     # own `Runtime` directly) never downloads a model by accident. Only the
     # real server built here does.
-    real_app = create_app(Runtime(warm_up=True))
+    #
+    # ST-05: EXCEPT in evidence-only mode. Warm-up loads the full
+    # embedding model on a background thread, and `config.evidence_only`
+    # exists precisely because that model does not fit this container's
+    # memory limit -- warming it up would still spend the memory and still
+    # get the process killed, just before the first question does instead
+    # of because of it. `Runtime.ports()` already refuses every question
+    # in this mode, so there is nothing for a warm model to serve.
+    real_app = create_app(Runtime(warm_up=not settings.evidence_only))
     # 127.0.0.1 only (ADR-13, LD-07): single user, no authentication, and
     # nothing about this server is safe to expose on a network.
     uvicorn.run(real_app, host=settings.server_host, port=settings.server_port)

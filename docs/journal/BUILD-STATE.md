@@ -1,5 +1,104 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
+## STATE AT 2026-09-12, `feat/S4-ST-05-railway-hosting` (read this block first; older headers below are history)
+
+**WHY THIS BRANCH EXISTS.** Every Railway build died at "scheduling build"
+starting 2026-09-12: main's Dockerfile has a `VOLUME ["/app/data"]` line
+(Railway's builder rejects `VOLUME` outright, "use Railway Volumes") and
+an anonymous `RUN --mount=type=cache` (Railway rejects that too, "missing
+an id argument"). This branch ports MB's proven Railway build
+(`origin/feat/S1-ST-05-docker-deploy`, PR #86) onto main's structure
+rather than merging #86 directly, per the 2026-09-12 ST-05 DECISIONS row
+("worth porting from #86 later: its CPU-only PyTorch build and the
+build-time check on dropped GPU rows") -- and adds the password gate and
+evidence-only mode #86 also carried, since a successful deploy of main
+WITHOUT them would publish an open instance spending the model key.
+
+**WHAT CHANGED, by file.** `config.py` / `.env.example`: `access_password`
+(default "", ADR-13 unchanged) and `evidence_only` (default False).
+`ui/access_gate.py` (new): Basic-auth style password gate, constant-time
+compare, inert with no password; exempts `GET /api/v1/health` only (exact
+path+method, not a prefix) so a platform liveness probe is never locked
+out. `app.py`: `AccessGate` installed unconditionally in `create_app`;
+`Runtime.ports()` and `Runtime.start_sync()` both raise when
+`evidence_only` is on (the two seams both the screens and the `/api/v1`
+API call), `Runtime.start_sync` raising a new `sync.EvidenceOnlyError`
+mapped to 409 `EVIDENCE_ONLY` in `api/routes.py::start_sync`; `main()`
+now builds the real server's `Runtime` with `warm_up=not
+settings.evidence_only` -- a memory-capped container must not spend its
+budget warming a model nothing is allowed to use. MB's
+`repo.reconcile_interrupted_sync_runs` was NOT ported: main's
+`recovery.recover_abandoned_runs` already settles abandoned sync runs at
+start-up. `Dockerfile` / `docker-entrypoint.sh`: MB's CPU-only-torch
+multi-stage build (uv export, filter GPU rows, install CPU torch, verify
+the drop count), with three changes beyond the plain port -- (1) the CPU
+torch version is read out of `uv export`'s own `torch==` line and
+asserted after install, never hardcoded, because an unpinned
+`--index-url .../cpu torch` was proven to silently install 2.14.0+cpu
+while `uv.lock` pins 2.13.0; (2) the seed corpus is fetched at BUILD TIME
+via `scripts/corpus.py fetch` + `verify` (which fails the build on a bad
+file) instead of committed under `data/corpus/` -- `data/` stays fully
+git-ignored on main, no exception; (3) the container starts as root,
+`docker-entrypoint.sh` `chown`s only what a mounted volume does not
+already give `sanad`, then re-execs itself under `sanad` via `setpriv`
+before the corpus seed step and long before `python app.py` runs --
+Railway's persistent disk can be root-owned from an older image, proven
+against the live deploy, and a container that simply started as `sanad`
+could not write to it. `.gitattributes` gained `*.sh text eol=lf` (a CRLF
+shebang kills the container on boot, MB's adcc738).
+`tests/unit/test_packaging.py` gained a guard that fails, naming Railway,
+if `VOLUME` or an anonymous `--mount=type=cache` ever reappears in the
+Dockerfile -- proven red on both mutations, then restored green.
+
+**CONTRACT DEVIATIONS, recorded in DECISIONS.md (rule 1: escalate, never
+edit the signed file):** the gate's 401 is not documented anywhere on
+`/api/v1` (tests exercising it use a plain `TestClient`, never
+`ContractClient`); the evidence-only 409 on startSync reuses a status the
+contract documents only for "a sync is already running", distinguished by
+`Error.code` (`EVIDENCE_ONLY` vs `SYNC_IN_PROGRESS`), which is documented
+as free-form.
+
+**VERIFIED, 2026-09-12:** full suite **864 passed, 2 skipped** (main's own
+baseline before this branch: 836 passed, 2 skipped -- the +28 is exactly
+the new tests), `ruff check .` clean. Every new guard broken on purpose
+and watched fail, then restored green: the packaging guard (both the
+`VOLUME` and the anonymous-cache-mount case), the health exemption, both
+`evidence_only` checks (`ports()` and `start_sync()`, at both the screen
+and the `/api/v1` layer), and the warm-up skip in `main()`.
+`docker build -t sanad-railway-test .` succeeded clean (image **1.32 GB**,
+`torch 2.13.0+cpu cuda False` asserted, corpus fetch+verify "EXIT GATE
+MET: 3 hr files, 10 manuals files"). Container smoke test with
+`EVIDENCE_ONLY=true`, `ACCESS_PASSWORD=x`, and a NAMED VOLUME PRE-CHOWNED
+TO ROOT (simulating Railway's disk): `/api/v1/health` 200 with no auth
+and `{"status":"ok","version":"1.0.1"}`; `/` and every other route 401
+with no or wrong credentials, 200/303 with the password (any username);
+`POST .../sync` 409 `EVIDENCE_ONLY`; the corpus seeded (13 files) into the
+PREVIOUSLY-ROOT-OWNED volume, which `stat` afterward showed `sanad:sanad`
+throughout, including the pre-existing root-owned file; `/proc/1`
+confirmed the real server process (`python app.py`) runs as `sanad`, not
+root; no "model warm-up" log line appeared, confirming the skip.
+
+**AND A SEEDING BUG THE RUN FOUND (17c047e).** Two containers booted
+against one root-owned volume (what a Railway redeploy can do) corrupted
+the disk two ways: `$$` is 1 in every container, so both staged into the
+same `corpus.tmp.1` and the volume kept a PARTIAL corpus (3 of 13 files,
+the legal PDFs missing) while the other boot crashed; and plain `mv` into
+an existing directory NESTS and exits 0, burying a duplicate corpus (26
+files). Now `mktemp -d` + `mv -T`: two racing boots both stay up and the
+corpus holds exactly 13 files. A guard test fails on either bug. Suite
+**865 passed, 2 skipped**.
+
+**ONE HONEST GAP, not fixed here.** Docker's own `HEALTHCHECK` CMD (and a
+plain `docker exec`) runs as the image's container-level default user,
+which is root -- because `USER sanad` was deliberately removed from the
+Dockerfile so the entrypoint could start as root and fix a pre-existing
+volume's ownership before dropping privileges itself. The real server
+process is confirmed unprivileged; the periodic healthcheck probe (one
+`urllib.request` GET to localhost, no filesystem access) is not. Flagged
+rather than silently accepted.
+
+---
+
 ## STATE AT 2026-09-12, v1.0.1 (read this block first; older headers below are history)
 
 **v1.0.1 IS TAGGED** on `2b44491` (main, #103); v1.0.0 stays on `ae0bcbb`.
@@ -25,7 +124,7 @@ runs and a Sync reporting 3 unchanged / 0 failed. The copy needs `.env`
 copied by hand to answer questions. Docker image rebuilt from main: health
 1.0.1 in ~6 s, runs as user `sanad`; 9.3 GB because of CUDA PyTorch.
 
-**RAILWAY (MB's project `sanad`, service `sanad-web`) -- IN PROGRESS.** It
+**RAILWAY (MB's project `sanad`, service `sanad-web`) -- FIXED on the branch described in the block above; this paragraph is the diagnosis as it stood before.** It
 auto-deploys from GitHub `main`; every deploy since today's merges FAILED at
 "scheduling build" because main's Dockerfile has `VOLUME` (banned by
 Railway) and cache mounts without Railway's `id=` format. The live site still

@@ -144,6 +144,17 @@ class SyncInProgressError(SyncError):
         )
 
 
+class EvidenceOnlyError(SyncError):
+    """`config.evidence_only` is on: this instance cannot run a Sync at all.
+
+    Raised by `app.Runtime.start_sync` BEFORE anything is claimed (ST-05,
+    ADR-... Railway hosting) -- the one seam both the S2 screen route and
+    the `/api/v1` startSync route call, so a single check here covers both
+    without either one re-deriving it. See `config.evidence_only` for why
+    the limit exists: the container it protects is too small to load the
+    embedding model this Sync would need."""
+
+
 @dataclass(frozen=True)
 class SyncItemReport:
     """One row of the per-file report, mirroring `sync_item` in

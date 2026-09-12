@@ -95,6 +95,21 @@ def build_router(service: ApiService, *, version: str) -> APIRouter:
             raise error(
                 409, "SYNC_IN_PROGRESS", str(exc), "Poll the existing sync run until it finishes."
             ) from None
+        except sync.EvidenceOnlyError as exc:
+            # ESCALATION (docs/journal/DECISIONS.md, ST-05): the contract
+            # documents 409 on this operation only for "a sync is already
+            # running", not for this reason. 409 is reused rather than
+            # inventing an undocumented status, because every other
+            # "cannot run this right now" condition on this contract is
+            # already a 409 (SYNC_IN_PROGRESS here, INDEX_BUSY on ask); the
+            # `code` field is what actually distinguishes the two for a
+            # caller, and `Error.code` is documented as free-form.
+            raise error(
+                409,
+                "EVIDENCE_ONLY",
+                str(exc),
+                "Run Sanad locally to sync documents.",
+            ) from None
 
     @router.get("/workspaces/{workspace_id}/sync-runs", tags=["sync"], operation_id="listSyncRuns")
     def list_sync_runs(workspace_id: str):
