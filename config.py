@@ -71,11 +71,14 @@ class Settings(BaseSettings):
     # call already past that budget is not going to produce an answer
     # worth waiting for.
     model_call_timeout_seconds: float = 60.0
-    # How many times ChatGoogleGenerativeAI retries one failed call before
-    # giving up; its own default (6) is too patient for an interactive
-    # question. Verified against the installed langchain-ollama (1.1.0):
-    # ChatOllama has no equivalent retry field, so this applies to cloud
-    # mode only (see agent/chat.py).
+    # How many RETRIES one failed cloud call gets after its first try. The
+    # Gemini client counts total attempts (it builds HttpRetryOptions(
+    # attempts=max_retries)), so agent/chat.py passes this + 1 -- verified
+    # against the installed client with a silent socket (review of 7ebc552).
+    # Worst case per call is therefore (retries + 1) x the timeout above, not
+    # the timeout alone. Its own default (6 attempts) is too patient for an
+    # interactive question. ChatOllama (langchain-ollama 1.1.0) has no retry
+    # field, so this applies to cloud mode only.
     model_call_max_retries: int = 2
 
     # --- Embeddings (ADR-05) ---

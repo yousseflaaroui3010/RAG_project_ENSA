@@ -109,6 +109,17 @@ class _LangChainChat:
             raise ChatUnavailableError(
                 "the configured model did not respond in time."
             ) from exc
+        except (httpx.ConnectError, ConnectionError) as exc:
+            # The commonest "unreachable" of all -- no network, or no Ollama
+            # running -- used to escape as an unexpected 500 (review of
+            # 7ebc552). Gemini re-raises httpx.ConnectError after its
+            # retries; the ollama client rewraps it as the builtin
+            # ConnectionError. Same named error, same Retry panel.
+            raise ChatUnavailableError(
+                "the configured model could not be reached. Check the "
+                "network connection (cloud mode) or that Ollama is running "
+                "(strict-local mode), then retry."
+            ) from exc
         text = getattr(response, "content", response)
         if isinstance(text, list):
             # Some providers return content as a list of parts. Join the
@@ -148,7 +159,9 @@ def _build_cloud() -> ChatModel:
             # which takes milliseconds) and `max_retries: int = 6`. Both
             # config.py knobs so one stalled call cannot hang a question.
             timeout=settings.model_call_timeout_seconds,
-            max_retries=settings.model_call_max_retries,
+            # The client's max_retries counts TOTAL attempts; the setting
+            # counts retries after the first try (see config.py).
+            max_retries=settings.model_call_max_retries + 1,
         )
     )
 

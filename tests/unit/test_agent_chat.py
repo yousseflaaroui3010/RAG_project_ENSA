@@ -93,7 +93,9 @@ def test_cloud_mode_applies_the_configured_timeout_and_retry_ceiling(monkeypatch
     chat = build_chat_model()
 
     assert chat._model.timeout == 12.5
-    assert chat._model.max_retries == 4
+    # The Gemini client's max_retries counts TOTAL attempts
+    # (HttpRetryOptions(attempts=max_retries)); 4 retries means 5 tries.
+    assert chat._model.max_retries == 5
 
 
 def test_strict_local_mode_applies_the_configured_timeout(monkeypatch):
@@ -183,6 +185,32 @@ def test_a_provider_timeout_is_mapped_to_the_unreachable_error(monkeypatch):
     assert "did not respond in time" in message
     # Never the provider's own exception text (could carry request internals).
     assert "httpx" not in message and "ReadTimeout" not in message
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        httpx.ConnectError("[Errno 11001] getaddrinfo failed"),
+        ConnectionError("Failed to connect to Ollama"),
+    ],
+    ids=["cloud-no-network", "ollama-not-running"],
+)
+def test_an_unreachable_provider_is_mapped_to_the_unreachable_error(error):
+    """The commonest unreachable case -- no network, or Ollama not running
+    -- escaped as an unexpected 500 before (review of 7ebc552). Gemini
+    re-raises httpx.ConnectError; the ollama client raises the builtin
+    ConnectionError."""
+
+    class _Unreachable:
+        def invoke(self, _messages):
+            raise error
+
+    with pytest.raises(ChatUnavailableError) as caught:
+        _LangChainChat(_Unreachable()).complete("s", "u")
+
+    message = str(caught.value)
+    assert "could not be reached" in message
+    assert "getaddrinfo" not in message and "Failed to connect" not in message
 
 
 def test_the_adapter_sends_a_system_message_and_a_human_message():
