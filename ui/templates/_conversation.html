@@ -104,22 +104,6 @@
             {% endif %}
           </div>
 
-          {#
-            F-09. UX spec 6.2 puts this line "directly under the answer
-            body, above the source cards", and criterion 3 makes its
-            ABSENCE binding on an unflagged workspace.
-          #}
-          {% if message.disclaimer %}
-            <p class="disclaimer">
-              This answer summarises documents, not legal advice. Check the
-              cited text before relying on it.
-            </p>
-          {% endif %}
-
-          {% if message.sources %}
-            {{ cards.source_panel(message, m, active.id) }}
-          {% endif %}
-
         {% elif message.kind == MessageKind.REFUSAL %}
           {#
             Design principle 2: a refusal is a first-class answer, bordered
@@ -179,6 +163,20 @@
             <p class="error__value mono">{{ message.error.value }}</p>
             <p class="error__hint">{{ message.error.hint }}</p>
           </div>
+        {% endif %}
+
+        {#
+          F-09. Every Answer response from a legal workspace carries the
+          same fixed line. It sits below the outcome and above source cards.
+        #}
+        {% if message.disclaimer %}
+          <p class="disclaimer">
+            Informational only, not legal advice. Consult a qualified professional.
+          </p>
+        {% endif %}
+
+        {% if message.sources %}
+          {{ cards.source_panel(message, m, active.id) }}
         {% endif %}
 
       </li>
