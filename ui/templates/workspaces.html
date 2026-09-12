@@ -26,6 +26,13 @@
   <div class="workspaces">
     <aside class="ws-list" aria-label="Workspaces">
       <h1 class="ws-list__title">Workspaces</h1>
+      {#
+        F-13, minimal by design: a read-only line naming the running
+        process's own setting, not a control -- there is no route here to
+        flip it (config-file setting, and no new /api/v1 route is
+        allowed for this story).
+      #}
+      <p class="ws-list__watch-status">Watching for new files: {{ "on" if watch_enabled else "off" }}</p>
       <ul class="ws-list__items">
         {% for option in workspaces %}
           <li>

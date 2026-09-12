@@ -23,6 +23,7 @@ import contextlib
 import threading
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 import chunking
@@ -453,3 +454,33 @@ def test_delete_reports_a_busy_index_instead_of_crashing(tmp_path, monkeypatch):
     assert response.status_code == 409
     assert "cannot be deleted while its document index is in use" in response.text
     assert workspaces.get_workspace(workspace_id=workspace.id, db_path=db_path)
+
+
+# --- F-13: the read-only "watching" line ------------------------------
+
+
+@pytest.mark.parametrize(
+    ("watch_folders", "evidence_only", "expected"),
+    [(True, False, "on"), (False, False, "off"), (True, True, "off")],
+)
+def test_the_watching_line_tells_the_truth_about_the_running_watcher(
+    tmp_path, monkeypatch, watch_folders, evidence_only, expected
+):
+    """watcher.start_if_enabled never starts in evidence-only mode, so the
+    S2 line must say "off" there even when watch_folders is set -- the
+    third case is the one that fails if the line reads watch_folders alone."""
+    import app as app_module
+
+    settings = app_module.get_settings().model_copy(
+        update={"watch_folders": watch_folders, "evidence_only": evidence_only}
+    )
+    monkeypatch.setattr(app_module, "get_settings", lambda: settings)
+    with vector_store.open_store(tmp_path / "qdrant") as client:
+        app_client, _runtime, _db_path = _app(tmp_path, monkeypatch, client=client)
+        page = app_client.post(
+            "/workspaces",
+            data={"name": "HR", "folder_path": str(_corpus(tmp_path))},
+            follow_redirects=True,
+        ).text
+
+    assert f"Watching for new files: {expected}" in page
