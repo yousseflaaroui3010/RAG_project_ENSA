@@ -26,8 +26,9 @@ These are not optional. Each one removes a failure we have already seen.
    Then open `http://127.0.0.1:8000` in the browser.
 4. Confirm on the Workspaces screen that both workspaces show as synced:
    **HR** (legal flag on, 3 documents, 225 pages) and **Manuals**
-   (10 documents). Indexing HR from scratch takes about 14 minutes, so it
-   must already be done.
+   (10 documents). Indexing HR from scratch takes about 7 to 9 minutes on a
+   quiet laptop (422-506 s measured; 823 s under load), so it must already
+   be done.
 5. The app now warms up its own search models on a background thread as
    soon as it starts, ready roughly 25 s later (logged as "model warm-up
    ready"); the 23 s cold first question this step used to guard against
