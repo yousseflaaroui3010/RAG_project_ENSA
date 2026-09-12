@@ -61,6 +61,18 @@ set that has stopped measuring anything. This is also how PRD F-08's "at least
 40" is honoured: a legitimate 41st question is not forbidden, it just costs a
 version bump instead of a one-character edit.
 
+## Version history (every change after the freeze, stated in the open)
+
+| Version | Date | Change | Why | Release scored on it |
+|---|---|---|---|---|
+| v1 | 2026-09-01 | Frozen at 40 + 20 (`617c972`, #74) | ST-35 exit gate | -- |
+| v1, edited | 2026-09-03 | `g-out-008` rewritten (#77) **without a version bump** | the first wording was a false refusal: Article 156 answers it | -- |
+| v1, edited | 2026-09-09 | `g-out-005` replaced by a *compte épargne-temps* question (#87) **without a version bump** | ST-39 replacement | v1.0.0 (G1 36/40, G2 20/20, G3 36/36) |
+| **v2** | 2026-09-12 | `g-out-005` replaced again, by who owns an employee's invention or software; version bumped | issue #88: Article 240 (paid leave split or accumulated over two years) arguably answers the v1 wording. The new question was checked absent **by meaning**, not only by exact terms (see the row's `notes`) | v1.0.1 |
+
+The two v1 edits should each have bumped the version; they did not, and that
+is recorded here rather than rewritten. From v2 on, the rule above applies.
+
 The 40 + 20 target is PRD F-08 and architecture section 14. G2 is graded on the
 out-of-scope half and demands **20 of 20** refusals, so an out-of-scope question
 that is secretly answerable does not merely score wrong: it makes a release gate
