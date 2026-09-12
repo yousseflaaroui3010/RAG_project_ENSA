@@ -43,11 +43,14 @@ import vector_store
 import workspaces
 from agent.answering import NOT_COVERED
 from agent.ports import AgentPorts
+from agent.state import Answer, AnswerKind
+from agent.trace import StepKind, Trace, TraceStep
 from app import Runtime, create_app
 from config import get_settings
 from db import repo
 from tests.fake_chat import ScriptedChat
 from tests.fake_encoders import install as install_fake_encoders
+from ui.conversation import Message, MessageKind, message_for
 from ui.ports import build_ports
 
 # Two articles, each well over `parent_merge_below_chars` (2,000) so it
@@ -1024,3 +1027,119 @@ def test_the_legal_marker_rides_with_the_workspace_selector(sanad):
 
     assert 'class="marker"' in page
     assert ">Legal<" in page
+
+
+# --- F-10: the trace disclosure ----------------------------------------
+#
+# PRD acceptance criterion: "for each answer, the user can open a trace
+# that lists the searches run, the files consulted, and the retries
+# used." `ui.conversation.message_for` reads this straight off the real
+# `Answer.trace` (agent/trace.py); these tests push a `Message` built from
+# a hand-shaped `Trace` straight onto the transcript and fetch the page,
+# rather than driving the real agent's retry loop to produce one --
+# that loop already has its own tests (test_ask_retry_loop.py), and what
+# F-10 adds is how a trace RENDERS, not how one gets filled in.
+
+
+def _trace_answer(
+    kind: AnswerKind,
+    text: str,
+    steps: tuple[TraceStep, ...],
+) -> Answer:
+    return Answer(
+        kind=kind,
+        text=text,
+        sources=(),
+        session_id="session-f10",
+        trace=Trace(trace_id="trace-f10", steps=steps),
+    )
+
+
+def _show(client, runtime, workspace_id: str, message: Message) -> str:
+    runtime.conversation(workspace_id).messages.append(message)
+    return client.get("/").text
+
+
+def test_the_trace_discloses_every_search_file_and_retry_and_escapes_them(sanad):
+    """The full shape in one go: two searches (so the query TEXT of each
+    must appear, not merely a count), the first file name repeated in the
+    second search (de-dup has something to fail), one reword between them,
+    and a REFUSAL variant (F-05's own "what Sanad searched for" list is a
+    different component; this proves the new one appears there too). A
+    hostile search string AND a hostile file name stand in for anything
+    typed by a person or read out of a document's own metadata -- both
+    loops in the disclosure must escape, not just one."""
+    build, workspace, _ = sanad
+    client, runtime = build()
+    hostile_search = "<script>alert('x')</script> essai"
+    hostile_file = "<img src=x onerror=alert(1)>.pdf"
+    message = message_for(
+        _trace_answer(
+            AnswerKind.REFUSAL,
+            "I could not find this in the workspace.",
+            (
+                TraceStep(StepKind.SEARCH, hostile_search, (SOURCE_FILE,)),
+                TraceStep(StepKind.REWORD, "reworded"),
+                TraceStep(
+                    StepKind.SEARCH,
+                    "duree periode essai cadre",
+                    (SOURCE_FILE, hostile_file),
+                ),
+            ),
+        )
+    )
+    page = _show(client, runtime, workspace.id, message)
+
+    assert "How this answer was found" in page
+    assert "<script>alert" not in page
+    assert "<img src=x" not in page
+    assert "&lt;script&gt;" in page
+    assert "&lt;img src=x" in page
+    assert hostile_search in _visible(page)
+    assert hostile_file in _visible(page)
+    assert "duree periode essai cadre" in page
+    assert "Retries: 1" in page
+
+    trace_html = page.split("Files consulted")[1].split("</details>")[0]
+    assert trace_html.count(SOURCE_FILE) == 1, "the repeated file must be de-duplicated"
+    assert trace_html.index(SOURCE_FILE) < trace_html.index("&lt;img src=x"), (
+        "first-seen order: the file the FIRST search found comes first"
+    )
+
+
+def test_a_real_answer_with_no_retries_says_none(sanad):
+    """A real run through the whole pipeline (real chunking, real search,
+    real trace), not a hand-built one: the scripted model accepts the
+    first search, so there is exactly one search and zero rewords. 'none'
+    is the acceptance criterion's own word for a zero count, and a bare
+    '0' or a missing line would both be wrong."""
+    build, workspace, _ = sanad
+    client, runtime = build()
+
+    _ask(client)
+    page = _settled(client, runtime, workspace.id)
+
+    assert "How this answer was found" in page
+    assert "duree periode essai cadre renouvellement" in page
+    assert SOURCE_FILE in page
+    assert "Retries: none" in page
+
+
+def test_a_message_with_no_trace_renders_no_disclosure(sanad):
+    """Design note: "If an answer has no trace ... render nothing, not an
+    empty box." A message that never went through `message_for` -- the
+    shape a message restored without its trace would take -- must not
+    grow an empty disclosure."""
+    build, workspace, _ = sanad
+    client, runtime = build()
+
+    page = _show(
+        client,
+        runtime,
+        workspace.id,
+        Message(kind=MessageKind.ANSWER, text="Restored without a trace."),
+    )
+
+    assert "Restored without a trace." in page
+    assert "How this answer was found" not in page
+    assert "trace__body" not in page
