@@ -1,0 +1,34 @@
+services:
+  sanad:
+    image: sanad-local
+    build:
+      context: .
+    init: true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SERVER_HOST: 0.0.0.0
+      QDRANT_STORAGE_PATH: /app/data/qdrant
+      PARENT_STORE_PATH: /app/data/parents
+      SQLITE_DB_PATH: /app/data/sanad.db
+      REPORTS_PATH: /app/data/reports
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - sanad-data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).read()
+      interval: 10s
+      timeout: 3s
+      start_period: 20s
+      retries: 6
+
+volumes:
+  sanad-data:
