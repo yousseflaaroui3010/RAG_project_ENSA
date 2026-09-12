@@ -87,7 +87,8 @@ def test_contract_health_and_docs_are_live(tmp_path):
     try:
         assert client.get("/api/v1/health").json() == {
             "status": "ok",
-            "version": "0.1.0",
+            # A literal on purpose: a release bump must change it here too.
+            "version": "1.0.1",
         }
         assert client.get("/docs").status_code == 200
         assert client.get("/openapi.json").json() == CONTRACT
