@@ -1,0 +1,29 @@
+{
+  "detail": {
+    "before": {
+      "running": true,
+      "refresh": true,
+      "focus": "Export as Markdown for the report annex"
+    },
+    "after": {
+      "partial": true,
+      "failureId": true,
+      "savedRow": true,
+      "notFinal": 3,
+      "refresh": false,
+      "focus": "Export as Markdown for the report annex",
+      "url": "http://127.0.0.1:8011/reports/manual-eval-run"
+    }
+  },
+  "list": {
+    "before": {
+      "running": true,
+      "focus": "run-manual-eval-run"
+    },
+    "after": {
+      "partial": true,
+      "refresh": false,
+      "focus": "run-manual-eval-run"
+    }
+  }
+}

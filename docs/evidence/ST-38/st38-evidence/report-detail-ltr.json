@@ -1,0 +1,159 @@
+{
+  "name": "report-detail-ltr",
+  "page": {
+    "url": "http://127.0.0.1:8000/reports/cb43464d-2fe5-4b4c-9144-a2fb0d6758f4",
+    "title": "Report detail — Sanad",
+    "dir": "ltr",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "h1": [
+      "RH - Code du travail 2026-09-10T21:11:27.750175+00:00"
+    ],
+    "landmarks": [
+      "header",
+      "nav",
+      "main"
+    ],
+    "controls": [
+      {
+        "tag": "a",
+        "text": "Skip to content",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "select",
+        "text": "RH - Code du travail — legal",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Chat",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Workspaces",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Reports",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "Dark theme",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "← All reports",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Export as Markdown for the report annex",
+        "disabled": false,
+        "tabindex": 0
+      }
+    ],
+    "overflows": [
+      {
+        "tag": "a",
+        "className": "skip-link",
+        "left": -9999,
+        "right": -9864.328125
+      }
+    ],
+    "animated": [
+      {
+        "tag": "button",
+        "className": "btn btn--quiet theme-toggle",
+        "animation": "none",
+        "transition": "0.15s"
+      },
+      {
+        "tag": "a",
+        "className": "btn btn--quiet",
+        "animation": "none",
+        "transition": "0.15s"
+      }
+    ],
+    "bodyText": "Skip to content\nSanad\nActive workspace\nRH - Code du travail — legal\nLegal\nChat\nWorkspaces\nReports\nDark theme\n\n← All reports\n\nRH - Code du travail 2026-09-10T21:11:27.750175+00:00\nRELEASE GATES\nMetric\tValue\tThreshold\tOutcome\nG1 Groundedness\t37/40 fully grounded\t>= 90.0%\t\nPass\nG2 Honest refusals\t20/20\t20/20\t\nPass\nG3 Sources on every answer\t37/37\t37/37\t\nPass\nPER-QUESTION RESULTS\nQuestion\tKind\tOutcome\tGroundedness\tRelevancy\tSources\tError\ng-in-001\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-002\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-003\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-004\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-005\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-006\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-007\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-008\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-009\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-010\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-011\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-012\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-013\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-014\tIn scope\t\nFail\t—\t—\t—\t\ng-in-015\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-out-001\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-002\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-003\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-004\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-005\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-006\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-007\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-008\tOut of scope\t\nPass\t—\t—\t—\t\ng-in-016\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-017\tIn scope\t\nFail\t—\t—\t—\t\ng-in-018\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-019\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-020\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-021\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-022\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-023\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-024\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-025\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-026\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-027\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-028\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-029\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-030\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-out-009\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-010\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-011\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-012\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-013\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-014\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-015\tOut of scope\t\nPass\t—\t—\t—\t\ng-in-031\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-032\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-033\tIn scope\t\nFail\t—\t—\t—\t\ng-in-034\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-035\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-036\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-037\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-038\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-039\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-in-040\tIn scope\t\nPass\t100.0%\t100.0%\tYes\t\ng-out-016\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-017\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-018\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-019\tOut of scope\t\nPass\t—\t—\t—\t\ng-out-020\tOut of scope\t\nPass\t—\t—\t—\t\n\nExport as Markdown for the report annex"
+  },
+  "accessibility": {
+    "nodeCount": 1335,
+    "unnamedInteractive": []
+  },
+  "focusOrder": [
+    {
+      "tag": "a",
+      "text": "Skip to content",
+      "id": "",
+      "className": "skip-link"
+    },
+    {
+      "tag": "select",
+      "text": "RH - Code du travail — legal",
+      "id": "workspace-select",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Chat",
+      "id": "",
+      "className": "shell__link"
+    },
+    {
+      "tag": "a",
+      "text": "Workspaces",
+      "id": "",
+      "className": "shell__link"
+    },
+    {
+      "tag": "a",
+      "text": "Reports",
+      "id": "",
+      "className": "shell__link is-current"
+    },
+    {
+      "tag": "button",
+      "text": "Dark theme",
+      "id": "",
+      "className": "btn btn--quiet theme-toggle"
+    },
+    {
+      "tag": "a",
+      "text": "← All reports",
+      "id": "",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Export as Markdown for the report annex",
+      "id": "",
+      "className": "btn btn--quiet"
+    },
+    {
+      "tag": "body",
+      "text": "Skip to content Sanad Active workspace RH - Code du travail — legal Switch Legal Chat Workspaces Rep",
+      "id": "",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Skip to content",
+      "id": "",
+      "className": "skip-link"
+    }
+  ]
+}

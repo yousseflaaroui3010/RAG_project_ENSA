@@ -1,0 +1,168 @@
+{
+  "name": "report-detail-ltr",
+  "page": {
+    "url": "http://127.0.0.1:8011/reports/manual-eval-run",
+    "title": "Report detail — Sanad",
+    "dir": "ltr",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "scroll": {
+      "x": 0,
+      "width": 1440
+    },
+    "h1": [
+      "Manual evaluation 2026-09-11T12:00:00+00:00"
+    ],
+    "landmarks": [
+      "header",
+      "nav",
+      "main"
+    ],
+    "controls": [
+      {
+        "tag": "a",
+        "text": "Skip to content",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "select",
+        "text": "Manual evaluation",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Chat",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Workspaces",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Reports",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "Dark theme",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "All reports",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Export as Markdown for the report annex",
+        "disabled": false,
+        "tabindex": 0
+      }
+    ],
+    "overflows": [
+      {
+        "tag": "a",
+        "className": "skip-link",
+        "left": -9999,
+        "right": -9864.328125
+      }
+    ],
+    "animated": [
+      {
+        "tag": "button",
+        "className": "btn btn--quiet theme-toggle",
+        "animation": "none",
+        "transition": "0.15s"
+      },
+      {
+        "tag": "a",
+        "className": "btn btn--quiet",
+        "animation": "none",
+        "transition": "0.15s"
+      }
+    ],
+    "bodyText": "Skip to content\nSanad\nActive workspace\nManual evaluation\nChat\nWorkspaces\nReports\nDark theme\n\nAll reports\n\nManual evaluation 2026-09-11T12:00:00+00:00\nEvaluation running: 1/3 questions completed.\nRELEASE GATES\nMetric\tValue\tThreshold\tOutcome\nG1 Groundedness\t1/1 fully grounded\t>= 90.0%\t\nNot final\nG2 Honest refusals\t0/0\t0/0\t\nNot final\nG3 Sources on every answer\t1/1\t1/1\t\nNot final\nPER-QUESTION RESULTS\nQuestion\tKind\tOutcome\tGroundedness\tRelevancy\tSources\tError\ng-in-manual-001\tIn scope\t\nPass\t100.0%\t80.0%\tYes\t\n\nExport as Markdown for the report annex"
+  },
+  "accessibility": {
+    "nodeCount": 156,
+    "unnamedInteractive": []
+  },
+  "focusOrder": [
+    {
+      "tag": "a",
+      "text": "Skip to content",
+      "id": "",
+      "className": "skip-link"
+    },
+    {
+      "tag": "select",
+      "text": "Manual evaluation",
+      "id": "workspace-select",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Chat",
+      "id": "",
+      "className": "shell__link"
+    },
+    {
+      "tag": "a",
+      "text": "Workspaces",
+      "id": "",
+      "className": "shell__link"
+    },
+    {
+      "tag": "a",
+      "text": "Reports",
+      "id": "",
+      "className": "shell__link is-current"
+    },
+    {
+      "tag": "button",
+      "text": "Dark theme",
+      "id": "",
+      "className": "btn btn--quiet theme-toggle"
+    },
+    {
+      "tag": "a",
+      "text": "All reports",
+      "id": "",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Export as Markdown for the report annex",
+      "id": "",
+      "className": "btn btn--quiet"
+    },
+    {
+      "tag": "body",
+      "text": "Skip to content Sanad Active workspace Manual evaluation Switch Chat Workspaces Reports Dark theme S",
+      "id": "",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Skip to content",
+      "id": "",
+      "className": "skip-link"
+    }
+  ],
+  "afterFocus": {
+    "x": 0,
+    "width": 1440
+  },
+  "afterEscape": null
+}

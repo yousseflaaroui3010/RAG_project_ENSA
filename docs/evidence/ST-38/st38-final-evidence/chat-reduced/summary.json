@@ -1,0 +1,374 @@
+[
+  {
+    "name": "chat-reduced-motion",
+    "page": {
+      "url": "http://127.0.0.1:8012/",
+      "title": "Chat — Sanad",
+      "dir": "ltr",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "scroll": {
+        "x": 0,
+        "width": 1440
+      },
+      "h1": [
+        "Chat"
+      ],
+      "landmarks": [
+        "header",
+        "nav",
+        "main"
+      ],
+      "controls": [
+        {
+          "tag": "a",
+          "text": "Skip to content",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "a",
+          "text": "Sanad",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "select",
+          "text": "ST-38 Legal — legal",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "a",
+          "text": "Chat",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "a",
+          "text": "Workspaces",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "a",
+          "text": "Reports",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "button",
+          "text": "Dark theme",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "button",
+          "text": "New conversation",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "button",
+          "text": "What does \"labour-code.pdf\" cover?",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "input",
+          "text": "",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "button",
+          "text": "Send",
+          "disabled": false,
+          "tabindex": 0
+        }
+      ],
+      "overflows": [
+        {
+          "tag": "a",
+          "className": "skip-link",
+          "left": -9999,
+          "right": -9864.328125
+        }
+      ],
+      "animated": [
+        {
+          "tag": "a",
+          "className": "skip-link",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "header",
+          "className": "shell",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "div",
+          "className": "shell__inner",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "a",
+          "className": "shell__name",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "form",
+          "className": "shell__workspace",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "label",
+          "className": "shell__label",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "select",
+          "className": "",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "span",
+          "className": "marker",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "nav",
+          "className": "shell__nav",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "a",
+          "className": "shell__link is-current",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "a",
+          "className": "shell__link",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "a",
+          "className": "shell__link",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "button",
+          "className": "btn btn--quiet theme-toggle",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "main",
+          "className": "main",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "div",
+          "className": "chat",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "div",
+          "className": "chat__header",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "h1",
+          "className": "chat__title",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "p",
+          "className": "chat__grounding",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "strong",
+          "className": "",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "form",
+          "className": "",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "button",
+          "className": "btn btn--quiet",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "section",
+          "className": "conversation",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "div",
+          "className": "panel panel--empty",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "h2",
+          "className": "",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "p",
+          "className": "",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "ul",
+          "className": "samples",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "li",
+          "className": "",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "form",
+          "className": "",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "button",
+          "className": "sample",
+          "animation": "none",
+          "transition": "0.001s"
+        },
+        {
+          "tag": "form",
+          "className": "composer",
+          "animation": "none",
+          "transition": "0.001s"
+        }
+      ],
+      "bodyText": "Skip to content\nSanad\nActive workspace\nST-38 Legal — legal\nLegal\nChat\nWorkspaces\nReports\nDark theme\nChat\n\nAnswering from ST-38 Legal\n\nNew conversation\nAsk a question about ST-38 Legal\n\nEvery answer carries the sources it was written from.\n\nWhat does \"labour-code.pdf\" cover?\nYour question\nSend"
+    },
+    "accessibility": {
+      "nodeCount": 76,
+      "unnamedInteractive": []
+    },
+    "focusOrder": [
+      {
+        "tag": "a",
+        "text": "Skip to content",
+        "id": "",
+        "className": "skip-link"
+      },
+      {
+        "tag": "a",
+        "text": "Sanad",
+        "id": "",
+        "className": "shell__name"
+      },
+      {
+        "tag": "select",
+        "text": "ST-38 Legal — legal",
+        "id": "workspace-select",
+        "className": ""
+      },
+      {
+        "tag": "a",
+        "text": "Chat",
+        "id": "",
+        "className": "shell__link is-current"
+      },
+      {
+        "tag": "a",
+        "text": "Workspaces",
+        "id": "",
+        "className": "shell__link"
+      },
+      {
+        "tag": "a",
+        "text": "Reports",
+        "id": "",
+        "className": "shell__link"
+      },
+      {
+        "tag": "button",
+        "text": "Dark theme",
+        "id": "",
+        "className": "btn btn--quiet theme-toggle"
+      },
+      {
+        "tag": "button",
+        "text": "New conversation",
+        "id": "",
+        "className": "btn btn--quiet"
+      },
+      {
+        "tag": "button",
+        "text": "What does \"labour-code.pdf\" cover?",
+        "id": "",
+        "className": "sample"
+      },
+      {
+        "tag": "input",
+        "text": "",
+        "id": "question",
+        "className": "composer__input"
+      },
+      {
+        "tag": "button",
+        "text": "Send",
+        "id": "",
+        "className": "btn btn--primary"
+      },
+      {
+        "tag": "body",
+        "text": "Skip to content Sanad Active workspace ST-38 Legal — legal Switch Legal Chat Workspaces Reports Dark",
+        "id": "",
+        "className": ""
+      },
+      {
+        "tag": "a",
+        "text": "Skip to content",
+        "id": "",
+        "className": "skip-link"
+      }
+    ],
+    "afterFocus": {
+      "x": 0,
+      "width": 1440
+    },
+    "afterEscape": null
+  }
+]
