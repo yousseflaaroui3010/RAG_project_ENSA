@@ -130,6 +130,8 @@ def _ports(
             raise RuntimeError("the model timed out")
         if raise_on == "not_covered":
             raise AnswerNotCoveredError("the sections do not answer it")
+        if raise_on == "interrupt":
+            raise KeyboardInterrupt
         return ANSWER_TEXT
 
     return AgentPorts(
@@ -245,6 +247,70 @@ def test_capture_records_the_error_instead_of_raising():
     captured = ask_and_capture(ports, workspace_id="ws-hr", question=IN_QUESTION)
     assert captured.answer is None
     assert isinstance(captured.error, RuntimeError)
+
+
+def test_capture_lets_ctrl_c_through_instead_of_recording_a_failed_row():
+    """Ctrl+C lands mid-answer far more often than anywhere else, because
+    answering is where the time goes. Swallowed here, it became one failed
+    row and the run later reported itself completed."""
+    with pytest.raises(KeyboardInterrupt):
+        ask_and_capture(
+            _ports(raise_on="interrupt"), workspace_id="ws-hr", question=IN_QUESTION
+        )
+
+
+def test_ctrl_c_during_an_answer_ends_the_run_partial_not_completed(tmp_path):
+    _write_golden(tmp_path)
+    ws_id, db_path = _workspace(tmp_path)
+
+    with pytest.raises(KeyboardInterrupt):
+        run_evaluation(
+            workspace_id=ws_id,
+            ports=_ports(raise_on="interrupt"),
+            scorer=FakeScorer(),
+            golden_dir=tmp_path,
+            db_path=db_path,
+            reports_dir=tmp_path / "reports",
+        )
+
+    with repo.session(db_path) as conn:
+        run = repo.list_eval_runs(conn)[0]
+        assert run["status"] == "partial"
+        assert run["failed_question_number"] == 1
+
+
+def test_ctrl_c_between_the_final_file_and_the_registry_leaves_no_completed_file(
+    tmp_path, monkeypatch
+):
+    """Review of d790e05: the "completed" file is written before the
+    registry agrees. A Ctrl+C in between left a full report saying
+    completed -- which the release gate passes -- while Reports said
+    Running. The file must end Partial instead."""
+    _write_golden(tmp_path)
+    ws_id, db_path = _workspace(tmp_path)
+    real_save = runner_module._save_run_state
+
+    def interrupt_on_completed(db, run_id, report):
+        if report.status == "completed":
+            raise KeyboardInterrupt
+        return real_save(db, run_id, report)
+
+    monkeypatch.setattr(runner_module, "_save_run_state", interrupt_on_completed)
+
+    with pytest.raises(KeyboardInterrupt):
+        run_evaluation(
+            workspace_id=ws_id,
+            ports=_ports(),
+            scorer=FakeScorer(),
+            golden_dir=tmp_path,
+            db_path=db_path,
+            reports_dir=tmp_path / "reports",
+        )
+
+    (report_file,) = (tmp_path / "reports").rglob("*.json")
+    assert json.loads(report_file.read_text(encoding="utf-8"))["status"] == "partial"
+    with repo.session(db_path) as conn:
+        assert repo.list_eval_runs(conn)[0]["status"] == "partial"
 
 
 def test_capture_format_error_becomes_one_failed_row_instead_of_stopping_batch():

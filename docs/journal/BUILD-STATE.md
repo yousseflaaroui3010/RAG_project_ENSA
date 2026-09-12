@@ -1,5 +1,49 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
+## STATE AT 2026-09-12 (read this block first; older headers below are history)
+
+**main has not moved since 8ce4818 (#90).** Everything after it is on
+branches and PRs, none merged. The PR template makes the partner's
+approval the merge key, so merging is MB's call.
+
+| Branch | Stories | PR | Clean-checkout tests | Review |
+|---|---|---|---|---|
+| `fix/S3-ST-39-evaluation-failures` (A) | ST-36 (#85's commits) + ST-39 | #92 -> main | 782 passed, 2 skipped, ruff clean | MERGE AFTER FIXES; fixes 1,2,3,5,6 done and mutation-proven (7/7); cold re-check running |
+| `feat/S3-ST-51-thin-api` (B, on A) | ST-51 + ST-52 | not yet | 779 passed (before fixes) | MERGE AFTER FIXES, one Sev1: drift tests missed 11 of 14 deliberate breaks. Fixes in progress |
+| `feat/S3-ST-05-local-container` (C, on B) | ST-05 | not yet | tree = 781 passed | conflicts in intent with MB's #86 (second ST-05): the team picks one |
+| `docs/S3-ST-38-manual-qa-results` | ST-38 | #93 | docs only | 35 pass, 6 blocked on a human screen-reader pass |
+| `docs/S4-ST-44-defense-kit` | ST-30/43/44/45/46 drafts | #94 | docs only | drafts, not rehearsed |
+
+**Measured, with sources:** release gate on the final report G1 37/40, G2
+20/20, G3 37/37, `RELEASE GATE: PASS` (re-run 2026-09-12). G4 median 8.3 s,
+p95 18.1 s, cold first question 23.2 s (`data/spike-st18/traces.json`,
+2026-09-11): PASS. G5 823 s for 225 pages = **731.6 s per 200 pages vs
+600 s: FAIL**, reported as the V1.0 gate allows ("measured and reported").
+Parts timed 2026-09-12: embedding 0.29 s/chunk x 1,121 chunks = about 320 s,
+PDF conversion about 100 s; the other ~400 s of that run is unexplained and
+likely other load on the laptop. Re-measure on a quiet machine before
+quoting a cause.
+
+**Environment trap found:** this laptop's `.venv` held 29 packages the lock
+no longer lists (RAGAS era); a half-deleted `aiohttp` made one test fail.
+They were removed; `uv sync --frozen --dry-run` reports no changes. A red
+suite on this machine should be checked against `uv sync --frozen
+--dry-run` before blaming the code.
+
+**Decisions waiting on the humans:** (1) which ST-05 ships, ours (C) or
+MB's #86; (2) strict-local offline mode for ST-44 -- install a local model
+or rule that the defense runs in cloud mode; (3) whether to spend one more
+paid evaluation run (284 calls last time) so the tagged v1.0.0 code is the
+code that passed; (4) the screen-reader pass (ST-38's 6 blocked rows);
+(5) spec question: openapi says `disclaimer` is true on legal-flagged
+workspaces, the product omits it on refusals.
+
+**Not started:** ST-41 tag v1.0.0 (after merges), report chapters ST-31,
+ST-40, ST-42 (MB; not in the repo), ST-50 interviews. ST-47/48/49 descoped
+(DECISIONS 2026-09-12).
+
+---
+
 Last verified commit: **fd2e6fa on main**, 2026-09-03. One PR landed since
 the previous header: #79, the ST-21 and ST-23 reviews -- ST-21 clean, ST-23's
 prompt-template leak fixed and its fusion gap parked. See the review section

@@ -517,10 +517,14 @@ def run_evaluation(
         ),
         report_path=str(path),
     )
+    # BaseException, not Exception: a Ctrl+C after the "completed" file is
+    # written but before the registry agrees would leave a file the release
+    # gate passes while Reports says Running. Either both say completed, or
+    # the file is rewritten Partial (review of d790e05).
     try:
         _write_report(report, path)
         _save_run_state(db_path, run_id, report)
-    except Exception as exc:
+    except BaseException as exc:
         last = rows[-1]
         partial = _partial_report(
             workspace_id=workspace_id,
@@ -535,6 +539,8 @@ def run_evaluation(
         _preserve_partial(
             db_path=db_path, run_id=run_id, report=partial, report_path=path
         )
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
         raise EvaluationPartialError(partial) from None
 
     return report
