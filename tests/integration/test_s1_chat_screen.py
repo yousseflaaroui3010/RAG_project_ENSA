@@ -702,6 +702,21 @@ def test_a_legal_workspace_shows_the_disclaimer_between_answer_and_sources(sanad
     assert page.index('class="disclaimer"') < page.index('class="sources"')
 
 
+def test_the_f10_trace_sits_after_sources_so_the_disclaimer_stays_under_the_answer(
+    sanad,
+):
+    """UX spec 6.2 puts the disclaimer "directly under the answer body";
+    F-10's trace disclosure must not wedge itself in between."""
+    build, workspace, _ = sanad
+    client, runtime = build(legal_flag=True)
+
+    _ask(client)
+    page = _settled(client, runtime, workspace.id)
+
+    assert page.count('class="trace"') == 1
+    assert page.index('class="sources"') < page.index('class="trace"')
+
+
 def test_an_unflagged_workspace_shows_no_disclaimer_anywhere(sanad):
     """Criterion 3. The control half of the test above: without it,
     "the line appears" is equally true of a screen that always shows it."""

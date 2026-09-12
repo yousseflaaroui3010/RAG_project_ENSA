@@ -206,10 +206,6 @@
           </div>
         {% endif %}
 
-        {% if message.has_trace %}
-          {{ trace_disclosure(message) }}
-        {% endif %}
-
         {#
           F-09. Every Answer response from a legal workspace carries the
           same fixed line. It sits below the outcome and above source cards.
@@ -222,6 +218,14 @@
 
         {% if message.sources %}
           {{ cards.source_panel(message, m, active.id) }}
+        {% endif %}
+
+        {#
+          F-10's trace goes last, after the source cards, so the F-09
+          disclaimer stays directly under the answer it qualifies.
+        #}
+        {% if message.has_trace %}
+          {{ trace_disclosure(message) }}
         {% endif %}
 
       </li>
