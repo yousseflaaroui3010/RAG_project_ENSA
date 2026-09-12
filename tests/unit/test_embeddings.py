@@ -402,3 +402,35 @@ def test_real_bm25_really_is_asymmetric():
     document = embeddings.embed_sparse_passages([text])[0]
     as_query = embeddings.embed_sparse_query(text)
     assert (document.indices, document.values) != (as_query.indices, as_query.values)
+
+def test_two_threads_needing_the_model_at_once_load_it_once(monkeypatch):
+    """Review of bab6139: `lru_cache` is not single-flight, so a question
+    asked while the start-up warm-up was still loading loaded a SECOND copy
+    of the model. The loader now holds a lock; the second caller waits and
+    then gets the cached one. The fake load is slow so both threads miss the
+    cache together without the lock."""
+    import functools
+    import threading
+    import time
+
+    loads: list[str] = []
+
+    @functools.lru_cache(maxsize=2)
+    def slow_cached_load(name: str):
+        loads.append(threading.current_thread().name)
+        time.sleep(0.3)
+        return object()
+
+    monkeypatch.setattr(embeddings, "_load_model_cached", slow_cached_load)
+    results = []
+    threads = [
+        threading.Thread(target=lambda: results.append(embeddings._load_model("m")), name=n)
+        for n in ("warm-up", "question")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(loads) == 1
+    assert results[0] is results[1]

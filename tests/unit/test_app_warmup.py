@@ -135,7 +135,9 @@ def test_a_slow_warm_up_does_not_block_a_request(tmp_path, monkeypatch):
     before_enter = time.monotonic()
     with TestClient(create_app(Runtime(db_path=db_path, warm_up=True))) as client:
         enter_elapsed = time.monotonic() - before_enter
-        assert enter_elapsed < 1.0, "starting the server waited for warm-up"
+        # The fake warm-up blocks for up to 10 s; 5 s leaves room for a slow CI
+        # machine while a synchronous warm-up (about 10 s) still fails.
+        assert enter_elapsed < 5.0, "starting the server waited for warm-up"
         assert started.wait(timeout=5), "warm-up never started"
         before_request = time.monotonic()
         response = client.get("/workspaces")
@@ -143,7 +145,7 @@ def test_a_slow_warm_up_does_not_block_a_request(tmp_path, monkeypatch):
         assert response.status_code == 200
         # The warm-up is still parked on `proceed` right now. A request
         # answered this fast could not have waited behind it.
-        assert request_elapsed < 1.0
+        assert request_elapsed < 5.0
         proceed.set()
 
 
@@ -174,15 +176,18 @@ def test_a_failing_warm_up_is_logged_and_does_not_crash_the_server(
     # message itself is a fixed, safe sentence (see `_warm_up_models`).
 
 
-def test_starting_the_real_server_turns_warm_up_on():
-    """`app.main` must be the one caller that flips the default. This reads
-    the source rather than starting a real uvicorn server (which would
-    actually bind a socket and load real models) -- see CLAUDE.md on not
-    guessing a shape: the shape checked here is "the literal call inside
-    `main`", not a re-implementation of what `main` does."""
-    import inspect
-
+def test_starting_the_real_server_turns_warm_up_on(monkeypatch):
+    """`app.main` must serve an app whose runtime warms up. Checked on the
+    app object `main` actually hands to uvicorn -- a source-text search
+    would still pass if main built the warmed app and then served the old
+    module-level one (review of bab6139)."""
     import app as app_module
 
-    source = inspect.getsource(app_module.main)
-    assert "warm_up=True" in source
+    served = {}
+    monkeypatch.setattr(
+        app_module.uvicorn, "run", lambda app, **_kwargs: served.setdefault("app", app)
+    )
+
+    app_module.main()
+
+    assert served["app"].state.runtime.warm_up is True
