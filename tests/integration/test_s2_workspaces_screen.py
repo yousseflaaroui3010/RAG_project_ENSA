@@ -26,6 +26,7 @@ import time
 from fastapi.testclient import TestClient
 
 import chunking
+import sync
 import vector_store
 import workspaces
 from app import Runtime, create_app
@@ -308,6 +309,43 @@ def test_chat_shares_the_open_index_instead_of_waiting_for_a_sync(
     # Closed after the last user: this process can open the store again.
     with vector_store.open_store():
         pass
+
+
+def test_delete_is_refused_while_a_sync_of_that_workspace_runs(tmp_path, monkeypatch):
+    """Review of d790e05: with the index shared, a delete no longer waits
+    behind a running Sync, and the Sync's next file would re-create the
+    dropped collection with no registry row to name it."""
+    with vector_store.open_store(tmp_path / "qdrant") as client:
+        app_client, _runtime, db_path = _app(tmp_path, monkeypatch, client=client)
+        workspace = workspaces.create_workspace(
+            name="Busy", folder_path=str(_corpus(tmp_path)), db_path=db_path
+        )
+        with repo.session(db_path) as conn:
+            repo.insert_sync_run(
+                conn, workspace_id=workspace.id, started_at=repo.utc_now()
+            )
+
+        response = app_client.post(f"/workspaces/{workspace.id}/delete")
+
+        assert response.status_code == 409
+        assert "while a Sync of it is running" in response.text
+        assert workspaces.get_workspace(workspace_id=workspace.id, db_path=db_path)
+
+
+def test_a_failure_to_close_an_unstarted_run_is_logged_not_raised(
+    tmp_path, caplog
+):
+    runtime = Runtime(db_path=tmp_path / "sanad.db")
+
+    def broken(_claim):
+        raise RuntimeError("database is locked")
+
+    runtime._finish_unstarted = broken
+    claim = sync.SyncClaim(sync_run_id="run-1", workspace_id="ws-1", started_at="t")
+
+    runtime._finish_unstarted_logged(claim)
+
+    assert "could not finish unstarted sync run run-1" in caplog.text
 
 
 def test_running_sync_offers_cancel_and_the_route_sets_its_event(tmp_path, monkeypatch):

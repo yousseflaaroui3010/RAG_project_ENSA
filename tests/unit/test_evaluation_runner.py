@@ -279,6 +279,40 @@ def test_ctrl_c_during_an_answer_ends_the_run_partial_not_completed(tmp_path):
         assert run["failed_question_number"] == 1
 
 
+def test_ctrl_c_between_the_final_file_and_the_registry_leaves_no_completed_file(
+    tmp_path, monkeypatch
+):
+    """Review of d790e05: the "completed" file is written before the
+    registry agrees. A Ctrl+C in between left a full report saying
+    completed -- which the release gate passes -- while Reports said
+    Running. The file must end Partial instead."""
+    _write_golden(tmp_path)
+    ws_id, db_path = _workspace(tmp_path)
+    real_save = runner_module._save_run_state
+
+    def interrupt_on_completed(db, run_id, report):
+        if report.status == "completed":
+            raise KeyboardInterrupt
+        return real_save(db, run_id, report)
+
+    monkeypatch.setattr(runner_module, "_save_run_state", interrupt_on_completed)
+
+    with pytest.raises(KeyboardInterrupt):
+        run_evaluation(
+            workspace_id=ws_id,
+            ports=_ports(),
+            scorer=FakeScorer(),
+            golden_dir=tmp_path,
+            db_path=db_path,
+            reports_dir=tmp_path / "reports",
+        )
+
+    (report_file,) = (tmp_path / "reports").rglob("*.json")
+    assert json.loads(report_file.read_text(encoding="utf-8"))["status"] == "partial"
+    with repo.session(db_path) as conn:
+        assert repo.list_eval_runs(conn)[0]["status"] == "partial"
+
+
 def test_capture_format_error_becomes_one_failed_row_instead_of_stopping_batch():
     captured = ask_and_capture(
         _ports(parent_text=" "), workspace_id="ws-hr", question=IN_QUESTION

@@ -138,14 +138,20 @@ class Runtime:
         a delete hang, with nothing on screen saying why (rule-5 review of
         57187cf). One client per process is still the ADR-04 rule: a second
         in-process `open_store` on the same path raises, which is why this
-        counts users instead of opening per operation."""
+        counts users instead of opening per operation.
+
+        SHARED, BUT ONE CALL AT A TIME: embedded Qdrant is not safe for a
+        search and a write at the same instant, so the shared client is a
+        `vector_store.SerializedClient` (see why there)."""
         if self.client is not None:
             yield self.client
             return
         with self.store_lock:
             if self._store_users == 0:
                 stack = contextlib.ExitStack()
-                self._store_client = stack.enter_context(vector_store.open_store())
+                self._store_client = vector_store.SerializedClient(
+                    stack.enter_context(vector_store.open_store())
+                )
                 self._store_exit = stack
             self._store_users += 1
             client = self._store_client
@@ -195,7 +201,7 @@ class Runtime:
                 # own message already carries both, so it is shown as-is.
                 logger.exception("sync failed for workspace %s", workspace_id)
                 self.sync_errors[workspace_id] = str(exc)
-                self._finish_unstarted(claim)
+                self._finish_unstarted_logged(claim)
             else:
                 # THE LOAD-BEARING LINE: the finished report stays reachable
                 # even when nobody polled while it ran (a small corpus can
@@ -209,9 +215,21 @@ class Runtime:
             threading.Thread(target=_work, daemon=True, name="sanad-sync").start()
         except BaseException:
             self.sync_cancel_events.pop(workspace_id, None)
-            self._finish_unstarted(claim)
+            self._finish_unstarted_logged(claim)
             raise
         return claim
+
+    def _finish_unstarted_logged(self, claim: sync.SyncClaim) -> None:
+        """`_finish_unstarted`, but a failure to close the row is logged
+        rather than raised: it must not replace the error that got us
+        here, and there is nothing better to do with it in a worker thread.
+        The row it could not close is then settled by start-up recovery."""
+        try:
+            self._finish_unstarted(claim)
+        except Exception:  # noqa: BLE001 -- logged; the original error wins
+            logger.exception(
+                "could not finish unstarted sync run %s", claim.sync_run_id
+            )
 
     def _finish_unstarted(self, claim: sync.SyncClaim) -> None:
         """Close a claimed run that never reached `sync_workspace`, with
@@ -748,14 +766,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/workspaces/{workspace_id}/delete")
     def delete_workspace_route(request: Request, workspace_id: str) -> Response:
-        try:
-            with runtime.store() as client:
-                sync.delete_workspace(
-                    workspace_id=workspace_id,
-                    db_path=runtime.db_path,
-                    client=client,
-                )
-        except vector_store.StoreAlreadyOpenError:
+        def refused(message: str) -> Response:
             try:
                 target = workspaces.get_workspace(
                     workspace_id=workspace_id, db_path=runtime.db_path
@@ -768,13 +779,36 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 {
                     **_ws_context(runtime, request),
                     "target": target,
-                    "delete_error": (
-                        "This workspace cannot be deleted while its document "
-                        "index is in use. Wait for the current Chat, Sync, or "
-                        "evaluation to finish, then try again."
-                    ),
+                    "delete_error": message,
                 },
                 status_code=409,
+            )
+
+        # A delete beside a running Sync of the same workspace drops the
+        # collection while the Sync keeps writing; its next file quietly
+        # re-creates the collection, leaving index data no registry row
+        # names -- the state `sync.delete_workspace` calls unrecoverable.
+        # Refused here, now that operations share the index instead of
+        # queueing behind one lock (review of d790e05).
+        with repo.session(runtime.db_path) as conn:
+            running = repo.get_running_sync_run(conn, workspace_id)
+        if running is not None:
+            return refused(
+                "This workspace cannot be deleted while a Sync of it is running. "
+                "Cancel the Sync or wait for it to finish, then try again."
+            )
+        try:
+            with runtime.store() as client:
+                sync.delete_workspace(
+                    workspace_id=workspace_id,
+                    db_path=runtime.db_path,
+                    client=client,
+                )
+        except vector_store.StoreAlreadyOpenError:
+            return refused(
+                "This workspace cannot be deleted while its document index is "
+                "in use by the evaluation command. Wait for it to finish, then "
+                "try again."
             )
         except workspaces.WorkspaceNotFoundError:
             pass
