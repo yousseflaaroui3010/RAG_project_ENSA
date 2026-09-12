@@ -2926,6 +2926,27 @@ fast first question -- deliberately NOT improvised here, because it makes
 `uv run python app.py` take half a minute before it serves anything and
 that is a call for whoever owns the demo.
 
+**ADDRESSED 2026-09-12, ST-39, `feat/S4-ST-39-model-warmup` -- on a branch,
+cut from `main` after the v1.0.0 tag, not yet merged.** The trade above is
+now made without paying either side of it: `Runtime.warm_up` (off by
+default; `app.main` turns it on for the real server only) spawns a daemon
+thread in `create_app`'s lifespan that calls the exact public functions a
+real question uses -- `embeddings.embed_query` and
+`embeddings.embed_sparse_query` -- with a short fixed string, so the models
+a question finds are already loaded. Start-up itself is unchanged (the
+thread is fire-and-forget, never awaited), and a warm-up failure is logged
+and swallowed rather than crashing the server -- the first question then
+loads the model itself exactly as before. 5 new tests in
+`tests/unit/test_app_warmup.py`, each proven by breaking the behaviour it
+guards and watching it go red (default-off, thread identity by name
+`sanad-warmup` since `TestClient`'s own lifespan thread name does not
+discriminate, non-blocking start-up timed on context-entry rather than on
+the request alone, and the swallow-and-log path) before restoring it green;
+full suite 826 passed / 2 skipped (up from 821, exactly the 5 new tests),
+ruff clean. `docs/defense/demo-script.md` step 5 updated: the self warm-up
+is now the primary defence against the cold 23s question, the manual
+warm-up question kept as a belt-and-braces check.
+
 ## ST-27's TWO REVIEW PASSES, 2026-08-31, and what they cost
 
 Both ran on the branch before merge, per rule 5. **Seven stories running
