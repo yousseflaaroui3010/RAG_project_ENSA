@@ -63,10 +63,16 @@ def ask_and_capture(
     run."""
     run = Run(question=question, workspace_id=workspace_id, session_id=None)
     observed_ports = run.observed(ports)
+    # Ctrl+C and interpreter exit are the OPERATOR stopping the run, not a
+    # question failing: they must reach the runner, which records the run
+    # as Partial. Caught here they became one failed row and the run went
+    # on to report itself "completed".
     try:
         answer = ask(
             workspace_id=workspace_id, question=question, ports=observed_ports
         )
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException as exc:  # noqa: BLE001 -- see ui/runs.py::Run._work
         return Captured(answer=None, error=exc, contexts=())
 
@@ -76,6 +82,8 @@ def ask_and_capture(
             if run.reading.cited
             else ()
         )
+    except (KeyboardInterrupt, SystemExit):
+        raise
     except BaseException as exc:  # noqa: BLE001 -- one bad row must not stop the batch
         return Captured(answer=None, error=exc, contexts=())
     return Captured(answer=answer, error=None, contexts=contexts)

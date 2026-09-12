@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Response
 
 import sync
 import vector_store
 import workspaces
+from agent.chat import ChatUnavailableError
 from api.models import AskRequest, WorkspaceCreate, WorkspaceUpdate
 from api.service import ApiService, EmptyWorkspaceError, ResourceNotFoundError, SessionBusyError
+from ui.conversation import redact_secrets
+
+logger = logging.getLogger(__name__)
 
 
 def error(status: int, code: str, message: str, next_step: str) -> HTTPException:
@@ -127,12 +133,48 @@ def build_router(service: ApiService, *, version: str) -> APIRouter:
             raise error(
                 409, "SESSION_BUSY", str(exc), "Wait for the current question to finish."
             ) from None
-        except Exception:
+        except vector_store.StoreAlreadyOpenError:
+            # ESCALATION (no documented status fits): another process (the
+            # command-line evaluator, or a running Sync) holds the embedded
+            # index open. This is a concurrency conflict, not a model
+            # failure, so it must not be reported as MODEL_UNREACHABLE --
+            # that would send an operator to check API keys for a problem
+            # that has nothing to do with the model. 409 is chosen over 503
+            # because every other "something else is using this resource
+            # right now" condition in this contract (SYNC_IN_PROGRESS on
+            # start-sync and on delete) is already a 409; flag for the
+            # contract owners if a dedicated status is wanted instead.
+            raise error(
+                409,
+                "INDEX_BUSY",
+                "Another Sanad process is using the search index right now.",
+                "Wait for the other operation to finish, then retry.",
+            ) from None
+        except ChatUnavailableError:
             raise error(
                 503,
                 "MODEL_UNREACHABLE",
                 "Sanad could not reach the configured answering model.",
                 "Check model settings and retry.",
+            ) from None
+        except Exception as exc:
+            # An unexpected bug (a KeyError, an AttributeError, anything not
+            # already named above) must never be reported as a false
+            # "model unreachable" -- that hides real defects behind a
+            # message that tells the operator to check the wrong thing.
+            # Logged (redacted, no traceback -- a provider exception's own
+            # text can carry the configured API key) and surfaced as a
+            # genuine 500.
+            logger.error(
+                "unexpected failure answering workspace %s: %s",
+                workspace_id,
+                redact_secrets(f"{type(exc).__name__}: {exc}"),
+            )
+            raise error(
+                500,
+                "INTERNAL_ERROR",
+                "Sanad hit an unexpected problem answering this question.",
+                "Try again; if it keeps happening, check the server log.",
             ) from None
 
     @router.get(

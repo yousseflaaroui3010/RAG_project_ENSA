@@ -4,12 +4,12 @@ import dataclasses
 import threading
 from typing import Any
 
-import recovery
 import sync
 import workspaces
 from db import repo
 from ui.conversation import Conversation
 from ui.runs import Run
+from ui.screen import answerable_documents
 
 
 class ResourceNotFoundError(Exception):
@@ -82,8 +82,11 @@ class ApiService:
 
     def delete_workspace(self, workspace_id: str) -> None:
         with repo.session(self.runtime.db_path) as conn:
-            if repo.get_running_sync_run(conn, workspace_id) is not None:
-                raise sync.SyncInProgressError(workspace_id, "running", "unknown")
+            running = repo.get_running_sync_run(conn, workspace_id)
+            if running is not None:
+                raise sync.SyncInProgressError(
+                    workspace_id, running["id"], running["started_at"]
+                )
         with self.runtime.store() as client:
             sync.delete_workspace(
                 workspace_id=workspace_id,
@@ -92,33 +95,11 @@ class ApiService:
             )
 
     def start_sync(self, workspace_id: str) -> str:
-        claim = sync.claim_sync(workspace_id=workspace_id, db_path=self.runtime.db_path)
-        cancel_event = threading.Event()
-        self.runtime.sync_cancel_events[workspace_id] = cancel_event
-
-        def work() -> None:
-            try:
-                with self.runtime.store() as client:
-                    report = sync.sync_workspace(
-                        workspace_id=workspace_id,
-                        db_path=self.runtime.db_path,
-                        client=client,
-                        cancel_requested=cancel_event.is_set,
-                        claim=claim,
-                    )
-                self.runtime.last_sync_run_id[workspace_id] = report.sync_run_id
-            except Exception as exc:
-                self.runtime.sync_errors[workspace_id] = str(exc)
-                with repo.session(self.runtime.db_path) as conn:
-                    recovery.finish_abandoned_sync_run(
-                        conn, claim.sync_run_id, finished_at=repo.utc_now()
-                    )
-            finally:
-                if self.runtime.sync_cancel_events.get(workspace_id) is cancel_event:
-                    self.runtime.sync_cancel_events.pop(workspace_id, None)
-
-        threading.Thread(target=work, daemon=True, name="sanad-api-sync").start()
-        return claim.sync_run_id
+        """The screen's own starter (`Runtime.start_sync`), so the API and
+        the Sync button claim, run, log, cancel and clean up one way. A
+        second copy lived here and had already drifted: it logged nothing
+        and left a stale error banner on the screen (rule-5 review)."""
+        return self.runtime.start_sync(workspace_id).sync_run_id
 
     @staticmethod
     def sync_summary(row: Any) -> dict[str, Any]:
@@ -136,7 +117,7 @@ class ApiService:
         with repo.session(self.runtime.db_path) as conn:
             row = repo.get_sync_run(conn, sync_run_id)
             if row is None:
-                raise ResourceNotFoundError(sync_run_id)
+                raise ResourceNotFoundError(f"No sync run with id {sync_run_id} exists.")
             items = repo.list_sync_items(conn, sync_run_id)
         return {
             **self.sync_summary(row),
@@ -150,18 +131,20 @@ class ApiService:
         workspace = workspaces.get_workspace(
             workspace_id=workspace_id, db_path=self.runtime.db_path
         )
-        with repo.session(self.runtime.db_path) as conn:
-            if not any(
-                row["status"] == "active" for row in repo.list_documents(conn, workspace_id)
-            ):
-                raise EmptyWorkspaceError(workspace_id)
+        # Shared with ui/screen.py's S1 empty-state check (F-01 scoping,
+        # "active" documents only) rather than reimplemented here -- see
+        # DECISIONS row on the rule-5 review that flagged the duplicate.
+        if not answerable_documents(workspace_id, db_path=self.runtime.db_path):
+            raise EmptyWorkspaceError(workspace_id)
         with self._session_lock:
             conversation = (
                 self.sessions.get((workspace_id, session_id)) if session_id is not None else None
             ) or Conversation(workspace_id=workspace_id, session_id=session_id)
             run = Run(question=question, workspace_id=workspace_id, session_id=session_id)
             if not conversation.begin(run, question):
-                raise SessionBusyError(session_id or "new session")
+                raise SessionBusyError(
+                    "This session is already answering a previous question."
+                )
         try:
             with self.runtime.ports() as ports:
                 run.execute(ports)
@@ -215,7 +198,7 @@ class ApiService:
         with repo.session(self.runtime.db_path) as conn:
             row = repo.get_eval_run(conn, eval_run_id)
             if row is None:
-                raise ResourceNotFoundError(eval_run_id)
+                raise ResourceNotFoundError(f"No evaluation run with id {eval_run_id} exists.")
             results = repo.list_eval_results(conn, eval_run_id)
         fields = ("question_id", "kind", "groundedness", "relevancy", "passed")
         return {

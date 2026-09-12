@@ -86,7 +86,20 @@ def evaluate_report(
 
     Raises `KeyError` if the report is missing a required field, or
     `InvalidReportError` if rows are missing, extra, duplicated, or reordered.
-    A partial report must stop loudly rather than pass as 1/1."""
+    A partial report must stop loudly rather than pass as 1/1.
+
+    A report whose own `status` says it is not complete is refused before
+    any row is read: the runner can write all 60 rows and still end
+    Partial (its final registry update failed), and the gate must not say
+    PASS while Reports says Partial. A report with NO status predates the
+    Running/Partial lifecycle; those were written once, at the end of a
+    finished run, so they are complete by construction and still gate."""
+    status = report.get("status")
+    if status is not None and status != "completed":
+        raise InvalidReportError(
+            f"report status is {status!r}; only a completed run can pass the "
+            "release gate"
+        )
     threshold = get_settings().eval_groundedness_threshold
     results = report["results"]
     golden_rows = load_golden_set() if (

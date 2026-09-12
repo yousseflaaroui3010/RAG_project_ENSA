@@ -35,6 +35,8 @@ fastembed 0.8.0 rather than by reading a doc page:
 
 from __future__ import annotations
 
+import functools
+import threading
 import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -203,6 +205,38 @@ def _positions_within_parents(children: Sequence[Child]) -> list[int]:
         positions.append(position)
         seen[child.parent_id] = position + 1
     return positions
+
+
+class SerializedClient:
+    """One embedded client shared by several threads, one CALL at a time.
+
+    Embedded Qdrant keeps its points in plain in-memory arrays and has no
+    locking of its own (its file lock only stops a second PROCESS). A search
+    running while another thread upserts or deletes reads a half-updated
+    array: reproduced as `IndexError: index 670 is out of bounds for axis 0
+    with size 670` inside qdrant_client's payload filters (review of
+    d790e05). Serializing each call rather than each operation means a Chat
+    search waits at most for one upsert, never for a whole Sync.
+
+    Every method of the wrapped client is reached through `__getattr__`, so
+    the functions in this module need no change to use it."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self._lock = threading.RLock()
+
+    def __getattr__(self, name: str) -> Any:
+        attribute = getattr(self._client, name)
+        if not callable(attribute):
+            return attribute
+        lock = self._lock
+
+        @functools.wraps(attribute)
+        def serialized(*args: Any, **kwargs: Any) -> Any:
+            with lock:
+                return attribute(*args, **kwargs)
+
+        return serialized
 
 
 @contextmanager
