@@ -534,7 +534,9 @@ def _ws_context(
         # setting, not a per-request one, and no new /api/v1 route is
         # allowed), so this is read-only display of the running process's
         # own setting.
-        "watch_enabled": get_settings().watch_folders,
+        # Evidence-only mode never starts the watcher (watcher.start_if_enabled),
+        # so the line must not claim "on" there even if watch_folders is set.
+        "watch_enabled": get_settings().watch_folders and not get_settings().evidence_only,
     }
 
 

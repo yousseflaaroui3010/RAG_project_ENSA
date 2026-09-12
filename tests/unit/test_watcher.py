@@ -129,6 +129,34 @@ def test_growing_file_triggers_nothing_until_it_stabilizes():
     assert trigger.calls == ["w1"]
 
 
+def test_a_batch_copy_waits_until_every_file_has_finished_arriving():
+    """Sync reads the whole folder, so a trigger while b.pdf is still being
+    copied would ingest it half-written. Kill test for dropping the
+    `settling` hold in `_poll_workspace`: a.pdf is stable on poll 3 and the
+    mutant triggers there, while b.pdf is still growing."""
+    ws = _ws(folder="F")
+    snap = _ScriptedSnapshot(
+        {
+            "F": [
+                {},
+                {"a.pdf": (100, 1)},
+                {"a.pdf": (100, 1), "b.pdf": (10, 2)},  # a stable, b arriving
+                {"a.pdf": (100, 1), "b.pdf": (50, 3)},  # b still growing
+                {"a.pdf": (100, 1), "b.pdf": (50, 3)},  # everything settled
+                {"a.pdf": (100, 1), "b.pdf": (50, 3)},
+            ]
+        }
+    )
+    trigger = _RecordingTrigger()
+    state = watcher.WatcherState()
+
+    _poll(state, [ws], snap, trigger, times=4)
+    assert trigger.calls == [], "must not sync while another file is still arriving"
+
+    _poll(state, [ws], snap, trigger, times=2)
+    assert trigger.calls == ["w1"], "one sync for the whole batch, exactly once"
+
+
 def test_sync_in_progress_is_retried_next_poll_and_triggers_once_total():
     """Kill test for "swallow SyncInProgress by marking done": catch the
     exception but still record the baseline, and `successes` stays at 1
@@ -405,3 +433,23 @@ def test_start_if_enabled_starts_a_real_thread_when_both_flags_allow_it(tmp_path
     finally:
         thread.stop(timeout=2)
     assert not thread.is_alive()
+
+
+def test_a_registry_that_does_not_exist_yet_means_nothing_to_watch(tmp_path, caplog):
+    """app.main() starts the watcher before the lifespan creates sanad.db,
+    so a fresh install's first poll can find no registry. Found on a real
+    first boot: that poll logged a full traceback. It must be a quiet
+    "no workspaces", and a registry created later is picked up."""
+    db_path = tmp_path / "sanad.db"
+    assert watcher._registered_workspaces(db_path) == []
+    state = watcher.WatcherState()
+    with caplog.at_level("ERROR", logger="watcher"):
+        watcher.poll_once(
+            state,
+            list_workspaces=lambda: watcher._registered_workspaces(db_path),
+            trigger=_RecordingTrigger(),
+        )
+    assert caplog.records == []
+
+    repo.ensure_schema(db_path)
+    assert watcher._registered_workspaces(db_path) == []

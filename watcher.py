@@ -62,6 +62,7 @@ import sync
 import workspaces
 from change_detection import is_supported
 from config import Settings
+from db.repo import RegistryNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -161,11 +162,18 @@ def _poll_workspace(
         for name, value in current.items()
         if value == ws_state.last_poll.get(name) and value != ws_state.baseline.get(name)
     }
+    # WAIT FOR THE WHOLE BATCH. Sync reads the entire folder, not just the
+    # ready files, so starting it while ANOTHER supported file is still
+    # arriving (a batch copy, one file done and the next mid-copy) would
+    # convert that second file half-written -- a Failed row the user sees,
+    # then a second ingestion once it finishes. Any file that is new or
+    # changed since the last poll holds the trigger back one more round.
+    settling = any(value != ws_state.last_poll.get(name) for name, value in current.items())
     # Recorded BEFORE the trigger, and unconditionally: next poll's
     # stability check needs to know what THIS poll saw regardless of
     # whether a Sync was started from it.
     ws_state.last_poll = dict(current)
-    if not ready:
+    if not ready or settling:
         return
 
     try:
@@ -221,6 +229,19 @@ def poll_once(
         del state.per_workspace[stale_id]
 
 
+def _registered_workspaces(db_path: str | Path | None) -> list[workspaces.Workspace]:
+    """Every workspace in the registry, or none while the registry does not
+    exist yet. `app.main()` starts this thread BEFORE uvicorn runs the
+    lifespan that creates `sanad.db`, so on a fresh install the first poll
+    can land a moment early. Found by a real first boot, which logged a full
+    traceback for it; "no registry yet" is "nothing to watch yet", not an
+    error."""
+    try:
+        return workspaces.list_workspaces(db_path=db_path)
+    except RegistryNotFoundError:
+        return []
+
+
 class WatcherThread(threading.Thread):
     """The real background poller. Started only by `start_if_enabled`,
     which is in turn called only from `app.main()` -- never from a test
@@ -238,9 +259,7 @@ class WatcherThread(threading.Thread):
         super().__init__(daemon=True, name="sanad-watcher")
         self._interval = interval_seconds
         self._trigger = trigger
-        self._list_workspaces = list_workspaces or (
-            lambda: workspaces.list_workspaces(db_path=db_path)
-        )
+        self._list_workspaces = list_workspaces or (lambda: _registered_workspaces(db_path))
         self._snapshot = snapshot
         self._stop_event = threading.Event()
         self._state = WatcherState()
