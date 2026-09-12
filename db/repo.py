@@ -28,6 +28,37 @@ from config import get_settings
 
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
+_EVAL_RUN_COLUMN_MIGRATIONS = (
+    (
+        "status",
+        "ALTER TABLE eval_run ADD COLUMN status TEXT NOT NULL DEFAULT 'completed' "
+        "CHECK (status IN ('running', 'completed', 'partial'))",
+    ),
+    (
+        "question_total",
+        "ALTER TABLE eval_run ADD COLUMN question_total INTEGER NOT NULL DEFAULT 0",
+    ),
+    (
+        "failed_question_number",
+        "ALTER TABLE eval_run ADD COLUMN failed_question_number INTEGER",
+    ),
+    (
+        "failed_question_id",
+        "ALTER TABLE eval_run ADD COLUMN failed_question_id TEXT",
+    ),
+    ("error", "ALTER TABLE eval_run ADD COLUMN error TEXT"),
+)
+
+_EVAL_RESULT_COLUMN_MIGRATIONS = (
+    ("answer_kind", "ALTER TABLE eval_result ADD COLUMN answer_kind TEXT"),
+    ("answer_text", "ALTER TABLE eval_result ADD COLUMN answer_text TEXT"),
+    (
+        "sources_present",
+        "ALTER TABLE eval_result ADD COLUMN sources_present INTEGER",
+    ),
+    ("error", "ALTER TABLE eval_result ADD COLUMN error TEXT"),
+)
+
 
 def new_id() -> str:
     """App-generated identifier for the `uuid` columns (arch section 7.4:
@@ -105,6 +136,9 @@ def ensure_schema(db_path: str | Path | None = None) -> None:
     resolved.parent.mkdir(parents=True, exist_ok=True)
     conn = _connect_raw(resolved)
     try:
+        # Claim the writer lock before inspecting old columns. Otherwise two
+        # processes can both observe a missing column and race to add it.
+        conn.execute("BEGIN IMMEDIATE")
         init_db(conn)
         conn.commit()
     finally:
@@ -112,8 +146,9 @@ def ensure_schema(db_path: str | Path | None = None) -> None:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Apply db/schema.sql to `conn`. Safe to call repeatedly: every
-    CREATE TABLE uses IF NOT EXISTS.
+    """Apply db/schema.sql and additive migrations to `conn`. Safe to call
+    repeatedly: every CREATE TABLE uses IF NOT EXISTS and migrations inspect
+    the existing columns before adding anything.
 
     Does NOT commit, and deliberately does not use
     `sqlite3.Connection.executescript()`. `executescript()` is
@@ -136,6 +171,31 @@ def init_db(conn: sqlite3.Connection) -> None:
         statement = statement.strip()
         if statement:
             conn.execute(statement)
+    _migrate_incremental_evaluation(conn)
+
+
+def _migrate_incremental_evaluation(conn: sqlite3.Connection) -> None:
+    """Add incremental evaluation columns to databases created before S3."""
+    eval_run_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(eval_run)").fetchall()
+    }
+    question_total_added = "question_total" not in eval_run_columns
+    for column, statement in _EVAL_RUN_COLUMN_MIGRATIONS:
+        if column not in eval_run_columns:
+            conn.execute(statement)
+
+    eval_result_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(eval_result)").fetchall()
+    }
+    for column, statement in _EVAL_RESULT_COLUMN_MIGRATIONS:
+        if column not in eval_result_columns:
+            conn.execute(statement)
+
+    if question_total_added:
+        conn.execute(
+            "UPDATE eval_run SET question_total = "
+            "(SELECT COUNT(*) FROM eval_result WHERE eval_result.eval_run_id = eval_run.id)"
+        )
 
 
 @contextmanager
@@ -440,32 +500,93 @@ def insert_eval_run(
     *,
     workspace_id: str,
     run_at: str | None = None,
+    status: str = "completed",
+    question_total: int = 0,
     groundedness: float | None = None,
     relevancy: float | None = None,
     refusal_pass: int = 0,
     refusal_total: int = 0,
     passed: bool = False,
     report_path: str | None = None,
+    failed_question_number: int | None = None,
+    failed_question_id: str | None = None,
+    error: str | None = None,
     id: str | None = None,
 ) -> str:
     run_id = id or new_id()
     conn.execute(
         "INSERT INTO eval_run "
-        "(id, workspace_id, run_at, groundedness, relevancy, refusal_pass, refusal_total, "
-        "passed, report_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "(id, workspace_id, run_at, status, question_total, groundedness, relevancy, "
+        "refusal_pass, refusal_total, passed, report_path, failed_question_number, "
+        "failed_question_id, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             run_id,
             workspace_id,
             run_at or utc_now(),
+            status,
+            question_total,
             groundedness,
             relevancy,
             refusal_pass,
             refusal_total,
             int(passed),
             report_path,
+            failed_question_number,
+            failed_question_id,
+            error,
         ),
     )
     return run_id
+
+
+def update_eval_run(
+    conn: sqlite3.Connection,
+    eval_run_id: str,
+    *,
+    status: str,
+    groundedness: float | None = None,
+    relevancy: float | None = None,
+    refusal_pass: int = 0,
+    refusal_total: int = 0,
+    passed: bool = False,
+    failed_question_number: int | None = None,
+    failed_question_id: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Write a run's final or partial outcome without changing its start fields."""
+    conn.execute(
+        "UPDATE eval_run SET status = ?, groundedness = ?, relevancy = ?, "
+        "refusal_pass = ?, refusal_total = ?, passed = ?, failed_question_number = ?, "
+        "failed_question_id = ?, error = ? WHERE id = ?",
+        (
+            status,
+            groundedness,
+            relevancy,
+            refusal_pass,
+            refusal_total,
+            int(passed),
+            failed_question_number,
+            failed_question_id,
+            error,
+            eval_run_id,
+        ),
+    )
+
+
+def eval_run_progress(conn: sqlite3.Connection, eval_run_id: str) -> int:
+    """Return how many question results have been saved for one run."""
+    row = conn.execute(
+        "SELECT COUNT(*) FROM eval_result WHERE eval_run_id = ?", (eval_run_id,)
+    ).fetchone()
+    return row[0]
+
+
+def list_sync_runs(conn: sqlite3.Connection, workspace_id: str) -> list[sqlite3.Row]:
+    """Every sync run for one workspace, newest first."""
+    return conn.execute(
+        "SELECT * FROM sync_run WHERE workspace_id = ? ORDER BY started_at DESC",
+        (workspace_id,),
+    ).fetchall()
 
 
 # --- eval_result -------------------------------------------------------------
@@ -480,14 +601,31 @@ def insert_eval_result(
     passed: bool,
     groundedness: float | None = None,
     relevancy: float | None = None,
+    answer_kind: str | None = None,
+    answer_text: str | None = None,
+    sources_present: bool | None = None,
+    error: str | None = None,
     id: str | None = None,
 ) -> str:
     result_id = id or new_id()
     conn.execute(
         "INSERT INTO eval_result "
-        "(id, eval_run_id, question_id, kind, groundedness, relevancy, passed) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (result_id, eval_run_id, question_id, kind, groundedness, relevancy, int(passed)),
+        "(id, eval_run_id, question_id, kind, groundedness, relevancy, passed, "
+        "answer_kind, answer_text, sources_present, error) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            result_id,
+            eval_run_id,
+            question_id,
+            kind,
+            groundedness,
+            relevancy,
+            int(passed),
+            answer_kind,
+            answer_text,
+            None if sources_present is None else int(sources_present),
+            error,
+        ),
     )
     return result_id
 
@@ -506,8 +644,11 @@ def list_eval_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     UX spec 8.1's list wants ("date, workspace, and overall scores") --
     joined here rather than requiring the caller to look each one up."""
     return conn.execute(
-        "SELECT eval_run.*, workspace.name AS workspace_name "
+        "SELECT eval_run.*, workspace.name AS workspace_name, "
+        "COUNT(eval_result.id) AS completed_count "
         "FROM eval_run JOIN workspace ON workspace.id = eval_run.workspace_id "
+        "LEFT JOIN eval_result ON eval_result.eval_run_id = eval_run.id "
+        "GROUP BY eval_run.id, workspace.name "
         "ORDER BY eval_run.run_at DESC"
     ).fetchall()
 
@@ -515,9 +656,11 @@ def list_eval_runs(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 def get_eval_run(conn: sqlite3.Connection, eval_run_id: str) -> sqlite3.Row | None:
     """One run by id, with its workspace name, or None (S3's detail 404)."""
     return conn.execute(
-        "SELECT eval_run.*, workspace.name AS workspace_name "
+        "SELECT eval_run.*, workspace.name AS workspace_name, "
+        "COUNT(eval_result.id) AS completed_count "
         "FROM eval_run JOIN workspace ON workspace.id = eval_run.workspace_id "
-        "WHERE eval_run.id = ?",
+        "LEFT JOIN eval_result ON eval_result.eval_run_id = eval_run.id "
+        "WHERE eval_run.id = ? GROUP BY eval_run.id, workspace.name",
         (eval_run_id,),
     ).fetchone()
 
@@ -525,9 +668,8 @@ def get_eval_run(conn: sqlite3.Connection, eval_run_id: str) -> sqlite3.Row | No
 def list_eval_results(conn: sqlite3.Connection, eval_run_id: str) -> list[sqlite3.Row]:
     """Every per-question row of one run, ordered by question_id. The
     fallback source for S3's per-question table when the JSON report file
-    ST-32 also wrote is missing -- `answer_kind`, `sources_present` and
-    `error` live only in that file (see evaluation/runner.py), so this is
-    a real degrade, not the primary source."""
+    ST-32 also wrote is missing. Incremental runs persist the rich answer
+    fields here so a partial report remains inspectable."""
     return conn.execute(
         "SELECT * FROM eval_result WHERE eval_run_id = ? ORDER BY question_id",
         (eval_run_id,),

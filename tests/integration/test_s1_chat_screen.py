@@ -34,6 +34,7 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
+import app as app_module
 import chunking
 import embeddings
 import parent_store
@@ -826,17 +827,8 @@ def test_a_new_conversation_clears_the_transcript(sanad):
 # --- the shell (UX spec 4) -------------------------------------------
 
 
-def test_the_lifespan_really_opens_the_one_qdrant_client(tmp_path, monkeypatch):
-    """The ADR-04 line no test had ever executed.
-
-    Every other test in this file passes a `ports_factory`, which takes
-    the lifespan's early return, so `vector_store.open_store()` -- the one
-    place the process's single Qdrant client is opened and closed -- was
-    covered by nothing. A cold review pointed at it, and this project's
-    own law is that a line which has never run is untested, not passing.
-
-    It DID run live, twice, when the server was driven by hand; that is
-    evidence, not a check. This is the check."""
+def test_the_app_does_not_hold_qdrant_while_serving_reports(tmp_path, monkeypatch):
+    """The evaluator can own embedded Qdrant while S3 remains available."""
     settings = get_settings().model_copy(
         update={"qdrant_storage_path": str(tmp_path / "qdrant")}
     )
@@ -845,9 +837,29 @@ def test_the_lifespan_really_opens_the_one_qdrant_client(tmp_path, monkeypatch):
 
     assert runtime.client is None
     with TestClient(create_app(runtime)) as client:
-        client.get("/")
-        assert runtime.client is not None, "the lifespan must open the store"
-    assert runtime.client is None, "and close it again on shutdown"
+        with vector_store.open_store() as external_client:
+            assert external_client is not None
+            assert client.get("/reports").status_code == 200
+        assert runtime.client is None
+    assert runtime.client is None
+
+
+def test_default_chat_ports_hold_qdrant_for_the_whole_context(tmp_path, monkeypatch):
+    settings = get_settings().model_copy(
+        update={"qdrant_storage_path": str(tmp_path / "qdrant")}
+    )
+    monkeypatch.setattr(vector_store, "get_settings", lambda: settings)
+    monkeypatch.setattr(app_module, "build_default_ports", lambda client: client)
+    runtime = Runtime(db_path=tmp_path / "sanad.db")
+
+    with runtime.ports() as client:
+        assert client is not None
+        with pytest.raises(vector_store.StoreAlreadyOpenError):
+            with vector_store.open_store():
+                pass
+
+    with vector_store.open_store() as reopened:
+        assert reopened is not None
 
 
 def test_a_passage_link_never_resolves_against_another_workspace(sanad):
@@ -988,6 +1000,17 @@ def test_the_skip_link_is_the_first_focusable_element(sanad):
     body = page.split("<body>")[1]
 
     assert body.index("skip-link") < body.index("<header")
+
+
+def test_shared_shell_keyboard_order_starts_with_skip_name_and_workspace(sanad):
+    build, _workspace, _ = sanad
+    client, _runtime = build()
+
+    body = client.get("/").text.split("<body>")[1]
+
+    assert body.index("skip-link") < body.index('class="shell__name"')
+    assert body.index('class="shell__name"') < body.index('id="workspace-select"')
+    assert body.index('id="workspace-select"') < body.index(">Chat</a>")
 
 
 def test_the_legal_marker_rides_with_the_workspace_selector(sanad):

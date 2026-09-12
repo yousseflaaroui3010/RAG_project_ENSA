@@ -6,13 +6,11 @@ its own encoding, so there is nothing here to get subtly wrong except the
 two things below -- and both are about what this file does NOT do.
 
 IT DOES NOT OPEN A CLIENT. `build_retrieve` takes one and closes over it.
-ADR-04 makes Qdrant embedded and single-process, and
-`vector_store.open_store` raises on a second client for the same storage
-path -- with a message about a lock folder that reads exactly like stale
-state somebody should delete, which is how that mistake usually ends. So
-the client's lifetime belongs to whoever composes the application (ST-51),
-one per process, and the agent is handed one. `agent/ports.py` says the
-same thing at the seam, for the same reason.
+The caller owns that client's lifetime: batch commands hold one client for
+their run, while the app holds one around the whole question.
+Keeping that choice at composition lets Reports stay available while the
+separate evaluator owns embedded Qdrant. `agent/ports.py` says the same
+thing at the seam, for the same reason.
 
 IT DOES NOT PASS A SEARCH DEPTH, and that is deliberate rather than an
 omission. `vector_store.search` resolves `limit=None` to

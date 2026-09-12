@@ -30,11 +30,18 @@ somewhere failed something".
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from config import get_settings
 from evaluation import FULLY_GROUNDED_SCORE
+from evaluation.golden import load_golden_set
+
+
+class InvalidReportError(ValueError):
+    """The report is not one result for every frozen golden question."""
 
 
 @dataclass(frozen=True)
@@ -67,16 +74,94 @@ class GateVerdict:
         return tuple(seen)
 
 
-def evaluate_report(report: dict[str, Any]) -> GateVerdict:
+def evaluate_report(
+    report: dict[str, Any],
+    *,
+    expected_question_ids: Sequence[str] | None = None,
+    expected_question_kinds: Mapping[str, str] | None = None,
+) -> GateVerdict:
     """Apply the three PRD thresholds to one parsed report dict (the
     output of `json.loads` on a file `evaluation.runner.run_evaluation`
     wrote, or an equivalent hand-built fixture in a test).
 
-    Raises `KeyError` if the report is missing a required field -- a
-    malformed report must stop the gate loudly, never be read as a
-    silent pass."""
+    Raises `KeyError` if the report is missing a required field, or
+    `InvalidReportError` if rows are missing, extra, duplicated, or reordered.
+    A partial report must stop loudly rather than pass as 1/1.
+
+    A report whose own `status` says it is not complete is refused before
+    any row is read: the runner can write all 60 rows and still end
+    Partial (its final registry update failed), and the gate must not say
+    PASS while Reports says Partial. A report with NO status predates the
+    Running/Partial lifecycle; those were written once, at the end of a
+    finished run, so they are complete by construction and still gate."""
+    status = report.get("status")
+    if status is not None and status != "completed":
+        raise InvalidReportError(
+            f"report status is {status!r}; only a completed run can pass the "
+            "release gate"
+        )
     threshold = get_settings().eval_groundedness_threshold
-    results = report.get("results", [])
+    results = report["results"]
+    golden_rows = load_golden_set() if (
+        expected_question_ids is None or expected_question_kinds is None
+    ) else ()
+    expected = (
+        tuple(expected_question_ids)
+        if expected_question_ids is not None
+        else tuple(row.id for row in golden_rows)
+    )
+    expected_kinds = (
+        dict(expected_question_kinds)
+        if expected_question_kinds is not None
+        else {row.id: row.kind for row in golden_rows}
+    )
+    observed = tuple(row["question_id"] for row in results)
+    if observed != expected:
+        counts = Counter(observed)
+        expected_set = set(expected)
+        observed_set = set(observed)
+        missing = tuple(question_id for question_id in expected if question_id not in observed_set)
+        extra = tuple(question_id for question_id in observed if question_id not in expected_set)
+        duplicates = tuple(
+            question_id for question_id, count in counts.items() if count > 1
+        )
+        problems: list[str] = []
+        if missing:
+            problems.append(f"missing {', '.join(missing)}")
+        if extra:
+            problems.append(f"extra {', '.join(dict.fromkeys(extra))}")
+        if duplicates:
+            problems.append(f"duplicate {', '.join(duplicates)}")
+        if not problems:
+            problems.append("rows are out of frozen-set order")
+        raise InvalidReportError(
+            "report rows do not match the frozen golden set: " + "; ".join(problems)
+        )
+
+    wrong_kinds = tuple(
+        f"{row['question_id']} expected {expected_kinds[row['question_id']]} "
+        f"but got {row.get('kind')!r}"
+        for row in results
+        if row.get("kind") != expected_kinds[row["question_id"]]
+    )
+    if wrong_kinds:
+        raise InvalidReportError(
+            "report row kind does not match the frozen golden set: "
+            + "; ".join(wrong_kinds)
+        )
+
+    for row in results:
+        for field in ("groundedness", "relevancy"):
+            value = row.get(field)
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not 0.0 <= value <= 1.0
+            ):
+                raise InvalidReportError(
+                    f"report row {row['question_id']} has invalid {field} "
+                    f"score {value!r}; expected null or a number from 0.0 to 1.0"
+                )
 
     in_scope = [r for r in results if r.get("kind") == "in_scope"]
     g1_failing = tuple(

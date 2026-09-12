@@ -192,6 +192,9 @@ class Settings(BaseSettings):
     # workspaces.py; never hardcode these limits a second time.
     workspace_name_min_length: int = 1
     workspace_name_max_length: int = 100
+    # PRD section 10: warning only. Sync remains allowed above either limit.
+    workspace_soft_cap_pages: int = 1500
+    workspace_soft_cap_files: int = 50
     # Mirrors docs/phase2/openapi.yaml WorkspaceCreate `folder_path`
     # minLength. Checked against the stripped value so whitespace-only
     # paths are rejected too (openapi's raw minLength alone would not

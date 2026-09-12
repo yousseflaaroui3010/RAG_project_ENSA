@@ -210,6 +210,35 @@ def _reason(report, file_name):
     return next(i.reason for i in report.items if i.file_name == file_name)
 
 
+def test_cancel_stops_after_the_current_file_and_keeps_one_row_per_file(
+    folder, db_path, workspace, store, parents_path
+):
+    _write(folder, "a.md", HR_TEXT)
+    _write(folder, "b.md", HR_TEXT)
+    checks = 0
+
+    def cancel_after_first_file():
+        nonlocal checks
+        checks += 1
+        return checks > 1
+
+    report = sync.sync_workspace(
+        workspace_id=workspace.id,
+        db_path=db_path,
+        client=store,
+        parent_base_path=parents_path,
+        cancel_requested=cancel_after_first_file,
+    )
+
+    assert [item.file_name for item in report.items] == ["a.md", "b.md"]
+    assert _results(report) == {
+        "a.md": SyncResult.ADDED,
+        "b.md": SyncResult.SKIPPED,
+    }
+    assert _reason(report, "b.md") == sync.CANCELLED_REASON
+    assert set(_documents(db_path, workspace.id)) == {"a.md"}
+
+
 def _documents(db_path, workspace_id):
     conn = repo.get_connection(db_path)
     try:
