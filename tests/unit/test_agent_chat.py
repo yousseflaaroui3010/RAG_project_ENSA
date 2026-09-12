@@ -21,6 +21,7 @@ been RETIRED by Google, and every call returned 404. See config.py.
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 import agent.chat
@@ -78,6 +79,36 @@ def test_strict_local_mode_builds_an_ollama_model_at_the_configured_url(monkeypa
     assert chat._model.base_url == "http://127.0.0.1:9999"
 
 
+def test_cloud_mode_applies_the_configured_timeout_and_retry_ceiling(monkeypatch):
+    """A stalled network call must not hang a question forever, and Cancel
+    must have something to cancel (PRD section 11). Compared against
+    LITERAL numbers set here, not the config defaults, so a builder that
+    ignores config and just relies on the provider's own default (timeout
+    None, max_retries 6) would still fail this."""
+    _with_settings(
+        monkeypatch, model_mode=CLOUD, cloud_api_key="not-a-real-key",
+        model_call_timeout_seconds=12.5, model_call_max_retries=4,
+    )
+
+    chat = build_chat_model()
+
+    assert chat._model.timeout == 12.5
+    assert chat._model.max_retries == 4
+
+
+def test_strict_local_mode_applies_the_configured_timeout(monkeypatch):
+    """ChatOllama has no `timeout` field of its own (checked its
+    model_fields directly); the value has to reach `ollama.Client` through
+    `client_kwargs`, which is the mechanism this asserts."""
+    _with_settings(
+        monkeypatch, model_mode=STRICT_LOCAL, model_call_timeout_seconds=17.0,
+    )
+
+    chat = build_chat_model()
+
+    assert chat._model.client_kwargs.get("timeout") == 17.0
+
+
 def test_cloud_mode_without_a_key_says_so_before_any_call_is_made(monkeypatch):
     """The out-of-the-box experience, because `model_mode` defaults to
     `cloud` and a fresh clone has no key -- not an edge case, the first
@@ -127,6 +158,31 @@ class _RecordingModel:
     def invoke(self, messages):
         self.messages = messages
         return self.reply
+
+
+class _TimingOutModel:
+    """Stands in for a provider whose retries are exhausted: both
+    ChatGoogleGenerativeAI (reraise=True in google.genai's tenacity retry)
+    and ChatOllama (no timeout handling at all in ollama._client) let this
+    exact exception type escape `invoke()` unchanged."""
+
+    def invoke(self, messages):
+        raise httpx.ReadTimeout("timed out")
+
+
+def test_a_provider_timeout_is_mapped_to_the_unreachable_error(monkeypatch):
+    """PRD section 11: "answering service unreachable -> clear error and a
+    retry action". Without a timeout wrapped here, this exception would hit
+    api/routes.py's generic `except Exception` and come back as an
+    unexplained 500 -- or, in the UI, print raw httpx internals verbatim
+    (ui/conversation.py shows an error's own text as the offending value)."""
+    with pytest.raises(ChatUnavailableError) as caught:
+        _LangChainChat(_TimingOutModel()).complete("s", "u")
+
+    message = str(caught.value)
+    assert "did not respond in time" in message
+    # Never the provider's own exception text (could carry request internals).
+    assert "httpx" not in message and "ReadTimeout" not in message
 
 
 def test_the_adapter_sends_a_system_message_and_a_human_message():

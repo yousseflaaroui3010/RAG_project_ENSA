@@ -47,7 +47,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol
 
+import httpx
+
 from config import get_settings
+
+# httpx is not a direct project dependency (pyproject.toml declares it only
+# for tests, ST-27's own lesson about undeclared imports), but it is a hard
+# dependency of BOTH provider packages this module wires up -- google-genai
+# (cloud) and ollama (strict-local) -- so it is guaranteed present whenever
+# either builder below can even be imported. Used here only to recognise a
+# provider timeout by type, never to make a request of our own.
 
 # ADR-06's two modes, as the config values that select them.
 CLOUD = "cloud"
@@ -81,9 +90,25 @@ class _LangChainChat:
         self._model = model
 
     def complete(self, system: str, user: str) -> str:
-        response = self._model.invoke(
-            [("system", system), ("human", user)]
-        )
+        try:
+            response = self._model.invoke(
+                [("system", system), ("human", user)]
+            )
+        except httpx.TimeoutException as exc:
+            # Both builders below set a per-call timeout (config.py
+            # model_call_timeout_seconds). Google's client retries a
+            # timeout up to model_call_max_retries and then RE-RAISES the
+            # original httpx exception (google.genai._api_client.retry_args
+            # sets reraise=True); Ollama's client does not catch a timeout
+            # at all (ollama._client.Client._request_raw only rewraps
+            # httpx.ConnectError, verified against the installed package).
+            # Either way this is PRD section 11's "answering service
+            # unreachable" path, not a bug in this seam, and it must reach
+            # the caller as that named error -- never the provider's own
+            # exception text, which could carry request internals.
+            raise ChatUnavailableError(
+                "the configured model did not respond in time."
+            ) from exc
         text = getattr(response, "content", response)
         if isinstance(text, list):
             # Some providers return content as a list of parts. Join the
@@ -117,6 +142,13 @@ def _build_cloud() -> ChatModel:
         ChatGoogleGenerativeAI(
             model=settings.chat_model_cloud,
             api_key=settings.cloud_api_key,
+            # Verified on the installed langchain-google-genai (4.2.7):
+            # `timeout: float | None` (seconds -- converted to ms
+            # internally before it reaches google.genai's HttpOptions,
+            # which takes milliseconds) and `max_retries: int = 6`. Both
+            # config.py knobs so one stalled call cannot hang a question.
+            timeout=settings.model_call_timeout_seconds,
+            max_retries=settings.model_call_max_retries,
         )
     )
 
@@ -133,6 +165,15 @@ def _build_strict_local() -> ChatModel:
         ChatOllama(
             model=settings.chat_model_local,
             base_url=settings.ollama_base_url,
+            # ChatOllama (installed langchain-ollama 1.1.0) has no `timeout`
+            # or `max_retries` field of its own -- checked its model_fields
+            # directly, not remembered. It forwards `client_kwargs` to
+            # `ollama.Client`, whose `timeout` parameter is a real,
+            # documented httpx timeout (ollama._client.BaseClient.__init__
+            # passes it straight to the httpx client). No retry knob exists
+            # for this provider at any layer, so model_call_max_retries
+            # does not apply here (see config.py).
+            client_kwargs={"timeout": settings.model_call_timeout_seconds},
         )
     )
 
