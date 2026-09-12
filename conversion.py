@@ -1,8 +1,8 @@
-"""Sanad conversion ladder (ST-13).
+"""Sanad conversion ladder (ST-13, PPTX added for F-11/ST-48).
 
 Turns one document on disk into markdown text the chunker can cut, per
-ADR-07: `pymupdf4llm` for PDF, `markitdown` for DOCX, passthrough for TXT
-and MD. Markdown, not plain text, because the parent splitter cuts on
+ADR-07: `pymupdf4llm` for PDF, `markitdown` for DOCX and PPTX, passthrough
+for TXT and MD. Markdown, not plain text, because the parent splitter cuts on
 markdown headings (architecture section 7.5) -- a converter that flattens
 headings would silently destroy the structure the retrieval quality
 depends on, which is exactly why ADR-07 refuses to use one converter for
@@ -35,6 +35,7 @@ wording from there so the two never explain the same situation twice.
 from __future__ import annotations
 
 import logging
+import re
 import zipfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -55,6 +56,16 @@ logger = logging.getLogger(__name__)
 # markitdown does NOT reject it -- see `_read_docx` for what it does
 # instead, and why that is the most dangerous behaviour in this module.
 _DOCX_MAIN_PART = "word/document.xml"
+
+# The equivalent guard for PPTX (F-11/ST-48): the one entry that makes a
+# `.pptx` package a PowerPoint file. Verified against markitdown 0.1.5's
+# PptxConverter to have the identical danger `_read_docx` already guards
+# for DOCX: given a `.pptx` that is a valid ZIP but not really a
+# PowerPoint package, it does not raise -- it falls through to a
+# directory-listing converter and returns that AS A SUCCESS. A `.pptx`
+# that is not even a ZIP comes back as its own raw bytes, also with no
+# exception. See `_read_pptx`.
+_PPTX_MAIN_PART = "ppt/presentation.xml"
 
 # Named once so the dispatch table and the "no text layer" wording can never
 # disagree about which extension is the scanned-document case.
@@ -78,6 +89,10 @@ _REASON_PDF_NO_TEXT_LAYER = (
 _REASON_DOCX_DAMAGED = (
     "the DOCX is damaged or is not really a Word file. Open it in Word to "
     "check it, then sync again"
+)
+_REASON_PPTX_DAMAGED = (
+    "the PPTX is damaged or is not really a PowerPoint file. Open it in "
+    "PowerPoint to check it, then sync again"
 )
 _REASON_EMPTY = "the file has no text in it"
 _REASON_UNDECODABLE = (
@@ -254,6 +269,105 @@ def _read_docx(path: Path) -> _Extracted:
     return _Extracted(text=result.markdown)
 
 
+# markitdown's own per-slide marker, verified by converting a real deck
+# (markitdown 0.1.5's PptxConverter): every slide's content is preceded by
+# `\n\n<!-- Slide number: N -->\n`, an HTML comment, never a markdown
+# heading. `_label_pptx_slides` turns each one into a real H1 so chunking's
+# existing heading split does the rest -- no change to chunking.py at all.
+_PPTX_SLIDE_MARKER = re.compile(r"<!--\s*Slide number:\s*(\d+)\s*-->")
+
+# Any markdown heading line INSIDE one slide's own content: markitdown
+# emits the slide's title as its own "# Title" heading and, when present,
+# speaker notes as "### Notes:". Demoted to plain text rather than left as
+# headings, because a slide is one citable unit -- letting either split off
+# into its own section would either duplicate the slide as two citations or
+# (for notes) cite it under a bare "Notes:" label with no slide number at
+# all, which is worse than not splitting.
+_MD_HEADING_LINE = re.compile(r"^#{1,6}\s+(.*)$")
+
+
+def _demote_heading_line(line: str) -> str:
+    match = _MD_HEADING_LINE.match(line)
+    return match.group(1) if match else line
+
+
+def _label_pptx_slides(markdown: str) -> str:
+    """markitdown's slide-comment markers -> one "Slide N" H1 per slide.
+
+    PRD F-11's whole contract is "citations name the file plus slide
+    number", and F-03 already cites by `section_label`. Rather than teach
+    chunking.py a second, PPTX-specific notion of location, this produces
+    plain markdown that chunking's existing H1-H3 split and range-merge
+    logic (`_merged_label` in chunking.py) already handle correctly -- a
+    parent spanning slides 1 to 3 comes out labelled "Slide 1 ... Slide 3"
+    for the same reason a parent spanning articles does, with no new code
+    in chunking.py at all.
+
+    A slide that has nothing left after its heading is demoted (a
+    genuinely blank slide, F-11's binding empty-slide case) contributes NO
+    heading and no text: numbering is never invented for a slide with
+    nothing on it, so a real slide 3 is never mislabelled 2 because slide
+    2 was skipped. If every slide is like that, the result is the empty
+    string, which reaches `convert_file`'s shared emptiness gate exactly
+    like a scanned PDF or a blank DOCX -- Skipped, not a fabricated deck
+    of empty headings."""
+    parts = _PPTX_SLIDE_MARKER.split(markdown)
+    sections: list[str] = []
+    # `parts` alternates [preamble, slide_number, body, slide_number, body,
+    # ...]. markitdown always opens with the first marker (verified), so
+    # `parts[0]` is empty in practice; a non-empty preamble cannot be
+    # attributed to any one slide and is dropped rather than mislabelled.
+    for index in range(1, len(parts), 2):
+        number = parts[index]
+        body = parts[index + 1] if index + 1 < len(parts) else ""
+        content = "\n".join(
+            _demote_heading_line(line) for line in body.splitlines()
+        ).strip()
+        if not content:
+            continue
+        sections.append(f"# Slide {number}\n{content}")
+    return "\n\n".join(sections)
+
+
+def _read_pptx(path: Path) -> _Extracted:
+    """PPTX rung (F-11/ST-48): markitdown (ADR-07), behind the same kind of
+    package check `_read_docx` uses, for the identical reason -- verified
+    empirically against markitdown 0.1.5, not assumed: a `.pptx` that is a
+    valid ZIP but not really a PowerPoint package (no
+    `ppt/presentation.xml`) does not raise, it falls through to a
+    directory-listing converter and returns that AS A SUCCESS; a `.pptx`
+    that is not even a ZIP comes back as its own raw bytes, also with no
+    exception. Either would be reported Added and one day cited to a user
+    as a source. A file with no `ppt/presentation.xml` is not a
+    PowerPoint file, full stop -- see `_read_docx` for the DOCX twin of
+    this guard.
+
+    (A `.pptx` that IS a real package but whose `ppt/presentation.xml` is
+    not valid XML is caught differently: markitdown raises
+    `MarkItDownException` for that case, verified against a real fixture,
+    so `_read_pptx` never reaches its own fallback risk for it.)"""
+    try:
+        with zipfile.ZipFile(path) as package:
+            has_main_part = _PPTX_MAIN_PART in package.namelist()
+    except zipfile.BadZipFile as exc:
+        raise DocumentFailedError(_REASON_PPTX_DAMAGED) from exc
+    except OSError as exc:
+        raise DocumentFailedError(
+            _REASON_UNREADABLE.format(detail=exc.strerror or str(exc))
+        ) from exc
+    if not has_main_part:
+        raise DocumentFailedError(_REASON_PPTX_DAMAGED)
+
+    try:
+        result = MarkItDown().convert(str(path))
+    except MarkItDownException as exc:
+        raise DocumentFailedError(_REASON_PPTX_DAMAGED) from exc
+    # No page count: a slide deck has no pagination (PRD F-11 cites by
+    # slide number, not a page; `document.page_count` stays NULL for it
+    # exactly as it already does for DOCX).
+    return _Extracted(text=_label_pptx_slides(result.markdown))
+
+
 def _read_text(path: Path) -> _Extracted:
     """TXT / MD rung: passthrough (ADR-07). A .md file is already the
     target format, and a .txt file is markdown with no markup in it.
@@ -281,11 +395,14 @@ def _read_text(path: Path) -> _Extracted:
 # The ladder itself: one rung per supported extension. `is_supported` in
 # change_detection.py gates the folder scan against config, and
 # `test_every_supported_extension_has_a_rung` holds this table to the same
-# config, so adding "pptx" to the V1 set without writing its converter
-# turns the suite red instead of shipping a silent Skipped.
+# config, so widening `supported_document_extensions` again without writing
+# the new extension's converter turns the suite red instead of shipping a
+# silent Skipped -- exactly what caught a missing rung when "pptx" joined
+# the V1 set for F-11/ST-48.
 _CONVERTERS: dict[str, Callable[[Path], _Extracted]] = {
     _PDF: _read_pdf,
     "docx": _read_docx,
+    "pptx": _read_pptx,
     "txt": _read_text,
     "md": _read_text,
 }
