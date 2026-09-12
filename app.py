@@ -28,6 +28,7 @@ import contextlib
 import logging
 import sqlite3
 import threading
+import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,8 +36,11 @@ from typing import Any
 from urllib.parse import parse_qsl
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+import yaml
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -44,6 +48,8 @@ import sync
 import vector_store
 import workspaces
 from agent.ports import AgentPorts
+from api.routes import build_router
+from api.service import ApiService
 from config import get_settings
 from db import repo
 from ui import reports_screen, screen, workspaces_screen
@@ -56,6 +62,10 @@ logger = logging.getLogger(__name__)
 HERE = Path(__file__).resolve().parent
 TEMPLATES = HERE / "ui" / "templates"
 STATIC = HERE / "ui" / "static"
+OPENAPI_CONTRACT = HERE / "docs" / "phase2" / "openapi.yaml"
+APP_VERSION = tomllib.loads((HERE / "pyproject.toml").read_text(encoding="utf-8"))[
+    "project"
+]["version"]
 
 # 303, not 302: every mutating route here answers a POST and redirects to a
 # GET, and 303 is the status that says "fetch the result with GET" rather
@@ -438,6 +448,27 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     app = FastAPI(title="Sanad", lifespan=lifespan)
     app.state.runtime = runtime
+    api_service = ApiService(runtime)
+    app.include_router(build_router(api_service, version=APP_VERSION))
+
+    @app.exception_handler(HTTPException)
+    async def api_http_error(request: Request, exc: HTTPException) -> Response:
+        if request.url.path.startswith("/api/v1") and isinstance(exc.detail, dict):
+            return JSONResponse(status_code=exc.status_code, content=exc.detail)
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    @app.exception_handler(RequestValidationError)
+    async def api_validation_error(request: Request, exc: RequestValidationError) -> Response:
+        if request.url.path.startswith("/api/v1"):
+            detail = [
+                {field: issue[field] for field in ("loc", "msg", "type")}
+                for issue in exc.errors()
+            ]
+            return JSONResponse(status_code=422, content={"detail": detail})
+        return await request_validation_exception_handler(request, exc)
+
+    contract = yaml.safe_load(OPENAPI_CONTRACT.read_text(encoding="utf-8"))
+    app.openapi = lambda: contract
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     templates = Jinja2Templates(directory=str(TEMPLATES))
 
