@@ -7,3 +7,8 @@ real product and writes the dated report architecture 5.3 describes.
 """
 
 from __future__ import annotations
+
+# `eval-judge` defines groundedness as the fraction of supported factual
+# claims. Only 1.0 therefore means every claim is grounded. This is a metric
+# definition, not an operator setting.
+FULLY_GROUNDED_SCORE = 1.0

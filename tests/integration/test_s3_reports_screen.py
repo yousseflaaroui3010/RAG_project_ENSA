@@ -79,7 +79,7 @@ def _ports() -> AgentPorts:
 
 class _FakeScorer:
     def score(self, *, question, answer_text, contexts):
-        return ScoreResult(groundedness=0.95, relevancy=0.8)
+        return ScoreResult(groundedness=1.0, relevancy=0.8)
 
 
 def _app(tmp_path):

@@ -311,6 +311,76 @@ copied.
 
 ## Now
 
+**DOING 2026-09-10: ST-36 REVIEW FIXES, branch
+`feat/S3-ST-36-first-evaluation-run`, updated from main at `8ce4818`. The
+signed PRD settles the disputed meanings: G1 counts the share of in-scope
+answers with every factual claim grounded; G2 requires a refusal on every
+out-of-scope row; G3 applies only to answers. Blast radius, written before
+code:**
+
+1. **Who is touched:** release reports and the S3 report screen, because they
+   currently call an average score G1 and count an in-scope refusal as a G3
+   source miss. Future evaluation JSON also gains the exact answer text needed
+   to inspect a low score without asking the model again.
+2. **Worst case:** a wrong denominator makes a release pass when fewer than 90%
+   of in-scope questions are fully grounded, or a prompt that drops `CNSS`
+   merges the employer's 48-hour deadline with the fund's 30-day deadline.
+3. **How we find out:** focused tests pin the 9/10 G1 boundary, exclude refusals
+   from G3, preserve answer text, require two prompt golden cases, and require
+   the old prompt file plus a narrowed institution rule. The prompt cases still
+   need a live model backtest, which spends provider credit and will not run
+   without human approval.
+4. **How we undo it:** revert the ST-36 review commit. Reports already written
+   remain readable because the gate derives the corrected counts from each
+   report's existing per-question rows; no stored document or database shape
+   changes.
+
+**ROOT-CAUSE CHECK:** three candidate mechanisms were checked. The scorer is
+not losing rows: every in-scope answer has a per-row score. The threshold is not
+misconfigured: `config.py` carries the signed 0.90. The surviving cause is the
+aggregation itself: `runner.py` and `gate.py` compare the MEAN fractional score
+to 0.90 instead of counting rows scored 1.00, while `runner.py` writes no answer
+text and marks a refusal `sources_present=False`. The prompt gaps are separate
+artifact defects: its broad instruction, multiline flat metadata, missing two
+cases, and missing rollback copy are all present in the branch diff.
+
+**OFFLINE FIX VERIFIED 2026-09-10:** future reports now save answer text and
+G1's fully-grounded count; the runner, release command and S3 screen all use the
+same G1/G2/G3 meanings. The prompt keeps institutions when they distinguish
+rules, adds two regression cases, uses flat metadata, and retains the exact
+0.1.0 file -- its git hash `5bafa263` matches main's old prompt byte for byte.
+The first focused run was watched fail in 9 places before implementation; the
+four affected areas now pass **57 tests**. A later output check was watched fail
+on the stale command-line G1 average, then pass after correction. Final offline
+gate in the locked temporary environment: `uv sync --frozen` audited 141
+packages, `uv run ruff check .` passed, and `uv run pytest` produced **735
+passed / 2 skipped / 1 third-party warning**. `git diff --check` found no
+whitespace errors. The staged gitleaks scan after the live records were added
+covered all 19 intended files, 36.11 KB, and found no leaks.
+
+**LIVE ST-36 RESULT 2026-09-10, APPROVED BY THE HUMAN:** both query-reword
+golden cases passed. The benefit-amount case produced two searches without
+`CNSS`; the separate deadline case kept `CNSS` or its full name in two searches.
+The corrected 60-question run is persisted in SQLite and at
+`data/reports/14b81a1d-.../2026-09-10T16-01-42.812227+00-00.json`:
+**G1 27/40 FAIL, G2 20/20 PASS, G3 35/35 PASS**, mean groundedness 0.9686
+and relevancy 1.0. The release command exited 1 and named all thirteen G1 rows.
+Five are in-scope refusals (`017`, `028`, `033`, `039`, `040`); eight answered
+with sources but scored below 1.00 (`013`, `024`-`027`, `030`, `037`, `038`).
+Every saved output is triaged in `docs/evals/ST-36-triage.md`. ST-36's exit gate
+is met; ST-41 remains correctly blocked and these thirteen rows are ST-39 input.
+
+**BUG FOUND BY THE LIVE COMMAND AND FIXED BEFORE RETRY:** the historical
+workspace id is absent on this clone. The old runner turned that into sixty
+collection errors and then failed its database foreign key only after building
+the report. It made no model scores, but it was still sixty repetitions of one
+bad input. `run_evaluation` now checks the workspace before processing any row;
+the new test proves zero scorer calls and no report, and the real command now
+prints one clear error for `missing-workspace`. The verified local workspace and
+collection both use `14b81a1d-5af0-4fb9-a46a-493fad3eb650`. The first correct-id
+run exceeded the 30-minute tool limit and left no report; the human approved one
+retry with a 60-minute limit, which completed and produced the result above.
+
 **DONE 2026-09-10: ST-26 LEGAL DISCLAIMER, branch
 `feat/S2-ST-26-legal-disclaimer`, cut from merged main at `8ce4818`. Exit gate:
 a legal-flagged workspace marks every returned answer for the fixed disclaimer;
