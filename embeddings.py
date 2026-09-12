@@ -44,6 +44,7 @@ and "query" into every document's term index and into every query.
 from __future__ import annotations
 
 import functools
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -148,8 +149,27 @@ def _prefix_query(text: str) -> str:
     return f"{get_settings().embedding_query_prefix}{text}"
 
 
-@functools.lru_cache(maxsize=2)
+# One lock for both loaders. `functools.lru_cache` is not single-flight: two
+# threads that both miss the cache both run the loader, so a question asked
+# while the start-up warm-up is still loading would load a SECOND copy of
+# E5 (doubling memory and CPU) -- reproduced with two threads in the review
+# of bab6139. With the lock, the second caller waits for the first load and
+# then hits the cache.
+_LOAD_LOCK = threading.Lock()
+
+
 def _load_model(model_name: str) -> Any:
+    with _LOAD_LOCK:
+        return _load_model_cached(model_name)
+
+
+def _load_sparse_model(model_name: str) -> Any:
+    with _LOAD_LOCK:
+        return _load_sparse_model_cached(model_name)
+
+
+@functools.lru_cache(maxsize=2)
+def _load_model_cached(model_name: str) -> Any:
     """Load a sentence-transformers model once per process, keyed by name.
 
     Keyed on the name rather than cached on a no-argument function so that
@@ -236,7 +256,7 @@ def embed_children(children: Sequence[Child]) -> list[list[float]]:
 
 
 @functools.lru_cache(maxsize=2)
-def _load_sparse_model(model_name: str) -> Any:
+def _load_sparse_model_cached(model_name: str) -> Any:
     """Load the FastEmbed sparse model once per process, keyed by name.
 
     Keyed on the name for the same reason `_load_model` is: a `maxsize=1`
