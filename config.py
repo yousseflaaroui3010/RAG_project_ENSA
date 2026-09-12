@@ -151,7 +151,15 @@ class Settings(BaseSettings):
     # Set to "" to switch the behaviour off and fall back to headings
     # alone, which is the right setting for a corpus with no numbered
     # citable unit.
-    parent_citation_marker_pattern: str = r"Article\s+\d+"
+    #
+    # "Slide N" is F-11's citable unit: conversion.py stamps a "Slide N"
+    # line at the top of every slide's text, so a child cut from a deck
+    # whose short slides merged into one parent is cited by ITS slide, not
+    # by the parent's "Slide 1 ... Slide 20" range. Adding it changes no
+    # existing citation: zero of the 187 stored parents and zero of the
+    # manuals contained a capital "Slide" plus a number (checked
+    # 2026-09-13), and the match stays case-sensitive like "Article".
+    parent_citation_marker_pattern: str = r"Article\s+\d+|Slide\s+\d+"
 
     # --- Change detection (ST-12, PRD F-02, architecture §5.1) ---
     # File extensions Sync fingerprints and hands to the conversion ladder.

@@ -24,6 +24,7 @@ plausible.
 from __future__ import annotations
 
 import logging
+import re
 import zipfile
 
 import pymupdf
@@ -365,6 +366,56 @@ def test_pptx_chunk_spanning_slides_gets_a_range_label(tmp_path):
 
     assert len(chunked.parents) == 1
     assert chunked.parents[0].section_label == "Slide 1 ... Slide 3"
+
+
+def test_each_pptx_child_is_cited_by_exactly_the_slides_its_text_comes_from(tmp_path):
+    """The citation a user reads comes from the CHILD. With default settings
+    a deck of short slides merges into one parent ("Slide 1 ... Slide 5"),
+    and before the in-text slide lines every child inherited that whole
+    range. Each slide's words carry its own prefix here, so the slides a
+    child really holds can be read back from its text and compared with its
+    label: no child may be cited by a slide it holds nothing from, and none
+    may omit one it does. Slide 2 is blank, so the numbers are not 1..4.
+
+    Kills: dropping "Slide" from the citation marker pattern (every child
+    gets the parent range); dropping the closing "(end of Slide N)" line
+    (the child that runs from slide 3 into slide 4 is cited "Slide 4")."""
+    words = {"alpha": 1, "gamma": 3, "delta": 4, "omega": 5}
+
+    def slide_text(word: str) -> str:
+        return " ".join(f"{word}{i}" for i in range(40)) + "."
+
+    path = _pptx(
+        tmp_path / "deck.pptx",
+        [slide_text("alpha"), None, slide_text("gamma"), slide_text("delta"), slide_text("omega")],
+    )
+
+    chunked = chunking.chunk_document(
+        conversion.convert_file(path).markdown, source_file="deck.pptx"
+    )
+
+    assert [p.section_label for p in chunked.parents] == ["Slide 1 ... Slide 5"]
+    assert len(chunked.children) >= 3, "fixture too small: children must span slides"
+    for child in chunked.children:
+        held = sorted({words[w] for w in re.findall(r"(alpha|gamma|delta|omega)\d", child.text)})
+        expected = (
+            f"Slide {held[0]}"
+            if held[0] == held[-1]
+            else f"Slide {held[0]} ... Slide {held[-1]}"
+        )
+        assert child.section_label == expected, child.text[:60]
+
+
+def test_an_empty_slide_title_leaves_no_stray_hash_in_the_text(tmp_path):
+    """markitdown writes an empty title placeholder as a bare "#" line
+    (verified on a real deck). It must be demoted like any other in-slide
+    heading, not stored and shown as a lone "#"."""
+    path = _pptx(tmp_path / "deck.pptx", ["Body text only, no title."])
+
+    markdown = conversion.convert_file(path).markdown
+
+    assert "Body text only, no title." in markdown
+    assert [line for line in markdown.splitlines() if line.strip() == "#"] == []
 
 
 def test_markdown_file_passes_through_unchanged(tmp_path):

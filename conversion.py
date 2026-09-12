@@ -283,12 +283,15 @@ _PPTX_SLIDE_MARKER = re.compile(r"<!--\s*Slide number:\s*(\d+)\s*-->")
 # into its own section would either duplicate the slide as two citations or
 # (for notes) cite it under a bare "Notes:" label with no slide number at
 # all, which is worse than not splitting.
-_MD_HEADING_LINE = re.compile(r"^#{1,6}\s+(.*)$")
+# The text after the hashes is optional: markitdown writes a slide whose
+# title placeholder is empty as a bare "#" line, which would otherwise stay
+# in the stored text as a stray "#".
+_MD_HEADING_LINE = re.compile(r"^#{1,6}(?:\s+(.*))?$")
 
 
 def _demote_heading_line(line: str) -> str:
     match = _MD_HEADING_LINE.match(line)
-    return match.group(1) if match else line
+    return (match.group(1) or "") if match else line
 
 
 def _label_pptx_slides(markdown: str) -> str:
@@ -325,7 +328,19 @@ def _label_pptx_slides(markdown: str) -> str:
         ).strip()
         if not content:
             continue
-        sections.append(f"# Slide {number}\n{content}")
+        # The heading gives parents clean slide boundaries. The plain lines
+        # repeat the slide number INSIDE the text, because chunking drops
+        # heading lines from a section's body: without them, every child
+        # of a parent merged from short slides would be cited by the
+        # parent's whole range. config's `parent_citation_marker_pattern`
+        # reads them. There is one at each END of the slide on purpose: a
+        # child window that starts in slide 3's tail and runs into slide 4
+        # then carries both numbers and is cited "Slide 3 ... Slide 4". With
+        # only the opening line it would be cited "Slide 4", which is wrong
+        # for the slide-3 text it holds.
+        sections.append(
+            f"# Slide {number}\nSlide {number}\n{content}\n(end of Slide {number})"
+        )
     return "\n\n".join(sections)
 
 
