@@ -101,8 +101,11 @@ FINAL_TOTAL_OUT_OF_SCOPE = 20
 # This is also the answer to PRD F-08 saying "at least 40": a legitimate 41st
 # question is not forbidden, it just costs a version bump instead of a
 # one-character edit.
-GOLDEN_SET_VERSION = "v1"
-FROZEN_TOTALS = {"v1": (40, 20)}
+# v2 (2026-09-12, issue #88): g-out-005 replaced because Article 240 arguably
+# answers the v1 wording; same totals, same ids. v1's two earlier post-freeze
+# edits (#77 g-out-008, #87 g-out-005) are recorded in evaluation/golden/README.md.
+GOLDEN_SET_VERSION = "v2"
+FROZEN_TOTALS = {"v1": (40, 20), "v2": (40, 20)}
 
 # Every id in the frozen set. Derived from the two TOTALS above, never from
 # the files -- a list generated from the data it is meant to police cannot
