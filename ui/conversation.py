@@ -233,17 +233,8 @@ def message_for(
     answer: Answer,
     cited: Sequence[SearchHit] = (),
     parents: Mapping[str, str] | None = None,
-    *,
-    legal_workspace: bool = False,
 ) -> Message:
     """One `Answer` as one rendered message.
-
-    `legal_workspace` rather than `answer.disclaimer`: F-09's wiring is
-    ST-26's and `Answer.disclaimer` is documented in agent/state.py as a
-    default nobody has exercised. Reading the workspace's own flag here
-    means the line appears when the flag is set, today, without this story
-    pretending to have done ST-26's job. When ST-26 lands, this argument
-    is where it plugs in.
 
     UX spec 6.2 puts the line "directly under the answer body, above the
     source cards", and criterion 3 makes its absence just as binding: an
@@ -254,9 +245,7 @@ def message_for(
         sources=_cards_for(answer.sources, cited, parents or {}),
         searched=answer.searched,
         retries=answer.retries,
-        # Only an answer carries it. A refusal states what was searched and
-        # has no legal content to disclaim.
-        disclaimer=legal_workspace and answer.kind is AnswerKind.ANSWER,
+        disclaimer=answer.disclaimer,
     )
 
 
@@ -410,7 +399,7 @@ class Conversation:
             self.run = run
             return True
 
-    def settle(self, *, legal_workspace: bool = False) -> None:
+    def settle(self) -> None:
         """Fold a finished run into the transcript.
 
         Called on every render rather than by the worker thread, so the
@@ -436,7 +425,6 @@ class Conversation:
                     answer,
                     run.reading.cited,
                     run.reading.parents,
-                    legal_workspace=legal_workspace,
                 )
                 self.messages.append(message)
                 self.session_id = answer.session_id

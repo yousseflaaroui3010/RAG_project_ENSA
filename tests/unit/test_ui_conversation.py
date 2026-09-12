@@ -57,6 +57,8 @@ def _answer(
     text: str,
     sources: tuple[Source, ...] = (),
     steps: tuple[TraceStep, ...] = (),
+    *,
+    disclaimer: bool = False,
 ) -> Answer:
     return Answer(
         kind=kind,
@@ -64,6 +66,7 @@ def _answer(
         sources=sources,
         session_id="session-1",
         trace=Trace(trace_id="trace-1", steps=steps),
+        disclaimer=disclaimer,
     )
 
 
@@ -180,10 +183,14 @@ def test_the_retry_marker_shows_the_count_the_loop_actually_ran():
 
 def test_the_disclaimer_line_appears_on_a_legal_workspace():
     message = message_for(
-        _answer(AnswerKind.ANSWER, "Trois mois.", (Source(FILE, LABEL),)),
+        _answer(
+            AnswerKind.ANSWER,
+            "Trois mois.",
+            (Source(FILE, LABEL),),
+            disclaimer=True,
+        ),
         [_hit(SECTION[:30])],
         {PARENT: SECTION},
-        legal_workspace=True,
     )
     assert message.disclaimer is True
 
@@ -195,19 +202,17 @@ def test_an_unflagged_workspace_shows_no_disclaimer_anywhere():
         _answer(AnswerKind.ANSWER, "Trois mois.", (Source(FILE, LABEL),)),
         [_hit(SECTION[:30])],
         {PARENT: SECTION},
-        legal_workspace=False,
     )
     assert message.disclaimer is False
 
 
-def test_a_refusal_on_a_legal_workspace_carries_no_disclaimer():
-    """The line disclaims legal CONTENT. A refusal quotes none, so
-    attaching it there would put a legal caveat on the sentence "I found
-    nothing"."""
+def test_a_refusal_from_a_legal_workspace_carries_the_disclaimer():
+    """OpenAPI does not exempt refusals: every Answer response from a
+    legal workspace carries the same F-09 flag."""
     message = message_for(
-        _answer(AnswerKind.REFUSAL, "Not found here."), legal_workspace=True
+        _answer(AnswerKind.REFUSAL, "Not found here.", disclaimer=True)
     )
-    assert message.disclaimer is False
+    assert message.disclaimer is True
 
 
 # --- the invariant under the source cards -----------------------------
