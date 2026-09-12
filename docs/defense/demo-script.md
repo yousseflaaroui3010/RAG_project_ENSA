@@ -28,9 +28,12 @@ These are not optional. Each one removes a failure we have already seen.
    **HR** (legal flag on, 3 documents, 225 pages) and **Manuals**
    (10 documents). Indexing HR from scratch takes about 14 minutes, so it
    must already be done.
-5. **Ask one warm-up question** in HR (any sample question). The first
-   question after a start loads the search models and took 23 s when
-   measured; the second took seconds. Never let the jury see the cold one.
+5. The app now warms up its own search models on a background thread as
+   soon as it starts, ready roughly 25 s later (logged as "model warm-up
+   ready"); the 23 s cold first question this step used to guard against
+   should no longer happen. **Ask one warm-up question anyway** in HR (any
+   sample question), belt-and-braces, and confirm it answers in seconds
+   before the jury sees the screen.
 6. Click **New conversation** so the screen starts clean.
 7. Have the recorded fallback video open in a second window (ST-45). If a
    step fails twice, switch to the video at that step and say so plainly.
