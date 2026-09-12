@@ -93,7 +93,7 @@ evaluation. Where both are listed, the first answers and the second adds.
 19. **How fast is it?** (YL) Median answer 8.3 s, slowest 18.1 s over 20
     timed questions (target 20 s median, 60 s at the 95th percentile).
     The first question after a start takes about 23 s while models load.
-20. **How long to add documents?** (YL) Measured twice, cold, on a laptop
+20. **How long to add documents?** (YL) Measured three times, cold, on a laptop
     CPU: 449.4 s and 375.3 s per 200 pages in two quiet runs (target
     600 s), and 731.6 s in one run while other work was running. We report both, because the
     honest answer is "within target, but sensitive to load". Most of the
@@ -105,7 +105,7 @@ evaluation. Where both are listed, the first answers and the second adds.
 
 ## Engineering and quality
 
-22. **How did you test it?** (YL) About 790 automated tests, run on every
+22. **How did you test it?** (YL) About 810 automated tests, run on every
     pull request with lint and a secret scan; main is protected so a red
     check blocks a merge. Tests were proven by breaking the code on purpose
     and watching them fail.
