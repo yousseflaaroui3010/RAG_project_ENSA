@@ -8,16 +8,6 @@ here, in a module a test can call without an HTTP request, rather than in
 UX spec 7.3 names three S2 states -- Empty, Loading, Error -- and this
 module's job stops at handing the template the facts; app.py decides
 which workspace is being looked at and this decides how to describe it.
-
-PARKED, named so it is not silently reinvented later: UX spec 7.3's
-"workspace over the soft cap" warning has no backing signal anywhere in
-this codebase (grepped for "soft cap" / "soft_cap" across every `.py`
-file outside tests: no hit). There is no size cap in config.py and no
-check in change_detection.py or sync.py. Inventing a number here would be
-authoring a business rule in the view layer, which docs/phase2/CLAUDE.md
-rule 1 forbids ("no business logic inside a route body") and which nobody
-has decided yet. See docs/journal/BUILD-STATE.md for the parked note and
-whoever next owns workspace sizing.
 """
 
 from __future__ import annotations
@@ -28,6 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from config import get_settings
 from sync import SyncResult
 
 
@@ -79,6 +70,29 @@ class FileRow:
     shape: str
     status_label: str
     reason: str
+
+
+def capacity_warning(*, folder_path: str, documents: list[Any]) -> str | None:
+    """Return the signed soft-cap warning with measured counts, if needed."""
+    try:
+        file_count = sum(1 for path in Path(folder_path).iterdir() if path.is_file())
+    except OSError:
+        return None
+    page_count = sum(
+        row["page_count"] or 0 for row in documents if row["status"] != "removed"
+    )
+    settings = get_settings()
+    if (
+        file_count <= settings.workspace_soft_cap_files
+        and page_count <= settings.workspace_soft_cap_pages
+    ):
+        return None
+    return (
+        f"This workspace has {file_count} files and {page_count} measured PDF pages, "
+        f"above the recommended limit of {settings.workspace_soft_cap_files} files "
+        f"or {settings.workspace_soft_cap_pages} pages. Split it into smaller "
+        "workspace folders before the next large Sync."
+    )
 
 
 def _file_type(file_name: str) -> str:

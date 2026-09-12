@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass
 from enum import StrEnum
@@ -41,13 +42,11 @@ from typing import Any
 
 import change_detection
 import chunking
-import conversion
 import embeddings
 import parent_store
 import vector_store
 import workspaces
 from change_detection import ChangeStatus, FileChange
-from conversion import ConversionOutcome
 from db import repo
 
 logger = logging.getLogger(__name__)
@@ -109,6 +108,7 @@ UNREADABLE_PARENTS_NOTE = (
 # wrong" with nothing to paste into a bug report; the full traceback goes
 # to the log, never to this string.
 UNEXPECTED_FAILURE_REASON = "the file could not be indexed: {detail}"
+CANCELLED_REASON = "Sync was cancelled before this file was processed"
 
 # Guards the check-and-insert in `_claim_sync_run` only, never a whole
 # sync. Two threads reaching the guard together would otherwise both read
@@ -182,6 +182,30 @@ class SyncReport:
 
 
 @dataclass(frozen=True)
+class SyncClaim:
+    """A run row claimed before background work starts."""
+
+    sync_run_id: str
+    workspace_id: str
+    started_at: str
+
+
+def claim_sync(
+    *, workspace_id: str, db_path: str | Path | None = None
+) -> SyncClaim:
+    """Claim one run synchronously so an HTTP caller can return its id."""
+    workspaces.get_workspace(workspace_id=workspace_id, db_path=db_path)
+    started_at = repo.utc_now()
+    return SyncClaim(
+        sync_run_id=_claim_sync_run(
+            workspace_id=workspace_id, db_path=db_path, started_at=started_at
+        ),
+        workspace_id=workspace_id,
+        started_at=started_at,
+    )
+
+
+@dataclass(frozen=True)
 class _DocumentWrite:
     """The document-row state one file's outcome implies.
 
@@ -205,6 +229,8 @@ def sync_workspace(
     client: Any | None = None,
     qdrant_path: str | Path | None = None,
     parent_base_path: str | Path | None = None,
+    cancel_requested: Callable[[], bool] | None = None,
+    claim: SyncClaim | None = None,
 ) -> SyncReport:
     """Run one Sync over a workspace and return its per-file report.
 
@@ -227,11 +253,11 @@ def sync_workspace(
     # leave a sync_run behind -- and because insert would fail on the
     # foreign key anyway, with sqlite's message instead of ours.
     workspace = workspaces.get_workspace(workspace_id=workspace_id, db_path=db_path)
-
-    started_at = repo.utc_now()
-    sync_run_id = _claim_sync_run(
-        workspace_id=workspace_id, db_path=db_path, started_at=started_at
-    )
+    if claim is not None and claim.workspace_id != workspace_id:
+        raise ValueError("the sync claim belongs to a different workspace")
+    active_claim = claim or claim_sync(workspace_id=workspace_id, db_path=db_path)
+    started_at = active_claim.started_at
+    sync_run_id = active_claim.sync_run_id
 
     # Collected by reference rather than returned, so that a run which
     # dies part way through still finishes with the counts of the files it
@@ -253,6 +279,7 @@ def sync_workspace(
                 db_path=db_path,
                 parent_base_path=parent_base_path,
                 items=items,
+                cancel_requested=cancel_requested,
             )
     finally:
         finished_at = repo.utc_now()
@@ -367,6 +394,7 @@ def _run(
     db_path: str | Path | None,
     parent_base_path: str | Path | None,
     items: list[SyncItemReport],
+    cancel_requested: Callable[[], bool] | None = None,
 ) -> None:
     """Walk everything the scan found and leave one report row per file."""
     report = change_detection.detect_changes(
@@ -391,6 +419,25 @@ def _run(
     vector_store.ensure_collection(client, workspace_id=workspace_id)
 
     rows_by_name = _document_rows(workspace_id=workspace_id, db_path=db_path)
+    cancelled = False
+
+    def skip_after_cancel(file_name: str, document_id: str | None) -> bool:
+        nonlocal cancelled
+        cancelled = cancelled or bool(cancel_requested and cancel_requested())
+        if not cancelled:
+            return False
+        items.append(
+            _record(
+                db_path,
+                sync_run_id=sync_run_id,
+                workspace_id=workspace_id,
+                file_name=file_name,
+                result=SyncResult.SKIPPED,
+                reason=CANCELLED_REASON,
+                document_id=document_id,
+            )
+        )
+        return True
 
     # PRD section 11: "Skipped, listed in the sync report with the reason".
     #
@@ -415,6 +462,10 @@ def _run(
     # sync could find. The two go together or neither is correct.
     for unsupported in report.unsupported:
         row = rows_by_name.get(unsupported.file_name)
+        if skip_after_cancel(
+            unsupported.file_name, row["id"] if row is not None else None
+        ):
+            continue
         items.append(
             _skip_unsupported(
                 client,
@@ -440,6 +491,10 @@ def _run(
     # processed" is a decision about the FILE that the operator made.
     for unreadable in report.unreadable:
         row = rows_by_name.get(unreadable.file_name)
+        if skip_after_cancel(
+            unreadable.file_name, row["id"] if row is not None else None
+        ):
+            continue
         items.append(
             _record(
                 db_path,
@@ -453,6 +508,8 @@ def _run(
         )
 
     for change in report.changes:
+        if skip_after_cancel(change.file_name, change.document_id):
+            continue
         if change.status is ChangeStatus.UNCHANGED:
             # Not reprocessed and not touched: F-02 criterion 2. The row
             # is the whole outcome.
@@ -680,6 +737,9 @@ def _ingest(
     parent_base_path: str | Path | None,
 ) -> SyncItemReport:
     """Convert, chunk, embed and store one new or changed file."""
+    import conversion
+    from conversion import ConversionOutcome
+
     # Delete first, unconditionally, and note that this runs BEFORE
     # conversion -- section 5.1's `DEL -> CV` edge, not the other way.
     #

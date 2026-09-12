@@ -83,6 +83,33 @@
     });
   }
 
+  /* ---- Destructive confirmation (UX spec 7.4) ---------------------- */
+
+  var deleteTrigger = document.querySelector("[data-delete-trigger]");
+  if (
+    deleteTrigger &&
+    new URLSearchParams(window.location.search).get("focus") === "delete"
+  ) {
+    var deleteSettings = deleteTrigger.closest("details");
+    if (deleteSettings) {
+      deleteSettings.open = true;
+    }
+    deleteTrigger.focus();
+  }
+
+  var confirmDialog = document.querySelector("[data-confirm-dialog]");
+  if (confirmDialog && typeof confirmDialog.showModal === "function") {
+    var returnUrl = confirmDialog.getAttribute("data-return-url");
+    // `open` keeps the no-script path visible. Reopen modally so the
+    // browser, rather than custom key handling, owns the focus trap.
+    confirmDialog.close();
+    confirmDialog.showModal();
+    confirmDialog.addEventListener("cancel", function (event) {
+      event.preventDefault();
+      window.location.assign(returnUrl);
+    });
+  }
+
   /* ---- Sample questions (UX spec 6.3) ------------------------------ */
 
   // "each one clickable to populate the input". With scripting off the
@@ -201,6 +228,89 @@
         });
     }
     window.setTimeout(syncTick, SYNC_POLL_MS);
+  }
+
+  /* ---- S3 evaluation progress: poll committed question counts ------- */
+
+  var reportBlock = document.querySelector("[data-report-refresh]");
+  if (reportBlock) {
+    var REPORT_POLL_MS = 2000;
+
+    function reportTick() {
+      fetch(window.location.pathname, {
+        headers: { "X-Requested-With": "fetch" }
+      })
+        .then(function (response) {
+          return response.ok ? response.text() : null;
+        })
+        .then(function (html) {
+          if (html === null) {
+            window.setTimeout(reportTick, REPORT_POLL_MS);
+            return;
+          }
+          var fresh = new DOMParser().parseFromString(html, "text/html");
+          var freshBlock = fresh.querySelector("[aria-label='Evaluation reports'], [aria-label='Report detail']");
+          if (!freshBlock) {
+            window.setTimeout(reportTick, REPORT_POLL_MS);
+            return;
+          }
+          reportBlock.querySelectorAll("[data-eval-status]").forEach(function (live) {
+            var id = live.getAttribute("data-eval-status");
+            var next = freshBlock.querySelector('[data-eval-status="' + id + '"]');
+            var liveLabel = live.querySelector("[data-status-label]");
+            var nextLabel = next && next.querySelector("[data-status-label]");
+            if (liveLabel && nextLabel && liveLabel.textContent.trim() !== nextLabel.textContent.trim()) {
+              liveLabel.textContent = nextLabel.textContent.trim();
+            }
+            var liveDot = live.querySelector(".status-dot");
+            var nextDot = next && next.querySelector(".status-dot");
+            if (liveDot && nextDot) {
+              liveDot.className = nextDot.className;
+            }
+            if (liveLabel && !nextLabel && !freshBlock.hasAttribute("data-report-refresh")) {
+              liveLabel.textContent = freshBlock.getAttribute("data-report-final-status") || "Evaluation finished.";
+            }
+          });
+          reportBlock.querySelectorAll("[data-report-value]").forEach(function (live) {
+            var key = live.getAttribute("data-report-value");
+            var next = freshBlock.querySelector('[data-report-value="' + key + '"]');
+            if (next) {
+              live.textContent = next.textContent.trim();
+            }
+          });
+          ["[data-report-scores]", "[data-report-questions]"].forEach(function (selector) {
+            var liveBody = reportBlock.querySelector(selector + " tbody");
+            var nextBody = freshBlock.querySelector(selector + " tbody");
+            if (liveBody && nextBody) {
+              liveBody.replaceWith(document.importNode(nextBody, true));
+            }
+          });
+          if (!freshBlock.hasAttribute("data-report-refresh")) {
+            var focused = reportBlock.contains(document.activeElement)
+              ? document.activeElement.closest("[data-report-focus]")
+              : null;
+            var focusKey = focused && focused.getAttribute("data-report-focus");
+            window.setTimeout(function () {
+              var replacement = document.importNode(freshBlock, true);
+              reportBlock.replaceWith(replacement);
+              if (focusKey) {
+                var returnTarget = replacement.querySelector(
+                  '[data-report-focus="' + focusKey + '"]'
+                );
+                if (returnTarget) {
+                  returnTarget.focus();
+                }
+              }
+            }, 700);
+            return;
+          }
+          window.setTimeout(reportTick, REPORT_POLL_MS);
+        })
+        .catch(function () {
+          window.setTimeout(reportTick, REPORT_POLL_MS);
+        });
+    }
+    window.setTimeout(reportTick, REPORT_POLL_MS);
   }
 
   /* ---- Loading: poll the real stage (UX spec 6.3) ------------------ */

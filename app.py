@@ -28,6 +28,7 @@ import contextlib
 import logging
 import sqlite3
 import threading
+import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,15 +36,21 @@ from typing import Any
 from urllib.parse import parse_qsl
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+import yaml
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import recovery
 import sync
 import vector_store
 import workspaces
 from agent.ports import AgentPorts
+from api.routes import build_router
+from api.service import ApiService
 from config import get_settings
 from db import repo
 from ui import reports_screen, screen, workspaces_screen
@@ -56,6 +63,10 @@ logger = logging.getLogger(__name__)
 HERE = Path(__file__).resolve().parent
 TEMPLATES = HERE / "ui" / "templates"
 STATIC = HERE / "ui" / "static"
+OPENAPI_CONTRACT = HERE / "docs" / "phase2" / "openapi.yaml"
+APP_VERSION = tomllib.loads((HERE / "pyproject.toml").read_text(encoding="utf-8"))[
+    "project"
+]["version"]
 
 # 303, not 302: every mutating route here answers a POST and redirects to a
 # GET, and 303 is the status that says "fetch the result with GET" rather
@@ -90,6 +101,13 @@ class Runtime:
     conversations: dict[str, Conversation] = field(default_factory=dict)
     active_workspace_id: str | None = None
     client: Any = None
+    # Guards the three fields below, never a whole operation. See `store`.
+    store_lock: threading.Lock = field(default_factory=threading.Lock)
+    _store_users: int = field(default=0, repr=False, compare=False)
+    _store_client: Any = field(default=None, repr=False, compare=False)
+    _store_exit: contextlib.ExitStack | None = field(
+        default=None, repr=False, compare=False
+    )
     # ST-28, S2. Sync has no per-request object the way chat's `Run` is one
     # (sync_workspace is one blocking call handed to a background thread,
     # not something the request that started it keeps a handle on), so the
@@ -106,11 +124,143 @@ class Runtime:
     # BUILD-STATE.
     sync_errors: dict[str, str] = field(default_factory=dict)
     last_sync_run_id: dict[str, str] = field(default_factory=dict)
+    sync_cancel_events: dict[str, threading.Event] = field(default_factory=dict)
 
-    def ports(self) -> AgentPorts:
-        if self.ports_factory is None:
-            return build_default_ports(self.client)
-        return self.ports_factory()
+    @contextlib.contextmanager
+    def ports(self) -> Iterator[AgentPorts]:
+        if self.ports_factory is not None:
+            yield self.ports_factory()
+            return
+        with self.store() as client:
+            yield build_default_ports(client)
+
+    @contextlib.contextmanager
+    def store(self) -> Iterator[Any]:
+        """Share one embedded index between the Chat, Sync and delete
+        operations running in this process; close it when the last ends.
+
+        OPEN ONLY WHILE SOMETHING NEEDS IT, so the separate command-line
+        evaluator can own the index while this server keeps showing
+        Reports. If the evaluator has it, `open_store` raises
+        `StoreAlreadyOpenError` at once and the caller shows that.
+
+        SHARED, NOT ONE AT A TIME: a lock held for a whole Sync -- minutes
+        on a real corpus -- made a Chat question wait silently behind it and
+        a delete hang, with nothing on screen saying why (rule-5 review of
+        57187cf). One client per process is still the ADR-04 rule: a second
+        in-process `open_store` on the same path raises, which is why this
+        counts users instead of opening per operation.
+
+        SHARED, BUT ONE CALL AT A TIME: embedded Qdrant is not safe for a
+        search and a write at the same instant, so the shared client is a
+        `vector_store.SerializedClient` (see why there)."""
+        if self.client is not None:
+            yield self.client
+            return
+        with self.store_lock:
+            if self._store_users == 0:
+                stack = contextlib.ExitStack()
+                self._store_client = vector_store.SerializedClient(
+                    stack.enter_context(vector_store.open_store())
+                )
+                self._store_exit = stack
+            self._store_users += 1
+            client = self._store_client
+        try:
+            yield client
+        finally:
+            with self.store_lock:
+                self._store_users -= 1
+                if self._store_users == 0:
+                    stack, self._store_exit = self._store_exit, None
+                    self._store_client = None
+                    if stack is not None:
+                        stack.close()
+
+    def start_sync(self, workspace_id: str) -> sync.SyncClaim:
+        """Claim a Sync run in the caller's thread, then do the work on a
+        background thread; return the claim.
+
+        CLAIMED HERE, BEFORE THE THREAD, so a second click is refused with
+        `sync.SyncInProgressError` while the first is still waiting for the
+        index, instead of both being accepted with no run row, no progress
+        and a cancel event the second click silently replaced (rule-5
+        review of 57187cf; F-02, UX spec 7.3). Also raises
+        `workspaces.WorkspaceNotFoundError` for an unknown id.
+
+        A claim is a promise to finish the run row. `sync_workspace`
+        keeps it once it starts; `_finish_unstarted` keeps it when the
+        index cannot even be opened, or no run would ever start again."""
+        claim = sync.claim_sync(workspace_id=workspace_id, db_path=self.db_path)
+        self.sync_errors.pop(workspace_id, None)
+        cancel_event = threading.Event()
+        self.sync_cancel_events[workspace_id] = cancel_event
+
+        def _work() -> None:
+            try:
+                with self.store() as client:
+                    report = sync.sync_workspace(
+                        workspace_id=workspace_id,
+                        db_path=self.db_path,
+                        client=client,
+                        cancel_requested=cancel_event.is_set,
+                        claim=claim,
+                    )
+            except Exception as exc:  # noqa: BLE001 -- mirrors _start's own catch-all
+                # PRD section 11: "folder missing or unreadable shows the
+                # exact path plus a fix hint" -- `FolderNotFoundError`'s
+                # own message already carries both, so it is shown as-is.
+                logger.exception("sync failed for workspace %s", workspace_id)
+                self.sync_errors[workspace_id] = str(exc)
+                self._finish_unstarted_logged(claim)
+            else:
+                # THE LOAD-BEARING LINE: the finished report stays reachable
+                # even when nobody polled while it ran (a small corpus can
+                # finish before any request observes it as running).
+                self.last_sync_run_id[workspace_id] = report.sync_run_id
+            finally:
+                if self.sync_cancel_events.get(workspace_id) is cancel_event:
+                    self.sync_cancel_events.pop(workspace_id, None)
+
+        try:
+            threading.Thread(target=_work, daemon=True, name="sanad-sync").start()
+        except BaseException:
+            self.sync_cancel_events.pop(workspace_id, None)
+            self._finish_unstarted_logged(claim)
+            raise
+        return claim
+
+    def _finish_unstarted_logged(self, claim: sync.SyncClaim) -> None:
+        """`_finish_unstarted`, but a failure to close the row is logged
+        rather than raised: it must not replace the error that got us
+        here, and there is nothing better to do with it in a worker thread.
+        The row it could not close is then settled by start-up recovery."""
+        try:
+            self._finish_unstarted(claim)
+        except Exception:  # noqa: BLE001 -- logged; the original error wins
+            logger.exception(
+                "could not finish unstarted sync run %s", claim.sync_run_id
+            )
+
+    def _finish_unstarted(self, claim: sync.SyncClaim) -> None:
+        """Close a claimed run that never reached `sync_workspace`, with
+        zero counts. A run that did start is already finished by
+        `sync_workspace`'s own `finally`, so this leaves it alone."""
+        with repo.session(self.db_path) as conn:
+            run = repo.get_sync_run(conn, claim.sync_run_id)
+            if run is None or run["finished_at"] is not None:
+                return
+            repo.finish_sync_run(
+                conn,
+                sync_run_id=claim.sync_run_id,
+                finished_at=repo.utc_now(),
+                added=0,
+                changed=0,
+                unchanged=0,
+                failed=0,
+                removed=0,
+                skipped=0,
+            )
 
     def conversation(self, workspace_id: str) -> Conversation:
         """The one conversation for this workspace.
@@ -177,7 +327,7 @@ def _context(runtime: Runtime, request: Request) -> dict:
     if active is not None:
         documents = screen.answerable_documents(active.id, db_path=runtime.db_path)
         conversation = runtime.conversation(active.id)
-        conversation.settle(legal_workspace=active.legal_flag)
+        conversation.settle()
     state = screen.state_for(
         options=options,
         documents=documents,
@@ -270,10 +420,15 @@ def _ws_context(
     running_count = 0
     rows: list[workspaces_screen.FileRow] = []
     report_finished_at: str | None = None
+    capacity_warning: str | None = None
 
     if selected_id is not None:
         selected = workspaces.get_workspace(workspace_id=selected_id, db_path=runtime.db_path)
         with repo.session(runtime.db_path) as conn:
+            capacity_warning = workspaces_screen.capacity_warning(
+                folder_path=selected.folder_path,
+                documents=repo.list_documents(conn, selected_id),
+            )
             running = repo.get_running_sync_run(conn, selected_id)
             if running is not None:
                 # Cache it NOW, while the row is still findable by the
@@ -283,6 +438,9 @@ def _ws_context(
                 running_count = len(repo.list_sync_items(conn, running["id"]))
             else:
                 last_id = runtime.last_sync_run_id.get(selected_id)
+                if last_id is None:
+                    previous = repo.list_sync_runs(conn, selected_id)
+                    last_id = previous[0]["id"] if previous else None
                 last_run = repo.get_sync_run(conn, last_id) if last_id else None
                 if last_run is not None and last_run["finished_at"] is not None:
                     report_finished_at = last_run["finished_at"]
@@ -312,8 +470,12 @@ def _ws_context(
         "selected_id": selected_id,
         "running": running,
         "running_count": running_count,
+        "sync_can_cancel": bool(
+            selected_id and selected_id in runtime.sync_cancel_events
+        ),
         "sync_blocked": request.query_params.get("sync_blocked") == "1",
         "sync_error": runtime.sync_errors.get(selected_id) if selected_id else None,
+        "capacity_warning": capacity_warning,
         "file_rows": rows,
         "sort": request.query_params.get("sort"),
         "sort_dir": request.query_params.get("dir", "asc"),
@@ -326,17 +488,13 @@ def _ws_context(
 
 
 def _reports_context(runtime: Runtime, request: Request) -> dict:
-    """Everything one render of S3 needs -- read-only, so there is no poll
-    target to share this with the way `_context`/`_ws_context` share
-    theirs with `_conversation.html`/`_workspace_detail.html`; see
-    `ui/reports_screen.py` for why this screen has no Loading state to
-    keep in step with a partial."""
+    """Everything one render of the read-only S3 Reports screen needs."""
     reports = reports_screen.list_reports(db_path=runtime.db_path)
     return {
         "request": request,
         "dir": _direction(request),
         "current_screen": "reports",
-        "busy": False,
+        "busy": any(report.is_running for report in reports),
         "workspaces": screen.workspace_options(db_path=runtime.db_path),
         "active": _active(runtime),
         "state": reports_screen.screen_state(report_count=len(reports)),
@@ -408,22 +566,46 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         # operator ever sees -- failing with a stack trace. `ensure_schema`
         # is idempotent, so an existing database is untouched.
         repo.ensure_schema(runtime.db_path)
+        # A Sync or evaluation stranded by a killed process would otherwise
+        # read Running forever (and a stranded Sync blocks every later one).
+        # Recovery leaves an evaluation alone while another process still
+        # holds the index -- that is the live command-line evaluator.
+        recovered = recovery.recover_abandoned_runs(db_path=runtime.db_path)
+        if recovered.sync_runs or recovered.evaluation_runs:
+            logger.warning(
+                "recovered %s abandoned sync run(s) and %s evaluation run(s)",
+                recovered.sync_runs,
+                recovered.evaluation_runs,
+            )
 
-        # ONE Qdrant client for the process (ADR-04). `open_store` raises
-        # on a second client for the same path, so opening it here -- and
-        # only here -- is what keeps that promise for the whole server.
-        # A runtime that already carries a client is a test's, and is
-        # left alone.
-        if runtime.client is not None or runtime.ports_factory is not None:
-            yield
-            return
-        with vector_store.open_store() as client:
-            runtime.client = client
-            yield
-        runtime.client = None
+        # Reports and workspace metadata do not need Qdrant. Keeping the
+        # embedded store closed here lets the separate evaluation command
+        # own it while this server remains available to display progress.
+        yield
 
     app = FastAPI(title="Sanad", lifespan=lifespan)
     app.state.runtime = runtime
+    api_service = ApiService(runtime)
+    app.include_router(build_router(api_service, version=APP_VERSION))
+
+    @app.exception_handler(HTTPException)
+    async def api_http_error(request: Request, exc: HTTPException) -> Response:
+        if request.url.path.startswith("/api/v1") and isinstance(exc.detail, dict):
+            return JSONResponse(status_code=exc.status_code, content=exc.detail)
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    @app.exception_handler(RequestValidationError)
+    async def api_validation_error(request: Request, exc: RequestValidationError) -> Response:
+        if request.url.path.startswith("/api/v1"):
+            detail = [
+                {field: issue[field] for field in ("loc", "msg", "type")}
+                for issue in exc.errors()
+            ]
+            return JSONResponse(status_code=422, content={"detail": detail})
+        return await request_validation_exception_handler(request, exc)
+
+    contract = yaml.safe_load(OPENAPI_CONTRACT.read_text(encoding="utf-8"))
+    app.openapi = lambda: contract
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     templates = Jinja2Templates(directory=str(TEMPLATES))
 
@@ -627,9 +809,49 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/workspaces/{workspace_id}/delete")
     def delete_workspace_route(request: Request, workspace_id: str) -> Response:
+        def refused(message: str) -> Response:
+            try:
+                target = workspaces.get_workspace(
+                    workspace_id=workspace_id, db_path=runtime.db_path
+                )
+            except workspaces.WorkspaceNotFoundError:
+                return RedirectResponse("/workspaces", status_code=SEE_OTHER)
+            return templates.TemplateResponse(
+                request,
+                "workspace_delete_confirm.html",
+                {
+                    **_ws_context(runtime, request),
+                    "target": target,
+                    "delete_error": message,
+                },
+                status_code=409,
+            )
+
+        # A delete beside a running Sync of the same workspace drops the
+        # collection while the Sync keeps writing; its next file quietly
+        # re-creates the collection, leaving index data no registry row
+        # names -- the state `sync.delete_workspace` calls unrecoverable.
+        # Refused here, now that operations share the index instead of
+        # queueing behind one lock (review of d790e05).
+        with repo.session(runtime.db_path) as conn:
+            running = repo.get_running_sync_run(conn, workspace_id)
+        if running is not None:
+            return refused(
+                "This workspace cannot be deleted while a Sync of it is running. "
+                "Cancel the Sync or wait for it to finish, then try again."
+            )
         try:
-            sync.delete_workspace(
-                workspace_id=workspace_id, db_path=runtime.db_path, client=runtime.client
+            with runtime.store() as client:
+                sync.delete_workspace(
+                    workspace_id=workspace_id,
+                    db_path=runtime.db_path,
+                    client=client,
+                )
+        except vector_store.StoreAlreadyOpenError:
+            return refused(
+                "This workspace cannot be deleted while its document index is "
+                "in use by the evaluation command. Wait for it to finish, then "
+                "try again."
             )
         except workspaces.WorkspaceNotFoundError:
             pass
@@ -644,51 +866,25 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     def start_sync_route(request: Request, workspace_id: str) -> Response:
         """Start a Sync in the background and return immediately, mirroring
         `ui.runs.Run.start` -- the request thread never blocks for the
-        length of a run.
-
-        THE DOUBLE-SYNC CHECK IS HERE, BEFORE THE THREAD STARTS, on
-        purpose (F-02, UX spec 7.3: "blocked with a message, first run
-        continues"). `sync_workspace` itself refuses a second concurrent
-        run too (`SyncInProgressError`), but that refusal would fire
-        inside the background thread where nothing reads it back to this
-        request -- this pre-check is what turns "blocked" into a message
-        the operator who clicked Sync actually sees. The tiny window
-        between this read and the thread's own claim is the same one
-        `sync._claim_sync_run`'s docstring already names and accepts."""
-        with repo.session(runtime.db_path) as conn:
-            running = repo.get_running_sync_run(conn, workspace_id)
-        if running is not None:
+        length of a run. The double-sync refusal (F-02, UX spec 7.3:
+        "blocked with a message, first run continues") is the claim
+        `Runtime.start_sync` makes in THIS thread, so the operator who
+        clicked sees it; see that method for why the claim moved here."""
+        try:
+            runtime.start_sync(workspace_id)
+        except sync.SyncInProgressError:
             return RedirectResponse(
                 f"/workspaces?ws={workspace_id}&sync_blocked=1", status_code=SEE_OTHER
             )
-        runtime.sync_errors.pop(workspace_id, None)
+        except workspaces.WorkspaceNotFoundError:
+            return RedirectResponse("/workspaces", status_code=SEE_OTHER)
+        return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
 
-        def _work() -> None:
-            try:
-                report = sync.sync_workspace(
-                    workspace_id=workspace_id,
-                    db_path=runtime.db_path,
-                    client=runtime.client,
-                )
-            except Exception as exc:  # noqa: BLE001 -- mirrors _start's own catch-all
-                # PRD section 11: "folder missing or unreadable shows the
-                # exact path plus a fix hint" -- `FolderNotFoundError`'s
-                # own message already carries both, so it is shown as-is
-                # rather than re-worded here.
-                logger.exception("sync failed for workspace %s", workspace_id)
-                runtime.sync_errors[workspace_id] = str(exc)
-            else:
-                # THE LOAD-BEARING LINE, not a nicety: `sync_workspace`
-                # hands back its own `sync_run_id` on the SyncReport it
-                # returns, so the finished report is reachable even when
-                # nobody polled while it was running (a small corpus can
-                # finish before any request ever observes it as running,
-                # which is exactly the gap a poll-only cache would have
-                # -- proven by a real run in
-                # tests/integration/test_s2_workspaces_screen.py).
-                runtime.last_sync_run_id[workspace_id] = report.sync_run_id
-
-        threading.Thread(target=_work, daemon=True, name="sanad-sync").start()
+    @app.post("/workspaces/{workspace_id}/sync/cancel")
+    def cancel_sync_route(workspace_id: str) -> Response:
+        event = runtime.sync_cancel_events.get(workspace_id)
+        if event is not None:
+            event.set()
         return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
 
     @app.get("/reports", response_class=HTMLResponse)
@@ -710,6 +906,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 **_reports_context(runtime, request),
                 "detail": detail,
                 "eval_run_id": eval_run_id,
+                "busy": detail is not None and detail.summary.is_running,
             },
             status_code=404 if detail is None else 200,
         )
@@ -761,6 +958,7 @@ def _start(runtime: Runtime, question: str) -> Response:
         question=asked,
         workspace_id=active.id,
         session_id=None,
+        legal_workspace=active.legal_flag,
     )
     # THE CHECK AND THE CLAIM IN ONE STEP. Reading `busy` here and
     # assigning `conversation.run` on the next line is a race the screen
@@ -770,16 +968,10 @@ def _start(runtime: Runtime, question: str) -> Response:
     # had its answer discarded. See `Conversation.begin`.
     if not conversation.begin(run, asked):
         return RedirectResponse("/", status_code=SEE_OTHER)
-    try:
-        ports = runtime.ports()
-    except Exception as exc:  # noqa: BLE001
-        # UX spec 11, "answering service unreachable": the model could not
-        # even be built -- no key, or a mode that is not one of the two
-        # names. `Run` never starts, so the screen settles straight into
-        # the error panel with the sentence `ChatUnavailableError` wrote.
-        run.fail(exc)
-        return RedirectResponse("/", status_code=SEE_OTHER)
-    run.start(ports)
+    # The worker enters this context itself, so embedded Qdrant stays open
+    # through every split query and closes only after the answer settles.
+    # Opening errors reach the same visible ErrorPanel as model-call errors.
+    run.start_with(runtime.ports())
     return RedirectResponse("/", status_code=SEE_OTHER)
 
 

@@ -9,6 +9,7 @@ from sync import SyncResult
 from ui.workspaces_screen import (
     FileRow,
     WorkspaceScreenState,
+    capacity_warning,
     file_rows,
     screen_state,
     sort_rows,
@@ -88,6 +89,21 @@ def test_a_missing_file_reports_an_absence_not_a_fabricated_zero(tmp_path):
     )
     assert rows[0].size_bytes is None
     assert rows[0].size_label == "—"
+
+
+def test_page_soft_cap_warning_uses_active_measured_pages(tmp_path):
+    (tmp_path / "large.pdf").write_bytes(b"pdf")
+    warning = capacity_warning(
+        folder_path=str(tmp_path),
+        documents=[
+            {"page_count": 1501, "status": "active"},
+            {"page_count": 9000, "status": "removed"},
+        ],
+    )
+
+    assert warning is not None
+    assert "1 files and 1501 measured PDF pages" in warning
+    assert "Split it into smaller workspace folders" in warning
 
 
 def _row(name: str, size: int | None) -> FileRow:

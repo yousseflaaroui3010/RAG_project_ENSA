@@ -229,10 +229,10 @@ def _is_decline(reply: str) -> bool:
     return bool(_DECLINE_SHOUTED.match(first) or _DECLINE_PROSE.match(first))
 
 
-def _section_block(
+def section_blocks(
     passages: tuple[SearchHit, ...], parent_texts: Mapping[str, str]
-) -> str:
-    """The sections as the model sees them, one block per section.
+) -> tuple[str, ...]:
+    """The labeled sections as the model sees them, one block per section.
 
     ONE BLOCK PER PARENT, not per hit: four child chunks of Article 13 are
     one article, and pasting it four times would spend the context window
@@ -279,7 +279,13 @@ def _section_block(
             "(agent/nodes.py::route_after_parents); arriving with an empty "
             "tuple is a wiring fault, not a question the model can take."
         )
-    return "\n\n".join(blocks)
+    return tuple(blocks)
+
+
+def _section_block(
+    passages: tuple[SearchHit, ...], parent_texts: Mapping[str, str]
+) -> str:
+    return "\n\n".join(section_blocks(passages, parent_texts))
 
 
 def build_write_answer(

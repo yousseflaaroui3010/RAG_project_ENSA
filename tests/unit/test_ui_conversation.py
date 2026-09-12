@@ -9,6 +9,7 @@ rules can be pushed at one at a time.
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 
@@ -56,6 +57,8 @@ def _answer(
     text: str,
     sources: tuple[Source, ...] = (),
     steps: tuple[TraceStep, ...] = (),
+    *,
+    disclaimer: bool = False,
 ) -> Answer:
     return Answer(
         kind=kind,
@@ -63,6 +66,7 @@ def _answer(
         sources=sources,
         session_id="session-1",
         trace=Trace(trace_id="trace-1", steps=steps),
+        disclaimer=disclaimer,
     )
 
 
@@ -179,10 +183,14 @@ def test_the_retry_marker_shows_the_count_the_loop_actually_ran():
 
 def test_the_disclaimer_line_appears_on_a_legal_workspace():
     message = message_for(
-        _answer(AnswerKind.ANSWER, "Trois mois.", (Source(FILE, LABEL),)),
+        _answer(
+            AnswerKind.ANSWER,
+            "Trois mois.",
+            (Source(FILE, LABEL),),
+            disclaimer=True,
+        ),
         [_hit(SECTION[:30])],
         {PARENT: SECTION},
-        legal_workspace=True,
     )
     assert message.disclaimer is True
 
@@ -194,19 +202,17 @@ def test_an_unflagged_workspace_shows_no_disclaimer_anywhere():
         _answer(AnswerKind.ANSWER, "Trois mois.", (Source(FILE, LABEL),)),
         [_hit(SECTION[:30])],
         {PARENT: SECTION},
-        legal_workspace=False,
     )
     assert message.disclaimer is False
 
 
-def test_a_refusal_on_a_legal_workspace_carries_no_disclaimer():
-    """The line disclaims legal CONTENT. A refusal quotes none, so
-    attaching it there would put a legal caveat on the sentence "I found
-    nothing"."""
+def test_a_refusal_from_a_legal_workspace_carries_the_disclaimer():
+    """OpenAPI does not exempt refusals: every Answer response from a
+    legal workspace carries the same F-09 flag."""
     message = message_for(
-        _answer(AnswerKind.REFUSAL, "Not found here."), legal_workspace=True
+        _answer(AnswerKind.REFUSAL, "Not found here.", disclaimer=True)
     )
-    assert message.disclaimer is False
+    assert message.disclaimer is True
 
 
 # --- the invariant under the source cards -----------------------------
@@ -383,6 +389,42 @@ def test_cancelled_before_start_never_calls_the_session_summarizer():
     assert run.done, "the cancelled run never stopped"
     assert isinstance(run.error, RunCancelled)
     assert summary_calls == []
+
+
+def test_ports_context_stays_open_for_the_whole_question(monkeypatch):
+    entered = threading.Event()
+    ask_started = threading.Event()
+    release = threading.Event()
+    exited = threading.Event()
+
+    @contextlib.contextmanager
+    def ports_context():
+        entered.set()
+        try:
+            yield _inert_ports()
+        finally:
+            exited.set()
+
+    def blocked_ask(**kwargs):
+        ask_started.set()
+        release.wait(timeout=10)
+        return _answer(AnswerKind.REFUSAL, "Not covered here.")
+
+    monkeypatch.setattr(ui.runs, "ask", blocked_ask)
+    run = _run()
+    run.start_with(ports_context())
+
+    assert entered.wait(10)
+    assert ask_started.wait(10)
+    assert not exited.is_set()
+    release.set()
+    for _ in range(100):
+        if run.done:
+            break
+        time.sleep(0.01)
+
+    assert run.done
+    assert exited.wait(10)
 
 
 class _FirstBoundaryLock:

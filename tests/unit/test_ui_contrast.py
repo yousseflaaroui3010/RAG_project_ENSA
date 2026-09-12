@@ -141,7 +141,8 @@ def test_the_two_dark_palettes_cannot_drift_apart(palettes):
 
 DIRECTION_LOCKED = re.compile(
     r"margin-left|margin-right|padding-left|padding-right"
-    r"|text-align:\s*(left|right)|(^|[^-])left:|(^|[^-])right:",
+    r"|border-(left|right)|text-align:\s*(left|right)"
+    r"|(^|[^-])left:|(^|[^-])right:",
     re.MULTILINE,
 )
 
