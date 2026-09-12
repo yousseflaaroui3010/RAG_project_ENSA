@@ -23,7 +23,7 @@ dependencies = [
     "fastembed",
     # Heading-preserving PDF -> markdown (ADR-07).
     "pymupdf4llm",
-    # DOCX now / PPTX in V1.1 conversion (ADR-07).
+    # DOCX and PPTX conversion (ADR-07; PPTX added for F-11/ST-48).
     "markitdown[all]",
     # UI layer: server-rendered templates off the FastAPI host (ADR-02 as
     # amended by CR-02). Hypermedia attributes for partial updates ship as a

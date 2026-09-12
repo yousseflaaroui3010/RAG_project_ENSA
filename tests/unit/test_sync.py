@@ -28,8 +28,10 @@ import hashlib
 
 import pymupdf
 import pytest
+from pptx import Presentation
 
 import change_detection
+import chunking
 import conversion
 import embeddings
 import parent_store
@@ -142,6 +144,26 @@ def _locked_pdf(path):
     doc.new_page().insert_text((72, 100), "Confidentiel", fontsize=20)
     doc.save(path, encryption=pymupdf.PDF_ENCRYPT_AES_256, owner_pw="o", user_pw="u")
     doc.close()
+    return path
+
+
+def _pptx(path, slides):
+    """A real PPTX package, built with python-pptx -- a transitive
+    dependency of `markitdown[all]` (ADR-07), used here for the same
+    reason `_locked_pdf` above uses real pymupdf bytes rather than a mock:
+    F-11's whole risk is in what the real conversion+chunking pipeline
+    does with a real deck. `slides` is one body string per slide, or None
+    for a genuinely blank slide."""
+    prs = Presentation()
+    layout_with_body = prs.slide_layouts[1]
+    layout_blank = prs.slide_layouts[6]
+    for text in slides:
+        if text is None:
+            prs.slides.add_slide(layout_blank)
+        else:
+            slide = prs.slides.add_slide(layout_with_body)
+            slide.placeholders[1].text_frame.text = text
+    prs.save(str(path))
     return path
 
 
@@ -284,6 +306,51 @@ def test_added_pdf_carries_its_page_count(folder, run_sync, db_path, workspace):
     assert _documents(db_path, workspace.id)["note.pdf"]["page_count"] == 2
 
 
+def test_added_pptx_has_no_page_count(folder, run_sync, db_path, workspace):
+    """A slide deck has no pagination (PRD F-11 cites by slide number, not
+    a page), matching DOCX -- `document.page_count` stays NULL for it."""
+    _pptx(folder / "deck.pptx", ["Some text."])
+
+    run_sync()
+
+    assert _documents(db_path, workspace.id)["deck.pptx"]["page_count"] is None
+
+
+def test_added_pptx_is_searchable_and_cited_by_slide(
+    folder, run_sync, store, workspace, monkeypatch
+):
+    """PRD F-11's whole contract, exercised through the real pipeline
+    Sync actually runs: a deck's slide text becomes questionable, and the
+    hit that answers it is cited by the file name plus the ACTUAL slide
+    number -- not the position among slides that had text.
+
+    Slide 2 is genuinely blank, between the two slides that carry text, so
+    a numbering bug that counts headings instead of reading the real slide
+    marker would cite this passage as "Slide 2" instead of "Slide 3". This
+    is exactly what `agent/answering.py` turns into the citation line the
+    user reads (`f"{source_file} -- {section_label}"`).
+
+    `parent_merge_below_chars` is forced to 1 so the two short slides stay
+    separate parents instead of merging into one "Slide 1 ... Slide 3"
+    range -- that range behaviour is real and covered on its own in
+    test_conversion.py; this test is about which SINGLE slide a passage
+    resolves to when it does not merge."""
+    settings = get_settings().model_copy(update={"parent_merge_below_chars": 1})
+    monkeypatch.setattr(chunking, "get_settings", lambda: settings)
+    _pptx(
+        folder / "deck.pptx",
+        ["Introduction slide with no useful search terms.", None,
+         "La duree normale du travail est de dix heures par jour."],
+    )
+
+    run_sync()
+
+    hits = _search(store, workspace.id, "duree normale du travail")
+    assert hits, "a synced pptx returned no search hits"
+    assert hits[0].source_file == "deck.pptx"
+    assert hits[0].section_label == "Slide 3"
+
+
 def test_a_synced_file_becomes_questionable(
     folder, run_sync, store, workspace, parents_path
 ):
@@ -356,6 +423,24 @@ def test_password_protected_file_is_failed_and_never_blocks_the_batch(
         "guide.md": SyncResult.ADDED,
     }
     assert _reason(report, "confidentiel.pdf")
+
+
+def test_a_corrupted_pptx_never_stops_the_batch(folder, run_sync):
+    """F-02 criterion 3, PPTX's own instance of the same trap
+    `_locked_pdf` covers for PDF: one broken deck must cost one Failed row
+    and let the rest of the workspace finish."""
+    (folder / "broken.pptx").write_bytes(b"PK\x03\x04garbage-not-a-zip")
+    _write(folder, "code.md", HR_TEXT)
+    _write(folder, "guide.md", _article(1, "Objet", "Ce guide explique tout."))
+
+    report = run_sync()
+
+    assert _results(report) == {
+        "broken.pptx": SyncResult.FAILED,
+        "code.md": SyncResult.ADDED,
+        "guide.md": SyncResult.ADDED,
+    }
+    assert _reason(report, "broken.pptx")
 
 
 def test_a_failing_stage_costs_one_row_not_the_batch(folder, run_sync, monkeypatch):
@@ -591,23 +676,23 @@ def test_an_interrupted_write_never_leaves_a_vector_without_its_parent(
 
 
 def test_unsupported_file_type_is_skipped_with_a_reason(folder, run_sync):
-    _write(folder, "deck.pptx", "not really a deck")
+    _write(folder, "memo.rtf", "not a supported format")
     _write(folder, "code.md", HR_TEXT)
 
     report = run_sync()
 
-    assert _results(report)["deck.pptx"] == SyncResult.SKIPPED
-    assert _reason(report, "deck.pptx") == change_detection.UNSUPPORTED_TYPE_REASON
+    assert _results(report)["memo.rtf"] == SyncResult.SKIPPED
+    assert _reason(report, "memo.rtf") == change_detection.UNSUPPORTED_TYPE_REASON
 
 
 def test_unsupported_file_gets_no_document_row(folder, run_sync, db_path, workspace):
     """Nothing was fingerprinted and nothing was ingested, so there is no
     honest row to write -- only a report row."""
-    _write(folder, "deck.pptx", "not really a deck")
+    _write(folder, "memo.rtf", "not a supported format")
 
     run_sync()
 
-    assert "deck.pptx" not in _documents(db_path, workspace.id)
+    assert "memo.rtf" not in _documents(db_path, workspace.id)
 
 
 def test_a_file_with_no_readable_text_is_skipped(folder, run_sync, db_path, workspace):
@@ -624,6 +709,20 @@ def test_a_file_with_no_readable_text_is_skipped(folder, run_sync, db_path, work
     )
 
 
+def test_a_pptx_with_no_text_is_skipped(folder, run_sync, db_path, workspace):
+    """The same shape as a scanned PDF or an empty DOCX, for a deck of
+    genuinely blank slides: nothing to index, and not the user's fault."""
+    _pptx(folder / "blank.pptx", [None, None])
+
+    report = run_sync()
+
+    assert _results(report) == {"blank.pptx": SyncResult.SKIPPED}
+    assert _reason(report, "blank.pptx")
+    assert _documents(db_path, workspace.id)["blank.pptx"]["status"] == (
+        DocumentStatus.SKIPPED
+    )
+
+
 def test_a_sync_that_indexed_nothing_still_counts_as_synced(
     folder, run_sync, store, workspace
 ):
@@ -635,7 +734,7 @@ def test_a_sync_that_indexed_nothing_still_counts_as_synced(
     collection at all and `search` would report a workspace that has just
     been synced as never synced."""
     _write(folder, "empty.md", "   ")
-    _write(folder, "deck.pptx", "x")
+    _write(folder, "memo.rtf", "x")
 
     run_sync()
 
@@ -757,7 +856,7 @@ def test_the_run_row_records_the_same_counts_as_the_report(
 
 def test_every_report_row_is_persisted_as_a_sync_item(folder, run_sync, db_path):
     _write(folder, "a.md", HR_TEXT)
-    _write(folder, "deck.pptx", "x")
+    _write(folder, "memo.rtf", "x")
     _write(folder, "empty.md", "  ")
 
     report = run_sync()
@@ -1173,11 +1272,11 @@ def test_a_never_ingested_unsupported_file_still_reports_with_no_document(
     and a deletion for a file that was never ingested would be a new way
     to fail on the most ordinary input there is.
     """
-    _write(folder, "deck.pptx", "x")
+    _write(folder, "memo.rtf", "x")
 
     report = run_sync()
 
-    assert _results(report) == {"deck.pptx": sync.SyncResult.SKIPPED}
+    assert _results(report) == {"memo.rtf": sync.SyncResult.SKIPPED}
     conn = repo.get_connection(db_path)
     try:
         items = repo.list_sync_items(conn, report.sync_run_id)
