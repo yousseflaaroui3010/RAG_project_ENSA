@@ -711,6 +711,25 @@ def test_an_unflagged_workspace_shows_no_disclaimer_anywhere(sanad):
     assert 'class="disclaimer"' not in page
 
 
+def test_a_legal_workspace_also_disclaims_an_honest_refusal(sanad):
+    """OpenAPI Answer.disclaimer is true for every response kind from a
+    legal workspace, including the first-class refusal outcome."""
+    build, workspace, _ = sanad
+    client, runtime = build(
+        ScriptedChat(
+            '{"clarification":null,"queries":["tajine pruneaux cuisine"]}',
+            "OFF_TOPIC",
+        ),
+        legal_flag=True,
+    )
+
+    _ask(client, "Comment cuisiner un tajine aux pruneaux ?")
+    page = _settled(client, runtime, workspace.id)
+
+    assert "bubble--refusal" in page
+    assert 'class="disclaimer"' in page
+
+
 # --- new conversation (UX spec 6.2) ----------------------------------
 
 

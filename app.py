@@ -177,7 +177,7 @@ def _context(runtime: Runtime, request: Request) -> dict:
     if active is not None:
         documents = screen.answerable_documents(active.id, db_path=runtime.db_path)
         conversation = runtime.conversation(active.id)
-        conversation.settle(legal_workspace=active.legal_flag)
+        conversation.settle()
     state = screen.state_for(
         options=options,
         documents=documents,
@@ -761,6 +761,7 @@ def _start(runtime: Runtime, question: str) -> Response:
         question=asked,
         workspace_id=active.id,
         session_id=None,
+        legal_workspace=active.legal_flag,
     )
     # THE CHECK AND THE CLAIM IN ONE STEP. Reading `busy` here and
     # assigning `conversation.run` on the next line is a race the screen
