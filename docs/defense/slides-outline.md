@@ -16,7 +16,7 @@ plus 1 minute of slack. One idea per slide; the numbers are the story.
 | 7 | **Live demo** | Follow `demo-script.md` steps 1 to 10 | Switch to the browser | YL | 7:00 |
 | 8 | How we measured | 60 frozen French questions: 40 answerable, 20 not; frozen before tuning | The golden-set split as a bar | MB | 0:40 |
 | 9 | Results | G1 37/40 (target 36), G2 20/20, G3 37/37: release gate PASS | Three gauges with target lines | MB | 0:40 |
-| 10 | Speed | Answers: median 8.3 s (target 20 s). Intake: 449.4 s per 200 pages quiet (target 600 s), 731.6 s under load | Two bars with target lines; both intake runs shown | YL | 0:40 |
+| 10 | Speed | Answers: median 8.3 s (target 20 s). Intake: 375-449 s per 200 pages quiet (target 600 s), 731.6 s under load | Two bars with target lines; both intake runs shown | YL | 0:40 |
 | 11 | Engineering | About 790 automated tests, protected main, every branch reviewed, crash recovery, signed API | Test count, pipeline sketch | YL | 0:30 |
 | 12 | Limits, said first | Cloud model needed today; intake speed sensitive to machine load; no OCR; screen-reader pass pending; judge shares the model family | Plain list | MB | 0:40 |
 | 13 | Next | Faster intake, offline mode rehearsed, PowerPoint intake, answer-trace screen | Roadmap V1.0, V1.1, V2.0 | YL | 0:20 |

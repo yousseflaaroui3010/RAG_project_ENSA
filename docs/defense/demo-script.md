@@ -55,8 +55,8 @@ the right-to-left layout preview, and press **Dark theme** in the header.
 
 ## Close (30 seconds): say the limits before the jury asks
 
-- Document intake speed depends on the machine's load: **449.4 s per 200
-  pages on a quiet laptop (target 600 s), 731.6 s while other work ran**.
+- Document intake speed depends on the machine's load: **449.4 s and 375.3 s per
+  200 pages in two quiet runs (target 600 s), 731.6 s while other work ran**.
   Both runs are reported; the laptop's timings vary widely.
 - Answers need the cloud model today; offline mode is designed but not
   rehearsed.
@@ -78,7 +78,7 @@ during setup.
 |---|---|---|
 | Release gate | G1 37/40, G2 20/20, G3 37/37 | `data/reports/14b81a1d-.../2026-09-10T21-11-27.750175+00-00.json`, re-read by `scripts/release_gate.py` |
 | Answer speed (G4) | median 8.3 s, slowest 18.1 s, 20 questions; first question 23.2 s | `data/measurements/2026-09-11-spike-st18/traces.json` |
-| Intake speed (G5) | quiet laptop: 505.5 s for 225 pages = 449.4 s per 200 pages (PASS); under load: 823 s = 731.6 s (FAIL); unchanged re-Sync 0.09 s | `data/measurements/2026-09-12-spike-st18/results.json` and `2026-09-11-spike-st18/results.json` |
+| Intake speed (G5) | quiet laptop: 449.4 s and 375.3 s per 200 pages in two runs (PASS); under load: 823 s = 731.6 s (FAIL); unchanged re-Sync 0.09 s | `data/measurements/2026-09-12-spike-st18/results.json` and `2026-09-11-spike-st18/results.json` |
 | Corpus | HR: 3 files, 225 pages; Manuals: 10 files | same |
 
 `data/` is git-ignored: these files exist only on YL's laptop. Copy them to
