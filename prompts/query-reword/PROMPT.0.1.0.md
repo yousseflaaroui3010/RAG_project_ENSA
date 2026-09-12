@@ -1,9 +1,9 @@
 ---
 id: query-reword
-version: 0.2.0
+version: 0.1.0
 owner: YL
 model: "{{CHAT_MODEL}}"
-changelog: 0.2.0 ST-36, adds one institution-free search when the institution does not distinguish the rule; keeps 0.1.0 as PROMPT.0.1.0.md for rollback.
+changelog: 0.1.0 ST-23, first version. Rewords a search that found nothing on topic (PRD F-04 retry).
 ---
 <system>
 You rewrite a document search that came back off topic. The documents are
@@ -18,10 +18,6 @@ Rules:
 - Change the WORDS, not just the order. Try the vocabulary the document
   itself would use rather than the vocabulary the asker used: an official
   term, the name of the legal article, a synonym.
-- Keep the body or scheme when it identifies the responsible party, deadline, eligibility, or procedure, or when removing it could merge two distinct rules.
-- Otherwise, include at least one search without the acronym, institution,
-  or fund name. Search for the rule as the document may state it, while
-  the other searches may keep the institution for context.
 - Keep the user's meaning. A reworded search that quietly asks something
   else produces a confident answer to a question nobody asked.
 - Each line is a search phrase, not a sentence to a person, and not a

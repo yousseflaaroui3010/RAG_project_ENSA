@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import vector_store  # noqa: E402
 from agent.chat import ChatUnavailableError, build_chat_model  # noqa: E402
-from evaluation.runner import run_evaluation  # noqa: E402
+from evaluation.runner import EvaluationWorkspaceNotFoundError, run_evaluation  # noqa: E402
 from evaluation.scoring import build_llm_judge_scorer  # noqa: E402
 from ui.ports import build_ports  # noqa: E402
 
@@ -58,15 +58,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     scorer = build_llm_judge_scorer(model)
 
-    with vector_store.open_store() as client:
-        ports = build_ports(client, model)
-        report = run_evaluation(workspace_id=args.workspace_id, ports=ports, scorer=scorer)
+    try:
+        with vector_store.open_store() as client:
+            ports = build_ports(client, model)
+            report = run_evaluation(
+                workspace_id=args.workspace_id, ports=ports, scorer=scorer
+            )
+    except EvaluationWorkspaceNotFoundError as exc:
+        print(f"cannot run the evaluation: {exc}")
+        return 1
 
     print(f"report written to {report.report_path}")
     print(
         f"groundedness={report.groundedness} relevancy={report.relevancy} "
         f"(both judged by our own model, not an independent metric -- see "
         f"evaluation/scoring.py) "
+        f"fully_grounded={report.grounded_pass}/{report.grounded_total} "
         f"refusals={report.refusal_pass}/{report.refusal_total} "
         f"sources={report.sources_pass}/{report.sources_total} "
         f"passed={report.passed}"

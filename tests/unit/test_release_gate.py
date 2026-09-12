@@ -31,7 +31,9 @@ def _clean_report() -> dict:
     return {
         "workspace_id": "ws-1",
         "run_at": "2026-09-05T10:00:00+00:00",
-        "groundedness": ABOVE,
+        "groundedness": 1.0,
+        "grounded_pass": 1,
+        "grounded_total": 1,
         "relevancy": 0.8,
         "refusal_pass": 1,
         "refusal_total": 1,
@@ -45,7 +47,7 @@ def _clean_report() -> dict:
                 "kind": "in_scope",
                 "answer_kind": "answer",
                 "passed": True,
-                "groundedness": ABOVE,
+                "groundedness": 1.0,
                 "relevancy": 0.8,
                 "sources_present": True,
                 "error": None,
@@ -80,29 +82,39 @@ def test_a_clean_report_passes_all_three_gates_and_names_no_failures():
 # --- G1: groundedness ---------------------------------------------------------
 
 
-def test_g1_fails_when_overall_groundedness_is_below_threshold():
+def test_g1_fails_when_fewer_than_nine_of_ten_answers_are_fully_grounded():
     report = _clean_report()
-    report["groundedness"] = BELOW
-    report["results"][0]["groundedness"] = BELOW
-    report["results"][0]["passed"] = False
+    report["groundedness"] = 0.99
+    report["results"] = [
+        {
+            **report["results"][0],
+            "question_id": f"g-in-{number:03}",
+            "groundedness": 1.0 if number < 8 else 0.95,
+            "passed": number < 8,
+        }
+        for number in range(10)
+    ] + [report["results"][1]]
+    report["grounded_pass"] = 8
+    report["grounded_total"] = 10
+    report["sources_pass"] = 10
+    report["sources_total"] = 10
 
     verdict = evaluate_report(report)
 
     assert verdict.g1_passed is False
-    assert verdict.g1_failing == ("g-in-001",)
+    assert verdict.g1_failing == ("g-in-008", "g-in-009")
     assert verdict.passed is False
     # isolated: G2 and G3 are untouched by this row's groundedness miss
     assert verdict.g2_passed is True
     assert verdict.g3_passed is True
-    assert verdict.failing_question_ids == ("g-in-001",)
+    assert verdict.failing_question_ids == ("g-in-008", "g-in-009")
 
 
-def test_g1_fails_when_groundedness_is_missing_entirely():
-    """An empty/never-scored report must not read as a pass by `None >=
-    threshold` accidentally being true -- it never is in Python, but the
-    explicit `is not None` guard is what makes that a decision, not luck."""
+def test_g1_fails_when_an_in_scope_answer_was_never_scored():
     report = _clean_report()
     report["groundedness"] = None
+    report["results"][0]["groundedness"] = None
+    report["results"][0]["passed"] = False
 
     verdict = evaluate_report(report)
 
@@ -118,6 +130,9 @@ def test_g2_fails_when_an_out_of_scope_question_is_not_refused():
     report["refusal_pass"] = 0
     report["results"][1]["passed"] = False
     report["results"][1]["answer_kind"] = "answer"
+    report["results"][1]["sources_present"] = True
+    report["sources_pass"] = 2
+    report["sources_total"] = 2
 
     verdict = evaluate_report(report)
 
@@ -131,6 +146,7 @@ def test_g2_fails_when_an_out_of_scope_question_is_not_refused():
 
 def test_g2_fails_rather_than_vacuously_passing_on_zero_out_of_scope_rows():
     report = _clean_report()
+    report["results"] = [report["results"][0]]
     report["refusal_pass"] = 0
     report["refusal_total"] = 0
 
@@ -158,33 +174,37 @@ def test_g3_fails_when_an_answer_is_missing_its_source():
     assert verdict.g2_passed is True
 
 
-def test_g3_fails_rather_than_vacuously_passing_on_zero_sourced_rows():
+def test_g3_passes_with_no_answers_but_the_same_run_still_fails_g1():
     report = _clean_report()
     report["sources_pass"] = 0
     report["sources_total"] = 0
+    report["results"][0]["answer_kind"] = "refusal"
+    report["results"][0]["groundedness"] = None
+    report["results"][0]["sources_present"] = None
+    report["results"][0]["passed"] = False
 
     verdict = evaluate_report(report)
 
-    assert verdict.g3_passed is False
+    assert verdict.g1_passed is False
+    assert verdict.g3_passed is True
+    assert verdict.passed is False
 
 
 # --- a row can miss more than one gate at once --------------------------------
 
 
-def test_a_refused_in_scope_row_is_named_under_both_g1_and_g3():
+def test_a_refused_in_scope_row_is_named_under_g1_but_not_g3():
     report = _clean_report()
     report["groundedness"] = None
     report["results"][0]["passed"] = False
     report["results"][0]["answer_kind"] = "refusal"
     report["results"][0]["groundedness"] = None
-    report["results"][0]["sources_present"] = False
+    report["results"][0]["sources_present"] = None
 
     verdict = evaluate_report(report)
 
     assert "g-in-001" in verdict.g1_failing
-    assert "g-in-001" in verdict.g3_failing
-    # named once, not twice, in the combined list
-    assert verdict.failing_question_ids.count("g-in-001") == 1
+    assert "g-in-001" not in verdict.g3_failing
 
 
 # --- the CLI wrapper -----------------------------------------------------------
@@ -198,6 +218,7 @@ def test_cli_exits_zero_and_prints_pass_on_a_clean_report(tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert exit_code == 0
+    assert "G1 groundedness PASS (1/1 fully grounded, need >= 90.0%)" in out
     assert "RELEASE GATE: PASS" in out
 
 
@@ -205,6 +226,8 @@ def test_cli_exits_one_and_lists_the_failing_question_on_a_g2_miss(tmp_path, cap
     report = _clean_report()
     report["refusal_pass"] = 0
     report["results"][1]["passed"] = False
+    report["results"][1]["answer_kind"] = "answer"
+    report["results"][1]["sources_present"] = True
     report_path = tmp_path / "report.json"
     report_path.write_text(json.dumps(report), encoding="utf-8")
 
