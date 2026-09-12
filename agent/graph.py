@@ -166,6 +166,7 @@ def ask(
     history: Sequence[Turn] = (),
     previous_summary: str = "",
     clarification_context: ClarificationContext | None = None,
+    legal_workspace: bool = False,
 ) -> Answer:
     """Run one question through the graph and return one answer object.
 
@@ -245,4 +246,5 @@ def ask(
         sources=sources,
         session_id=final["session_id"],
         trace=Trace(trace_id=_new_id(), steps=steps),
+        disclaimer=legal_workspace,
     )

@@ -103,9 +103,8 @@ class Answer:
     sources: tuple[Source, ...]
     session_id: str
     trace: Trace
-    # F-09's line is wired by ST-26 from the workspace's legal flag. It is
-    # False here and no test in this story claims otherwise: a default that
-    # nobody has exercised is not a feature.
+    # F-09's line follows the workspace flag supplied at the graph boundary.
+    # False keeps direct non-workspace callers conservative.
     disclaimer: bool = False
 
     def __post_init__(self) -> None:

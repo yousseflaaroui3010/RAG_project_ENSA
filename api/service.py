@@ -140,7 +140,12 @@ class ApiService:
             conversation = (
                 self.sessions.get((workspace_id, session_id)) if session_id is not None else None
             ) or Conversation(workspace_id=workspace_id, session_id=session_id)
-            run = Run(question=question, workspace_id=workspace_id, session_id=session_id)
+            run = Run(
+                question=question,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                legal_workspace=workspace.legal_flag,
+            )
             if not conversation.begin(run, question):
                 raise SessionBusyError(
                     "This session is already answering a previous question."
@@ -150,7 +155,7 @@ class ApiService:
                 run.execute(ports)
         except Exception as exc:
             run.fail(exc)
-        conversation.settle(legal_workspace=workspace.legal_flag)
+        conversation.settle()
         answer = run.answer
         if run.error is not None:
             raise run.error
@@ -163,7 +168,10 @@ class ApiService:
             "text": answer.text,
             "sources": [dataclasses.asdict(source) for source in answer.sources],
             "searched": list(answer.searched),
-            "disclaimer": workspace.legal_flag and answer.kind.value == "answer",
+            # The answer's own flag (ST-26, #91), set by the agent from the
+            # workspace for EVERY kind -- the screen renders the same value,
+            # so the API and the UI cannot disagree about one answer.
+            "disclaimer": answer.disclaimer,
             "refusal": answer.refusal,
             "session_id": answer.session_id,
             "trace_id": answer.trace_id,

@@ -37,8 +37,9 @@ suite on this machine should be checked against `uv sync --frozen
 --dry-run` before blaming the code.
 
 **Decided 2026-09-12 (YL, DECISIONS rows):** the defense runs in cloud mode
-(ST-44's offline rehearsal descoped); refusals keep NO disclaimer (known
-deviation from openapi's description, not edited); one more paid 60-question
+(ST-44's offline rehearsal descoped); every response from a legal workspace,
+refusals included, carries the disclaimer (#91 merges; this SUPERSEDES the
+same day's no-disclaimer-on-refusals ruling); one more paid 60-question
 run (~284 calls) is approved for AFTER #92 and #95 merge, and v1.0.0 is
 tagged only if it passes.
 
@@ -565,6 +566,40 @@ prints one clear error for `missing-workspace`. The verified local workspace and
 collection both use `14b81a1d-5af0-4fb9-a46a-493fad3eb650`. The first correct-id
 run exceeded the 30-minute tool limit and left no report; the human approved one
 retry with a 60-minute limit, which completed and produced the result above.
+
+**DONE 2026-09-10: ST-26 LEGAL DISCLAIMER, branch
+`feat/S2-ST-26-legal-disclaimer`, cut from merged main at `8ce4818`. Exit gate:
+a legal-flagged workspace marks every returned answer for the fixed disclaimer;
+an unflagged workspace marks none. Blast radius, written before code:**
+
+1. **Who is touched:** every answer, refusal and clarification returned from a
+   legal workspace, in both the in-process screen and ST-51's future HTTP API.
+2. **Worst case:** the line disappears on legal material, appears on an ordinary
+   workspace, or the screen and API report different values for one answer.
+3. **How we find out:** graph-level tests pin all three answer kinds plus the
+   unflagged control; the real S1 route pins the line's presence and placement.
+4. **How we undo it:** revert the one ST-26 commit. No database or stored
+   document changes; the existing workspace flag remains intact.
+
+**SEARCH SCOPE:** the existing Graphify graph (2,237 nodes) traced `Answer`,
+`ask`, `Run`, `Conversation`, `build_ports` and `Workspace.legal_flag`.
+Project-wide searches covered `disclaimer`, `legal_flag`, every `Answer(` and
+every `AgentPorts(` across Python, templates, tests and the signed documents.
+The temporary UI shortcut reads the workspace flag only while rendering, while
+the returned `Answer.disclaimer` remains false. PRD F-09 and the frozen OpenAPI
+contract require the returned flag to match the workspace. The old unit claim
+that a legal-workspace refusal carries no disclaimer conflicts with OpenAPI's
+unqualified "True on legal-flagged workspaces" and is corrected by this story;
+the signed files are not changed.
+
+**FINAL PROOF:** the three focused files produced **124 passed**, then removing
+the workspace-to-run hand-off made both legal-workspace route checks fail and
+restoring it made both pass. The complete locked gate produced **732 passed / 2
+skipped / 1 third-party warning in 137.64s**; dependency sync audited 141
+packages and ruff passed. The real FastAPI route was exercised through
+TestClient for sourced answers, honest refusals and the unflagged control. A
+manual browser and screen-reader walk was not available in this tool session;
+ST-38 still owns that check.
 
 **DONE 2026-09-10: ST-25 SESSION MEMORY, branch
 `feat/S2-ST-25-session-memory`, cut from merged main at `6a789b5`. Exit gate:

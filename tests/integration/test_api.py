@@ -839,3 +839,49 @@ def test_ask_unexpected_bug_is_logged_and_returned_as_500(tmp_path, monkeypatch,
         assert secret not in logged
     finally:
         store.__exit__(None, None, None)
+
+
+def _ask_in_workspace(tmp_path, *, legal_flag: bool, ports_factory) -> dict:
+    client, db_path, store = api(tmp_path, ports_factory)
+    try:
+        created = client.post(
+            "/api/v1/workspaces",
+            json={"name": "WS", "folder_path": str(tmp_path), "legal_flag": legal_flag},
+        )
+        workspace_id = created.json()["id"]
+        with repo.session(db_path) as conn:
+            repo.insert_document(
+                conn,
+                workspace_id=workspace_id,
+                file_name="guide.txt",
+                file_type="txt",
+                content_hash="sha256:" + "0" * 64 + ":1",
+                status="active",
+            )
+        response = client.post(
+            f"/api/v1/workspaces/{workspace_id}/ask", json={"question": "Trial?"}
+        )
+        assert response.status_code == 200
+        return response.json()
+    finally:
+        store.__exit__(None, None, None)
+
+
+def test_a_refusal_from_a_legal_workspace_carries_the_disclaimer(tmp_path):
+    """ST-26 (#91): the disclaimer follows the workspace for EVERY answer
+    kind, as openapi's Answer.disclaimer says, and the API reports the
+    answer's own flag -- the value the chat screen renders."""
+    def refusing() -> AgentPorts:
+        return dataclasses.replace(ports(), grade=lambda _question, _passages: False)
+
+    body = _ask_in_workspace(tmp_path, legal_flag=True, ports_factory=refusing)
+
+    assert body["kind"] == "refusal"
+    assert body["disclaimer"] is True
+
+
+def test_an_answer_from_an_ordinary_workspace_carries_no_disclaimer(tmp_path):
+    body = _ask_in_workspace(tmp_path, legal_flag=False, ports_factory=ports)
+
+    assert body["kind"] == "answer"
+    assert body["disclaimer"] is False
