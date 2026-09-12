@@ -1,56 +1,57 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-12 (read this block first; older headers below are history)
+## STATE AT 2026-09-12, AFTER RELEASE (read this block first; older headers below are history)
 
-**main has not moved since 8ce4818 (#90).** Everything after it is on
-branches and PRs, none merged. The PR template makes the partner's
-approval the merge key, so merging is MB's call.
+**v1.0.0 IS TAGGED** on `ae0bcbb` (main, #94), annotated tag pushed. ST-41's
+exit gate -- "gate exit 0 on the frozen golden set; annotated tag pushed" --
+is met on the exact commit that was evaluated.
 
-| Branch | Stories | PR | Clean-checkout tests | Review |
-|---|---|---|---|---|
-| `fix/S3-ST-39-evaluation-failures` (A) | ST-36 (#85's commits) + ST-39 | #92 -> main | 787 passed, 2 skipped, ruff clean, CI green | briefed review MERGE AFTER FIXES + cold re-check NOT CLEAN; every blocking finding fixed, 11/11 deliberate breaks caught |
-| `feat/S3-ST-51-thin-api` (B, on A) | ST-51 + ST-52 | #95 -> A | 812 passed, 2 skipped, ruff clean | MERGE AFTER FIXES (Sev1: drift tests missed 11 of 14 breaks); fixed, now 12/12 caught; API Sync uses the screen's starter; start-up recovery lives here |
-| `feat/S3-ST-05-local-container` (C, on B) | ST-05 | #96 -> B | B + 2 packaging tests | competes with MB's #86; recommendation: keep #86, close #96 (nothing else is lost) |
-| `docs/S3-ST-38-manual-qa-results` | ST-38 | #93 | docs only | 35 pass, 6 blocked on a human screen-reader pass |
-| `docs/S4-ST-44-defense-kit` | ST-30/43/44/45/46 drafts | #94 | docs only | drafts, not rehearsed |
+**RELEASE RUN, on ae0bcbb, 2026-09-12:** `scripts/run_evaluation.py`, 60
+frozen rows, report `data/reports/14b81a1d-.../2026-09-12T09-59-19.303304+00-00.json`
+(copied to `docs/evals/release-v1.0.0-2026-09-12.json`, status completed).
+**G1 36/40 (target 36 -- passes with ZERO margin), G2 20/20, G3 36/36**;
+`scripts/release_gate.py` exit 0. The four misses (g-in-014, 026, 033, 040)
+are all refusals, never invented answers. The 2026-09-10 run scored 37/40
+with 014, 017, 033 missing: 014 and 033 miss in both, 017 recovered, 026 and
+040 are new. Treat G1 as passing at the edge; model variation alone can move
+it by one row.
 
-**Measured, with sources:** release gate on the final report G1 37/40, G2
-20/20, G3 37/37, `RELEASE GATE: PASS` (re-run 2026-09-12). G4 median 8.3 s,
-p95 18.1 s, cold first question 23.2 s (`data/spike-st18/traces.json`,
-2026-09-11): PASS. **G5, measured twice with `scripts/spike_st18.py index`,
-cold, model load included:** 2026-09-11 while other work ran, 823 s for 225
-pages = 731.6 s per 200 pages (FAIL); **2026-09-12 on a quiet laptop, twice:
-505.5 s = 449.4 s per 200 pages, then 422.2 s = 375.3 s per 200 pages, both
-PASS vs 600 s**. Parts timed separately: embedding
-0.29 s/chunk x 1,121 chunks = about 320 s, PDF conversion about 100 s.
-VARIANCE WARNING: the Manuals workspace took 421 s in the first run and
-1,121 s in the second, so this laptop's timings swing widely; quote both
-G5 runs, not only the pass, and a third quiet run would firm it up. Both
-result files are kept in `data/measurements/` (git-ignored); the 2026-09-11
-`traces.json` there is the only G4 evidence, since the script wipes
-`data/spike-st18/` on every run.
+**MERGED TO MAIN 2026-09-12, in order:** #85 ST-36 (MB), #91 ST-26
+disclaimer, #92 ST-39, #95 ST-51+52 API, #96 ST-05 container, #93 ST-38 QA
+results, #94 defense kit. Each merge's tree was checked identical to a
+tested tree (`git diff --quiet`), and CI `verify` passed on every one.
+**MB's #86 stays open** (DECISIONS 2026-09-12: data/ files in the diff,
+hosting and a password gate against the non-goals).
 
-**Environment trap found:** this laptop's `.venv` held 29 packages the lock
-no longer lists (RAGAS era); a half-deleted `aiohttp` made one test fail.
-They were removed; `uv sync --frozen --dry-run` reports no changes. A red
-suite on this machine should be checked against `uv sync --frozen
---dry-run` before blaming the code.
+**PRE-MERGE CHECKS (phase-4 / prove-it / gates):** full suite on main
+**821 passed, 2 skipped**, ruff clean, golden grounding 60 rows. Every new
+guard broken on purpose and watched fail (about 30 across the branches).
+Graph (codebase-memory, re-indexed): every new function has a production
+caller; no product-to-product duplicate; complexity over 15 only in
+`app.create_app` (31) and `api.routes.build_router` (28) -- named shortcut,
+DECISIONS row. Real run on the final tree: live server, 13 of 13 checks
+(legal workspace create, Sync, double Sync refused, sourced answer with
+disclaimer, refusal with disclaimer, delete; 0 errors in the server log).
 
-**Decided 2026-09-12 (YL, DECISIONS rows):** the defense runs in cloud mode
-(ST-44's offline rehearsal descoped); every response from a legal workspace,
-refusals included, carries the disclaimer (#91 merges; this SUPERSEDES the
-same day's no-disclaimer-on-refusals ruling); one more paid 60-question
-run (~284 calls) is approved for AFTER #92 and #95 merge, and v1.0.0 is
-tagged only if it passes.
+**Measured speed:** G4 median 8.3 s, p95 18.1 s (20 questions, 2026-09-11).
+G5 cold intake on this laptop: 375.3 s and 449.4 s per 200 pages in two
+quiet runs (PASS vs 600 s), 731.6 s in one run under load. Results in
+`data/measurements/` (git-ignored; the speed script wipes
+`data/spike-st18/` on every run).
 
-**Still waiting on the humans:** (1) MB's review and merge, in order #85,
-#92, #95, then #93 and #94; (2) which ST-05 ships, #96 or MB's #86;
-(3) the screen-reader pass (ST-38's 6 blocked rows); (4) rehearsals (G6),
-the backup video, slides and report chapters -- "not now" per YL.
+**Decided 2026-09-12 (YL):** defense runs in cloud mode (ST-44 offline
+rehearsal descoped); every response from a legal workspace carries the
+disclaimer (#91; supersedes the same day's opposite ruling).
 
-**Not started:** ST-41 tag v1.0.0 (after merges), report chapters ST-31,
-ST-40, ST-42 (MB; not in the repo), ST-50 interviews. ST-47/48/49 descoped
-(DECISIONS 2026-09-12).
+**Left, owned by the humans:** ST-38's screen-reader pass (6 blocked rows);
+#86; rehearsals (G6) and the recorded fallback; slides and report chapters
+(ST-31/40/42/43/45/46, "not now" per YL). Small follow-up: the app still
+reports version 0.1.0 (pyproject) under the v1.0.0 tag; bumping it changes
+metadata only, so it was left out of the evaluated commit on purpose.
+
+**Environment trap:** a red suite on this laptop should be checked against
+`uv sync --frozen --dry-run` before blaming code (29 stale packages were
+removed on 2026-09-12).
 
 ---
 
