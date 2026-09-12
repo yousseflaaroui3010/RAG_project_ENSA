@@ -1,8 +1,9 @@
+import vector_store
 from db import repo
 from recovery import ABANDONED_ERROR, RecoveryResult, recover_abandoned_runs
 
 
-def test_startup_recovery_settles_abandoned_runs_and_keeps_saved_work(tmp_path):
+def _seed(tmp_path):
     db_path = tmp_path / "sanad.db"
     with repo.session(db_path) as conn:
         workspace_id = repo.create_workspace(
@@ -30,8 +31,14 @@ def test_startup_recovery_settles_abandoned_runs_and_keeps_saved_work(tmp_path):
             kind="in_scope",
             passed=True,
         )
+    return db_path, sync_id, eval_id
 
-    recovered = recover_abandoned_runs(db_path=db_path)
+
+def test_startup_recovery_settles_abandoned_runs_and_keeps_saved_work(tmp_path):
+    db_path, sync_id, eval_id = _seed(tmp_path)
+    qdrant_path = tmp_path / "qdrant"
+
+    recovered = recover_abandoned_runs(db_path=db_path, qdrant_storage_path=qdrant_path)
 
     assert recovered == RecoveryResult(sync_runs=1, evaluation_runs=1)
     with repo.session(db_path) as conn:
@@ -44,4 +51,39 @@ def test_startup_recovery_settles_abandoned_runs_and_keeps_saved_work(tmp_path):
         assert eval_run["error"] == ABANDONED_ERROR
         assert repo.eval_run_progress(conn, eval_id) == 1
 
-    assert recover_abandoned_runs(db_path=db_path) == RecoveryResult(0, 0)
+    assert recover_abandoned_runs(
+        db_path=db_path, qdrant_storage_path=qdrant_path
+    ) == RecoveryResult(0, 0)
+
+
+def test_startup_recovery_leaves_a_live_evaluation_running_when_the_index_is_busy(
+    tmp_path,
+):
+    """A Running eval row is only abandoned if no other process holds the
+    embedded index. `scripts/run_evaluation.py` is that other process in
+    real life; here a real `vector_store.open_store` held open on the same
+    path stands in for it, so this proves the real cross-process signal
+    (`StoreAlreadyOpenError`) rather than a mock of it."""
+    db_path, sync_id, eval_id = _seed(tmp_path)
+    qdrant_path = tmp_path / "qdrant"
+
+    with vector_store.open_store(qdrant_path):
+        recovered = recover_abandoned_runs(db_path=db_path, qdrant_storage_path=qdrant_path)
+
+    # The sync row is still recovered: Sync only ever runs inside THIS
+    # process, so it is unconditionally abandoned regardless of the index.
+    assert recovered == RecoveryResult(sync_runs=1, evaluation_runs=0)
+    with repo.session(db_path) as conn:
+        sync_run = repo.get_sync_run(conn, sync_id)
+        eval_run = repo.get_eval_run(conn, eval_id)
+        assert sync_run["finished_at"] is not None
+        assert eval_run["status"] == "running"
+        assert eval_run["error"] is None
+
+    # Once the other process releases the store, recovery settles it.
+    recovered_after = recover_abandoned_runs(db_path=db_path, qdrant_storage_path=qdrant_path)
+    assert recovered_after == RecoveryResult(sync_runs=0, evaluation_runs=1)
+    with repo.session(db_path) as conn:
+        eval_run = repo.get_eval_run(conn, eval_id)
+        assert eval_run["status"] == "partial"
+        assert eval_run["error"] == ABANDONED_ERROR

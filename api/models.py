@@ -4,9 +4,21 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, StrictBool, field_validator, model_validator
 
+from config import get_settings
+
+# Read once at import time (config.get_settings() is itself lru_cache'd) so
+# these Field bounds are never a second hardcoded copy of
+# docs/phase2/openapi.yaml's minLength/maxLength -- config.py is the single
+# source of truth (Hard technical rule) and workspaces.py already reads the
+# same settings for the non-API path.
+_settings = get_settings()
+
 
 class WorkspaceCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    name: str = Field(
+        min_length=_settings.workspace_name_min_length,
+        max_length=_settings.workspace_name_max_length,
+    )
     folder_path: str = Field(min_length=1)
     legal_flag: StrictBool = False
 
@@ -20,14 +32,26 @@ class WorkspaceCreate(BaseModel):
     def existing_folder(cls, value):
         if not isinstance(value, str):
             return value
-        path = Path(value.strip()).expanduser().resolve()
+        candidate = Path(value.strip()).expanduser()
+        # Checked BEFORE `.resolve()`, which would otherwise silently turn a
+        # relative path such as "." into the server's own working directory
+        # -- accepted, but pointed at the wrong folder, and the contract
+        # says `folder_path` is absolute (Workspace.folder_path
+        # description: "Absolute path of the user-owned source folder").
+        if not candidate.is_absolute():
+            raise ValueError("folder_path must be an absolute path")
+        path = candidate.resolve()
         if not path.is_dir():
             raise ValueError("folder_path must name an existing folder")
         return str(path)
 
 
 class WorkspaceUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=100)
+    name: str | None = Field(
+        default=None,
+        min_length=_settings.workspace_name_min_length,
+        max_length=_settings.workspace_name_max_length,
+    )
     legal_flag: StrictBool | None = None
 
     @field_validator("name", mode="before")
@@ -45,7 +69,10 @@ class WorkspaceUpdate(BaseModel):
 
 
 class AskRequest(BaseModel):
-    question: str = Field(min_length=1, max_length=2000)
+    question: str = Field(
+        min_length=_settings.question_min_length,
+        max_length=_settings.question_max_length,
+    )
     session_id: str | None = None
 
     @field_validator("question", mode="before")
