@@ -110,10 +110,32 @@ if [ -d "$SEED_DIR" ] && [ ! -e "$CORPUS_DIR" ]; then
     # on booting. A partial `corpus.tmp.<pid>` left by a container killed
     # mid-copy is also removed here rather than mistaken for the corpus,
     # because it is named per-process and never read by the app.
-    seed_tmp="${CORPUS_DIR}.tmp.$$"
-    rm -rf "$seed_tmp"
-    cp -r "$SEED_DIR" "$seed_tmp"
-    if mv "$seed_tmp" "$CORPUS_DIR" 2>/dev/null; then
+    # `mv -T` (--no-target-directory) IS LOAD-BEARING, and plain `mv` here
+    # was a bug caught by running the race, not by reading the code. With
+    # an existing target directory, plain `mv src dst` does NOT fail: it
+    # moves src INSIDE dst and exits 0, so the boot that lost the race
+    # buried a second copy of every document at
+    # `corpus/corpus.tmp.<pid>/...` -- 26 files where 13 belong -- and
+    # reported success. `-T` refuses to move into a non-empty directory
+    # (exit 1, "Directory not empty"), which is the refusal this branch
+    # needs, while still replacing an EMPTY leftover directory a
+    # half-finished earlier boot could have left behind.
+    # `mktemp -d`, NOT `$$`. Another bug the race test caught: inside a
+    # container the entrypoint is ALWAYS pid 1, so `$$` is 1 in every
+    # container and two boots sharing one volume chose the SAME
+    # `corpus.tmp.1`. They then copied into it together, one renamed it
+    # away mid-copy, and the volume was left with a PARTIAL corpus (3 of
+    # 13 files, the legal PDFs missing) while the other boot died trying
+    # to clean up a directory that had moved. `mktemp -d` picks a name
+    # that is unique by construction, created atomically, so each boot
+    # owns its own staging directory and can never scribble on another's.
+    seed_tmp="$(mktemp -d "${CORPUS_DIR}.tmp.XXXXXXXX")"
+    # `$SEED_DIR/.` -- the CONTENTS, not the directory. `mktemp -d`
+    # already created the staging directory, so `cp -r "$SEED_DIR"` would
+    # nest the whole tree one level deeper (`corpus/seed-corpus/hr/...`)
+    # and the workspace folder paths would point at nothing.
+    cp -r "$SEED_DIR/." "$seed_tmp/"
+    if mv -T "$seed_tmp" "$CORPUS_DIR" 2>/dev/null; then
         echo "seeded: $(find "$CORPUS_DIR" -type f | wc -l) file(s)"
     else
         rm -rf "$seed_tmp"

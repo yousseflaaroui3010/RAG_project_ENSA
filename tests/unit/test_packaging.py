@@ -76,3 +76,47 @@ def test_dockerfile_never_reintroduces_a_railway_build_killer():
                 "machines and locally through compose.yaml too. Drop the "
                 "cache mount rather than name one."
             )
+
+
+def test_the_corpus_seed_survives_two_boots_sharing_one_volume():
+    """Both halves of this were caught by RUNNING two containers against
+    one volume, not by reading the script, and each one corrupted the
+    disk in a different way:
+
+    * plain `mv src dst` does NOT fail when `dst` exists -- it moves `src`
+      INSIDE it and exits 0. The boot that lost the race buried a second
+      copy of every document at `corpus/corpus.tmp.../`, 26 files where 13
+      belong, and reported success. `mv -T` refuses instead.
+    * `$$` is 1 in EVERY container (the entrypoint is always pid 1), so
+      two boots picked the same `corpus.tmp.1`, copied into it together,
+      and one renamed it away mid-copy: the volume kept a partial corpus
+      (3 of 13 files, the legal PDFs missing) and the other boot died
+      cleaning up a directory that had moved. `mktemp -d` gives each boot
+      a name unique by construction.
+
+    A crash loop or a half-seeded disk on a hosting platform is debugged
+    from a dashboard, with no shell, so this is guarded here."""
+    entrypoint = (ROOT / "docker-entrypoint.sh").read_text(encoding="utf-8")
+    code = [
+        line
+        for line in entrypoint.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    seed_moves = [line for line in code if "mv" in line and "CORPUS_DIR" in line]
+
+    assert seed_moves, "the seeding step no longer moves anything into place"
+    for line in seed_moves:
+        assert "mv -T" in line, (
+            f"the corpus seed uses a bare `mv` ({line.strip()!r}). With the "
+            "target directory already present that moves the staging copy "
+            "INSIDE it and exits 0, leaving a duplicate corpus nested one "
+            "level down. Use `mv -T`, which refuses a non-empty target."
+        )
+    staging = [line for line in code if "seed_tmp=" in line]
+    assert staging, "the seeding step no longer stages the copy before moving it"
+    for line in staging:
+        assert "mktemp" in line, (
+            f"the staging directory is named without mktemp ({line.strip()!r}). "
+            "Every container's entrypoint is pid 1, so `$$` collides between "
+            "two boots sharing one volume and they corrupt each other's copy."
+        )
