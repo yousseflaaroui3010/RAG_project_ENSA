@@ -61,6 +61,16 @@ _JSON_SUFFIX = ".json"
 # entry than _MAX_READ_ATTEMPTS -- no wait after the last, failing, attempt.
 _MAX_READ_ATTEMPTS = 3
 _RETRY_BACKOFF_SECONDS = (0.05, 0.15)
+# Windows reports a file another process holds as ERROR_SHARING_VIOLATION
+# (32) or ERROR_LOCK_VIOLATION (33), surfaced by Python as PermissionError.
+_LOCK_WINERRORS = frozenset({32, 33})
+
+
+def _is_lock(exc: OSError) -> bool:
+    """True for the transient "someone else holds this file" failures."""
+    return isinstance(exc, PermissionError) or getattr(
+        exc, "winerror", None
+    ) in _LOCK_WINERRORS
 
 
 class ParentStoreError(Exception):
@@ -220,6 +230,17 @@ def get_parent(
                 f"or the workspace may need a re-sync."
             ) from exc
         except OSError as exc:
+            # Only a LOCK is worth waiting for: a permission/sharing refusal
+            # (Windows sharing violation 32, lock violation 33, or EACCES).
+            # A bad disk, a folder where a file should be, or an offline
+            # OneDrive placeholder will not heal in a second, and calling
+            # it "temporarily locked" would send the user retrying forever
+            # (review of 4365e1c) -- those keep the plain "could not read".
+            if not _is_lock(exc):
+                raise CorruptParentError(
+                    f"parent {parent_id!r} in workspace {workspace_id!r} "
+                    f"could not be read ({exc.strerror or exc})."
+                ) from exc
             attempt += 1
             if attempt >= _MAX_READ_ATTEMPTS:
                 raise ParentUnavailableError(

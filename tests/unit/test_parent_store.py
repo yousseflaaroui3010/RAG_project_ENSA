@@ -581,3 +581,33 @@ def test_chunking_output_saves_and_reloads_end_to_end(store):
             workspace_id=WS_HR, parent_id=original.id, base_path=store
         )
         assert loaded == original
+
+
+@pytest.mark.parametrize(
+    "error",
+    [OSError(5, "Input/output error"), IsADirectoryError(21, "Is a directory")],
+    ids=["disk-error", "folder-not-file"],
+)
+def test_a_read_error_that_is_not_a_lock_is_not_retried_or_called_locked(
+    store, monkeypatch, error
+):
+    """Review of 4365e1c: only a lock is worth waiting for. A bad disk or a
+    folder where the file should be will not heal in a second; calling it
+    "temporarily locked" would send the user retrying forever."""
+    parent = _parent()
+    parent_store.save_parents(workspace_id=WS_HR, parents=[parent], base_path=store)
+    calls = {"n": 0}
+
+    def broken(path):
+        calls["n"] += 1
+        raise error
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(parent_store, "_read_file", broken)
+    monkeypatch.setattr(parent_store.time, "sleep", sleeps.append)
+
+    with pytest.raises(parent_store.CorruptParentError) as caught:
+        parent_store.get_parent(workspace_id=WS_HR, parent_id=parent.id, base_path=store)
+
+    assert calls["n"] == 1 and sleeps == []
+    assert "locked" not in str(caught.value).lower()
