@@ -188,7 +188,12 @@ h3 { font-size: var(--size-body); font-weight: 600; line-height: 1.6; }
   gap: var(--space-16);
   flex-wrap: wrap;
 }
-.shell__name { font-weight: 600; font-size: var(--size-section); }
+.shell__name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: var(--size-section);
+  text-decoration: none;
+}
 .shell__workspace { display: flex; align-items: center; gap: var(--space-8); }
 .shell__label { font-size: var(--size-meta); color: var(--text-muted); }
 .shell__nav { display: flex; gap: var(--space-12); margin-inline-start: auto; }
@@ -293,7 +298,7 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 /* 6.5: alignment mirrors under RTL. */
 [dir="rtl"] .msg--user { justify-items: start; }
 
-/* 6.2 Answer: left-aligned, surface. */
+/* 6.2 Answer: aligned to the reading start, surface. */
 .bubble--answer { background: var(--surface); }
 .answer__text { margin: 0; white-space: pre-line; }
 
@@ -311,7 +316,7 @@ input[type="text"]:disabled, select:disabled, button:disabled {
   grid-column: 1;
   margin: var(--space-8) 0 0;
   padding: var(--space-8) var(--space-12);
-  border-left: 3px solid var(--notice);
+  border-inline-start: 3px solid var(--notice);
   background: var(--surface-raised);
   font-size: var(--size-meta);
   line-height: 1.45;
@@ -438,7 +443,7 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 .passage__note {
   margin: 0 0 var(--space-8);
   padding: var(--space-8);
-  border-left: 3px solid var(--notice);
+  border-inline-start: 3px solid var(--notice);
   background: var(--surface-raised);
   font-size: var(--size-meta);
   line-height: 1.45;
@@ -506,9 +511,9 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
-    animation-duration: 1ms !important;
+    animation-duration: 0s !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
+    transition-duration: 0s !important;
   }
   .stage__dot {
     animation: none;
@@ -531,7 +536,7 @@ input[type="text"]:disabled, select:disabled, button:disabled {
   max-width: var(--prose-max);
   margin: 0 0 var(--space-16);
   padding: var(--space-8) var(--space-12);
-  border-left: 3px solid var(--notice);
+  border-inline-start: 3px solid var(--notice);
   background: var(--surface-raised);
   font-size: var(--size-meta);
   line-height: 1.45;

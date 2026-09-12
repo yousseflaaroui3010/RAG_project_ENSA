@@ -16,9 +16,23 @@
     <p><a href="/reports">Back to all reports</a></p>
   </div>
 {% else %}
-  <section aria-label="Report detail">
-    <p><a href="/reports">&larr; All reports</a></p>
+  <section aria-label="Report detail"
+           {% if detail.summary.is_running %}data-report-refresh="true"{% else %}data-report-final-status="Evaluation {{ 'stopped with partial results' if detail.summary.is_partial else 'completed' }}."{% endif %}>
+    <p><a href="/reports" data-report-focus="back">All reports</a></p>
     <h1>{{ detail.summary.workspace_name }} <span class="mono">{{ detail.summary.run_at }}</span></h1>
+
+    {% if detail.summary.is_running %}
+      <div class="stage" role="status" aria-live="polite"
+           data-eval-status="{{ detail.summary.id }}">
+        <span class="stage__label" data-status-label>Evaluation running: {{ detail.summary.completed_count }}/{{ detail.summary.question_total }} questions completed.</span>
+      </div>
+    {% elif detail.summary.is_partial %}
+      <div class="panel panel--error" role="alert">
+        <p class="error__sentence">Partial: stopped at question {{ detail.summary.failed_question_number }} of {{ detail.summary.question_total }} ({{ detail.summary.failed_question_id }}).</p>
+        <p class="error__value mono">{{ detail.summary.error }}</p>
+        <p>{{ detail.summary.completed_count }} completed question{{ '' if detail.summary.completed_count == 1 else 's' }} kept.</p>
+      </div>
+    {% endif %}
 
     {#
       Three outcomes, not two: `passed` is `None` for G3 when neither the
@@ -28,7 +42,12 @@
       removed and the table still reads" -- never colour alone (8.4).
     #}
     {% macro _outcome_pill(passed) %}
-      {% if passed is none %}
+      {% if detail.summary.status != 'completed' %}
+        <span class="status-pill">
+          <span class="status-dot status-dot--neutral status-dot--hollow-circle" aria-hidden="true"></span>
+          Not final
+        </span>
+      {% elif passed is none %}
         <span class="status-pill">
           <span class="status-dot status-dot--neutral status-dot--hollow-circle" aria-hidden="true"></span>
           Not judged
@@ -45,7 +64,7 @@
         </span>
       {% endif %}
     {% endmacro %}
-    <table class="file-table">
+    <table class="file-table" data-report-scores>
       <caption class="sources__title">Release gates</caption>
       <thead>
         <tr>
@@ -80,7 +99,7 @@
       </div>
     {% endif %}
 
-    <table class="file-table">
+    <table class="file-table" data-report-questions>
       <caption class="sources__title">Per-question results</caption>
       <thead>
         <tr>
@@ -119,7 +138,8 @@
         A plain link, no JavaScript (CR-02) -- the browser's own download
         handling is the whole delivery mechanism.
       #}
-      <a class="btn btn--quiet" href="/reports/{{ detail.summary.id }}/export">
+      <a class="btn btn--quiet" href="/reports/{{ detail.summary.id }}/export"
+         data-report-focus="export">
         Export as Markdown for the report annex
       </a>
     </p>

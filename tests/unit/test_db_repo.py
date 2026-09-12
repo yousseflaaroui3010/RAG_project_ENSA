@@ -2,9 +2,11 @@
 values, unique file-per-workspace.
 
 Reference: docs/phase2/Sanad_Architecture_v1.0.md sections 7.3 (reference
-DDL) and 7.4 (SQLite deviations). Every connection here is opened through
-db.repo.get_connection()/session() (never sqlite3.connect() directly) so
-`PRAGMA foreign_keys = ON` is always in effect.
+DDL) and 7.4 (SQLite deviations). Application-facing connections here are
+opened through db.repo.get_connection()/session() so `PRAGMA foreign_keys =
+ON` is always in effect. The migration fixture deliberately uses sqlite3
+directly to create the exact database shape that predates the repository
+migration.
 """
 
 from __future__ import annotations
@@ -249,6 +251,279 @@ def test_ensure_schema_bootstraps_a_fresh_path(tmp_path):
         assert _count(conn, "workspace") == 0
     finally:
         conn.close()
+
+
+def test_ensure_schema_claims_the_writer_lock_before_migration_checks(
+    tmp_path, monkeypatch
+):
+    statements: list[str] = []
+    real_connect = repo._connect_raw
+
+    def traced_connect(path):
+        connection = real_connect(path)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(repo, "_connect_raw", traced_connect)
+    repo.ensure_schema(tmp_path / "locked-migration.db")
+
+    begin = next(i for i, sql in enumerate(statements) if "BEGIN IMMEDIATE" in sql)
+    first_schema_write = next(
+        i for i, sql in enumerate(statements) if "CREATE TABLE" in sql
+    )
+    assert begin < first_schema_write
+
+
+# --- incremental evaluation schema ------------------------------------------
+
+
+def _create_old_eval_database(db_path) -> None:
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE workspace (
+              id          TEXT PRIMARY KEY,
+              name        TEXT NOT NULL UNIQUE,
+              folder_path TEXT NOT NULL,
+              legal_flag  INTEGER NOT NULL DEFAULT 0,
+              created_at  TEXT NOT NULL
+            );
+            CREATE TABLE eval_run (
+              id            TEXT PRIMARY KEY,
+              workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+              run_at        TEXT NOT NULL,
+              groundedness  REAL,
+              relevancy     REAL,
+              refusal_pass  INTEGER NOT NULL DEFAULT 0,
+              refusal_total INTEGER NOT NULL DEFAULT 0,
+              passed        INTEGER NOT NULL DEFAULT 0,
+              report_path   TEXT
+            );
+            CREATE TABLE eval_result (
+              id           TEXT PRIMARY KEY,
+              eval_run_id  TEXT NOT NULL REFERENCES eval_run(id) ON DELETE CASCADE,
+              question_id  TEXT NOT NULL,
+              kind         TEXT NOT NULL CHECK (kind IN ('in_scope', 'out_of_scope')),
+              groundedness REAL,
+              relevancy    REAL,
+              passed       INTEGER NOT NULL
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO workspace (id, name, folder_path, created_at) VALUES (?, ?, ?, ?)",
+            ("old-workspace", "Old workspace", "/old", "2026-09-01T00:00:00+00:00"),
+        )
+        connection.executemany(
+            "INSERT INTO eval_run "
+            "(id, workspace_id, run_at, groundedness, relevancy, refusal_pass, "
+            "refusal_total, passed, report_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "old-run-two-results",
+                    "old-workspace",
+                    "2026-09-01T01:00:00+00:00",
+                    0.75,
+                    0.8,
+                    1,
+                    2,
+                    0,
+                    "/reports/old-two.json",
+                ),
+                (
+                    "old-run-no-results",
+                    "old-workspace",
+                    "2026-09-01T02:00:00+00:00",
+                    1.0,
+                    1.0,
+                    2,
+                    2,
+                    1,
+                    "/reports/old-zero.json",
+                ),
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO eval_result "
+            "(id, eval_run_id, question_id, kind, groundedness, relevancy, passed) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("old-result-1", "old-run-two-results", "q1", "in_scope", 1.0, 0.9, 1),
+                ("old-result-2", "old-run-two-results", "q2", "out_of_scope", None, None, 1),
+            ],
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_old_eval_schema_migrates_rows_and_is_idempotent(tmp_path):
+    db_path = tmp_path / "old-sanad.db"
+    _create_old_eval_database(db_path)
+
+    with repo.session(db_path):
+        pass
+
+    connection = repo.get_connection(db_path)
+    try:
+        runs_after_first_migration = connection.execute(
+            "SELECT id, status, question_total, groundedness, report_path "
+            "FROM eval_run ORDER BY id"
+        ).fetchall()
+        results_after_first_migration = connection.execute(
+            "SELECT id, eval_run_id, question_id, answer_kind, answer_text, "
+            "sources_present, error FROM eval_result ORDER BY id"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert [tuple(row) for row in runs_after_first_migration] == [
+        ("old-run-no-results", "completed", 0, 1.0, "/reports/old-zero.json"),
+        ("old-run-two-results", "completed", 2, 0.75, "/reports/old-two.json"),
+    ]
+    assert [tuple(row) for row in results_after_first_migration] == [
+        ("old-result-1", "old-run-two-results", "q1", None, None, None, None),
+        ("old-result-2", "old-run-two-results", "q2", None, None, None, None),
+    ]
+
+    repo.ensure_schema(db_path)
+    repo.ensure_schema(db_path)
+
+    connection = repo.get_connection(db_path)
+    try:
+        runs_after_repeated_migration = connection.execute(
+            "SELECT id, status, question_total, groundedness, report_path "
+            "FROM eval_run ORDER BY id"
+        ).fetchall()
+        results_after_repeated_migration = connection.execute(
+            "SELECT id, eval_run_id, question_id, answer_kind, answer_text, "
+            "sources_present, error FROM eval_result ORDER BY id"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert [tuple(row) for row in runs_after_repeated_migration] == [
+        tuple(row) for row in runs_after_first_migration
+    ]
+    assert [tuple(row) for row in results_after_repeated_migration] == [
+        tuple(row) for row in results_after_first_migration
+    ]
+
+
+def test_eval_run_rejects_invalid_status(conn):
+    workspace_id = repo.create_workspace(
+        conn, name="eval-invalid-status", folder_path="/tmp/eval-invalid"
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        repo.insert_eval_run(conn, workspace_id=workspace_id, status="failed")
+
+
+def test_incremental_eval_fields_persist(conn):
+    workspace_id = repo.create_workspace(
+        conn, name="eval-rich-fields", folder_path="/tmp/eval-rich"
+    )
+    run_id = repo.insert_eval_run(
+        conn,
+        workspace_id=workspace_id,
+        status="running",
+        question_total=60,
+        failed_question_number=7,
+        failed_question_id="g-in-007",
+        error="provider stopped",
+    )
+    result_id = repo.insert_eval_result(
+        conn,
+        eval_run_id=run_id,
+        question_id="g-in-007",
+        kind="in_scope",
+        passed=False,
+        answer_kind="answer",
+        answer_text="Saved answer text",
+        sources_present=True,
+        error="judge unavailable",
+    )
+
+    run = conn.execute("SELECT * FROM eval_run WHERE id = ?", (run_id,)).fetchone()
+    result = conn.execute("SELECT * FROM eval_result WHERE id = ?", (result_id,)).fetchone()
+
+    assert run["status"] == "running"
+    assert run["question_total"] == 60
+    assert run["failed_question_number"] == 7
+    assert run["failed_question_id"] == "g-in-007"
+    assert run["error"] == "provider stopped"
+    assert result["answer_kind"] == "answer"
+    assert result["answer_text"] == "Saved answer text"
+    assert result["sources_present"] == 1
+    assert result["error"] == "judge unavailable"
+
+
+def test_update_eval_run_preserves_start_fields(conn):
+    workspace_id = repo.create_workspace(
+        conn, name="eval-update", folder_path="/tmp/eval-update"
+    )
+    run_id = repo.insert_eval_run(
+        conn,
+        workspace_id=workspace_id,
+        status="running",
+        question_total=60,
+        report_path="/reports/incremental.json",
+    )
+
+    repo.update_eval_run(
+        conn,
+        run_id,
+        status="partial",
+        groundedness=0.8,
+        relevancy=0.9,
+        refusal_pass=18,
+        refusal_total=20,
+        passed=False,
+        failed_question_number=23,
+        failed_question_id="g-in-023",
+        error="provider timeout",
+    )
+
+    row = conn.execute("SELECT * FROM eval_run WHERE id = ?", (run_id,)).fetchone()
+    assert row["status"] == "partial"
+    assert row["groundedness"] == 0.8
+    assert row["relevancy"] == 0.9
+    assert row["refusal_pass"] == 18
+    assert row["refusal_total"] == 20
+    assert row["passed"] == 0
+    assert row["failed_question_number"] == 23
+    assert row["failed_question_id"] == "g-in-023"
+    assert row["error"] == "provider timeout"
+    assert row["report_path"] == "/reports/incremental.json"
+    assert row["question_total"] == 60
+
+
+def test_eval_run_progress_counts_only_the_requested_run(conn):
+    workspace_id = repo.create_workspace(
+        conn, name="eval-progress", folder_path="/tmp/eval-progress"
+    )
+    first_run_id = repo.insert_eval_run(conn, workspace_id=workspace_id)
+    second_run_id = repo.insert_eval_run(conn, workspace_id=workspace_id)
+    for question_id in ("q1", "q2"):
+        repo.insert_eval_result(
+            conn,
+            eval_run_id=first_run_id,
+            question_id=question_id,
+            kind="in_scope",
+            passed=True,
+        )
+    repo.insert_eval_result(
+        conn,
+        eval_run_id=second_run_id,
+        question_id="q3",
+        kind="in_scope",
+        passed=True,
+    )
+
+    assert repo.eval_run_progress(conn, first_run_id) == 2
+    assert repo.eval_run_progress(conn, second_run_id) == 1
+    assert repo.eval_run_progress(conn, "missing-run") == 0
 
 
 # --- session() commit / rollback / close -------------------------------------

@@ -9,6 +9,7 @@ rules can be pushed at one at a time.
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 
@@ -388,6 +389,42 @@ def test_cancelled_before_start_never_calls_the_session_summarizer():
     assert run.done, "the cancelled run never stopped"
     assert isinstance(run.error, RunCancelled)
     assert summary_calls == []
+
+
+def test_ports_context_stays_open_for_the_whole_question(monkeypatch):
+    entered = threading.Event()
+    ask_started = threading.Event()
+    release = threading.Event()
+    exited = threading.Event()
+
+    @contextlib.contextmanager
+    def ports_context():
+        entered.set()
+        try:
+            yield _inert_ports()
+        finally:
+            exited.set()
+
+    def blocked_ask(**kwargs):
+        ask_started.set()
+        release.wait(timeout=10)
+        return _answer(AnswerKind.REFUSAL, "Not covered here.")
+
+    monkeypatch.setattr(ui.runs, "ask", blocked_ask)
+    run = _run()
+    run.start_with(ports_context())
+
+    assert entered.wait(10)
+    assert ask_started.wait(10)
+    assert not exited.is_set()
+    release.set()
+    for _ in range(100):
+        if run.done:
+            break
+        time.sleep(0.01)
+
+    assert run.done
+    assert exited.wait(10)
 
 
 class _FirstBoundaryLock:

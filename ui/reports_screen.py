@@ -7,37 +7,9 @@ HTTP request, rather than in `{% if %}` chains spread across a template.
 `app.py` decides which run is being looked at; this decides how to
 describe it.
 
-WHAT THIS SCREEN IS: read-only over runs `scripts/run_evaluation.py`
-(ST-32) already wrote. UX spec 8.3's own empty-state copy -- "one line
-pointing to HOW to run an evaluation" -- says the same thing: the screen
-points at the command, it does not offer a button that starts one.
-
-PARKED, named so it is not silently reinvented later: UX spec 8.3's
-Loading state ("Evaluation running with a question counter... required,
-not optional") has no backing signal anywhere in this codebase, checked
-by reading rather than assumed absent. `evaluation.runner.run_evaluation`
-computes every golden question in memory and writes the dated JSON file
-plus the matching `eval_run`/`eval_result` rows in ONE `with
-repo.session()` block, only after the last question is judged --
-db/schema.sql's `eval_run` table (read directly) carries no
-started_at/finished_at pair the way `sync_run` does, so there is no
-"a run is in flight" row this screen could ever observe, even in
-principle, without runner.py gaining incremental persistence first.
-`scripts/run_evaluation.py`'s own docstring records ADR-12: this is a
-manual, credit-spending, by-hand command. Building a live progress
-counter is a decision for whoever next owns evaluation/runner.py (ST-32
-or ST-33's line in BUILD-PLAN), not this screen -- see BUILD-STATE.
-
-UX spec 8.3's Error clause ("the run failed at question N, partial
-results kept and labelled partial") has the identical gap: `run_evaluation`
-writes nothing at all until every question is judged, so a killed process
-leaves zero rows, never a partial one. What IS real and reachable, and is
-built here instead: a recorded run whose `report_path` file has been
-moved or deleted after the fact (`data/` is git-ignored per
-docs/phase2/ENGINEERING-RULES.md, so this happens the moment someone tidies it).
-The summary scores still come from the database and stay accurate; only
-the richer per-question detail (`answer_kind`, `sources_present`, `error`)
-lives in the file alone and degrades to the DB's narrower columns.
+This screen is read-only over runs started by `scripts/run_evaluation.py`.
+The runner commits one row per completed question, so this module can show
+real Running progress and preserve a Partial run without inventing a timer.
 """
 
 from __future__ import annotations
@@ -77,23 +49,43 @@ def _yes_no(value: bool | None) -> str:
 
 
 @dataclass(frozen=True)
+class _GateCounts:
+    grounded_pass: int
+    grounded_total: int
+    sources_pass: int
+    sources_total: int
+
+
+def _gate_counts(report_path: str | None) -> _GateCounts | None:
+    """Read the gate counts that the database does not store."""
+    if not report_path:
+        return None
+    try:
+        data = json.loads(Path(report_path).read_text(encoding="utf-8"))
+        values = (
+            data["grounded_pass"],
+            data["grounded_total"],
+            data["sources_pass"],
+            data["sources_total"],
+        )
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return None
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in values):
+        return None
+    return _GateCounts(*values)
+
+
+@dataclass(frozen=True)
 class ReportSummary:
     """One row of the report list (UX spec 8.1: date, workspace, overall
     scores) and the header of the detail page. Labels are formatted here,
     not in the template, for the same reason `workspaces_screen.FileRow`
     carries `size_label` alongside `size_bytes`.
 
-    NO G3 (SOURCES) FIELD HERE, and that is a real gap rather than an
-    oversight: db/schema.sql's `eval_run` table has no `sources_pass` or
-    `sources_total` column, and `eval_result` has no `sources_present`
-    either -- `evaluation.runner.run_evaluation` writes both numbers ONLY
-    into the JSON report file (`EvalReport.to_json`'s top level), never
-    into the database. Checked by reading `db/repo.insert_eval_run`'s own
-    parameter list, not assumed. So a `ReportSummary` built from the DB
-    alone (the list page's cheap read, every row) can show G1 and G2 but
-    never G3; the detail page reads the file for the real number, and
-    `_score_rows` reports G3 as unjudged rather than guessing when even
-    the file is unavailable -- see `ScoreRow.passed`."""
+    G1 and G3 counts are read from the atomic JSON snapshot because the
+    summary table does not duplicate those totals. Each question's rich
+    fields also live in SQLite, so detail can still be recovered if that
+    snapshot is missing; old rows without those fields remain Not judged."""
 
     id: str
     workspace_id: str
@@ -101,25 +93,78 @@ class ReportSummary:
     run_at: str
     groundedness: float | None
     groundedness_label: str
+    sources_label: str
     relevancy: float | None
     refusal_pass: int
     refusal_total: int
-    passed: bool
+    passed: bool | None
+    status: str
+    question_total: int
+    completed_count: int
+    status_label: str
+    status_tone: str
+    status_shape: str
+    failed_question_number: int | None
+    failed_question_id: str | None
+    error: str | None
     report_path: str | None
+
+    @property
+    def is_running(self) -> bool:
+        return self.status == "running"
+
+    @property
+    def is_partial(self) -> bool:
+        return self.status == "partial"
 
 
 def _summary(row: Any) -> ReportSummary:
+    counts = _gate_counts(row["report_path"])
+    status = row["status"]
+    completed_count = row["completed_count"]
+    question_total = row["question_total"]
+    if status == "running":
+        status_label = f"Running {completed_count}/{question_total}"
+        tone, shape = "neutral", "hollow-circle"
+        passed = None
+    elif status == "partial":
+        status_label = f"Partial {completed_count}/{question_total}"
+        tone, shape = "danger", "filled-square"
+        passed = None
+    else:
+        passed = bool(row["passed"])
+        status_label = "Pass" if passed else "Fail"
+        tone = "positive" if passed else "danger"
+        shape = "filled-circle" if passed else "filled-square"
     return ReportSummary(
         id=row["id"],
         workspace_id=row["workspace_id"],
         workspace_name=row["workspace_name"],
         run_at=row["run_at"],
         groundedness=row["groundedness"],
-        groundedness_label=_pct(row["groundedness"]),
+        groundedness_label=(
+            f"{counts.grounded_pass}/{counts.grounded_total} fully grounded"
+            if counts is not None
+            else _pct(row["groundedness"])
+        ),
+        sources_label=(
+            f"{counts.sources_pass}/{counts.sources_total}"
+            if counts is not None
+            else "\u2014"
+        ),
         relevancy=row["relevancy"],
         refusal_pass=row["refusal_pass"],
         refusal_total=row["refusal_total"],
-        passed=bool(row["passed"]),
+        passed=passed,
+        status=status,
+        question_total=question_total,
+        completed_count=completed_count,
+        status_label=status_label,
+        status_tone=tone,
+        status_shape=shape,
+        failed_question_number=row["failed_question_number"],
+        failed_question_id=row["failed_question_id"],
+        error=row["error"],
         report_path=row["report_path"],
     )
 
@@ -165,6 +210,8 @@ def _score_rows(
         if sources_total is None or sources_pass is None
         else sources_pass == sources_total
     )
+    if summary.status != "completed":
+        g1_pass = g2_pass = g3_pass = None
     g1_value = (
         "—"
         if grounded_total is None
@@ -216,6 +263,7 @@ def _kind_label(kind: str) -> str:
 
 @dataclass(frozen=True)
 class _FileReport:
+    status: str
     questions: list[QuestionRow]
     grounded_pass: int
     grounded_total: int
@@ -233,6 +281,7 @@ def _report_from_file(report_path: str) -> _FileReport | None:
     detail page over one moved file."""
     try:
         data = json.loads(Path(report_path).read_text(encoding="utf-8"))
+        status = data.get("status", "completed")
         rows = data["results"]
         grounded_pass = data.get("grounded_pass")
         grounded_total = data.get("grounded_total")
@@ -260,6 +309,7 @@ def _report_from_file(report_path: str) -> _FileReport | None:
         for r in rows
     ]
     return _FileReport(
+        status=status,
         questions=questions,
         grounded_pass=grounded_pass,
         grounded_total=grounded_total,
@@ -269,18 +319,19 @@ def _report_from_file(report_path: str) -> _FileReport | None:
 
 
 def _questions_from_db(rows: list[Any]) -> list[QuestionRow]:
-    """The degrade: `eval_result` columns alone (see db/schema.sql), used
-    only when the JSON file the run also wrote cannot be read."""
+    """The durable fallback when the matching JSON snapshot is unavailable."""
     return [
         QuestionRow(
             question_id=r["question_id"],
             kind_label=_kind_label(r["kind"]),
-            answer_kind=None,
+            answer_kind=r["answer_kind"],
             passed=bool(r["passed"]),
             groundedness_label=_pct(r["groundedness"]),
             relevancy_label=_pct(r["relevancy"]),
-            sources_label="\u2014",
-            error=None,
+            sources_label=_yes_no(
+                None if r["sources_present"] is None else bool(r["sources_present"])
+            ),
+            error=r["error"],
         )
         for r in rows
     ]
@@ -307,15 +358,20 @@ def report_detail(
         db_rows = repo.list_eval_results(conn, eval_run_id)
 
     file_report = _report_from_file(summary.report_path) if summary.report_path else None
+    stale_file = file_report is not None and (
+        file_report.status != summary.status
+        or len(file_report.questions) != summary.completed_count
+    )
+    if stale_file:
+        file_report = None
     file_error: str | None = None
     if file_report is None:
         file_error = (
-            f"The full report file is missing or unreadable at "
+            f"The full report file is missing, unreadable, or out of date at "
             f"{summary.report_path or '(no path recorded)'}. Showing the "
-            f"summary scores above and the pass/fail recorded in the "
-            f"database below instead -- answer kind, sources-present and "
-            f"error detail live only in the missing file, so G3 (sources) "
-            f"cannot be judged until it is restored."
+            f"durable database copy below instead. Older runs may not carry "
+            f"answer kind, sources-present, or error detail; any gate without "
+            f"enough stored evidence is labelled not judged."
         )
         questions = _questions_from_db(db_rows)
         grounded_rows = [r for r in db_rows if r["kind"] != OUT_OF_SCOPE]
@@ -323,8 +379,20 @@ def report_detail(
             r["groundedness"] == FULLY_GROUNDED_SCORE for r in grounded_rows
         )
         grounded_total = len(grounded_rows)
-        sources_pass: int | None = None
-        sources_total: int | None = None
+        answer_rows = [r for r in db_rows if r["answer_kind"] == "answer"]
+        rich_rows = [
+            r
+            for r in db_rows
+            if r["answer_kind"] is not None
+            or r["answer_text"] is not None
+            or r["sources_present"] is not None
+            or r["error"] is not None
+        ]
+        if rich_rows:
+            sources_pass = sum(bool(r["sources_present"]) for r in answer_rows)
+            sources_total = len(answer_rows)
+        else:
+            sources_pass = sources_total = None
     else:
         questions = file_report.questions
         grounded_pass = file_report.grounded_pass
@@ -357,19 +425,44 @@ def export_markdown(detail: ReportDetail) -> str:
     report annex." Markdown, not a bespoke format, because the annex is a
     written document a human pastes this straight into -- headings and
     pipe tables render as-is in nearly every editor that produces one."""
+    overall = (
+        detail.summary.status.upper()
+        if detail.summary.status != "completed"
+        else ("PASS" if detail.summary.passed else "FAIL")
+    )
     lines = [
         f"# Sanad evaluation report \u2014 {detail.summary.workspace_name}",
         "",
         f"Run at: {detail.summary.run_at}",
-        f"Overall: {'PASS' if detail.summary.passed else 'FAIL'}",
+        f"Overall: {overall}",
+    ]
+    if detail.summary.status != "completed":
+        lines.append(
+            f"Progress: {detail.summary.completed_count}/{detail.summary.question_total} "
+            "questions completed"
+        )
+    if detail.summary.is_partial:
+        lines.extend(
+            [
+                f"Stopped at question: {detail.summary.failed_question_number} "
+                f"({detail.summary.failed_question_id})",
+                f"Error: {detail.summary.error}",
+            ]
+        )
+    lines += [
         "",
         "| Metric | Value | Threshold | Outcome |",
         "|---|---|---|---|",
     ]
     for row in detail.score_rows:
+        outcome = (
+            "Not final"
+            if detail.summary.status != "completed"
+            else _outcome(row.passed)
+        )
         lines.append(
             f"| {row.metric} | {row.value_label} | {row.threshold_label} | "
-            f"{_outcome(row.passed)} |"
+            f"{outcome} |"
         )
     lines += [
         "",

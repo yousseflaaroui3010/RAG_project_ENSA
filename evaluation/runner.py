@@ -105,12 +105,22 @@ class EvalReport:
     sources_total: int
     passed: bool
     failing_question_ids: tuple[str, ...]
+    status: str = "completed"
+    question_total: int = 0
+    failed_question_number: int | None = None
+    failed_question_id: str | None = None
+    error: str | None = None
     report_path: str | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
             "workspace_id": self.workspace_id,
             "run_at": self.run_at,
+            "status": self.status,
+            "question_total": self.question_total,
+            "failed_question_number": self.failed_question_number,
+            "failed_question_id": self.failed_question_id,
+            "error": self.error,
             "groundedness": self.groundedness,
             "relevancy": self.relevancy,
             "grounded_pass": self.grounded_pass,
@@ -138,6 +148,23 @@ class EvalReport:
         }
 
 
+class EvaluationPartialError(Exception):
+    """The run stopped after preserving every completed question."""
+
+    def __init__(self, report: EvalReport):
+        self.report = report
+        super().__init__(
+            f"evaluation stopped at question {report.failed_question_number} "
+            f"({report.failed_question_id}): {report.error}"
+        )
+
+
+def _safe_error(exc: BaseException) -> str:
+    text = f"{type(exc).__name__}: {exc}"
+    secret = get_settings().cloud_api_key
+    return text.replace(secret, "[redacted]") if secret else text
+
+
 def _judge_row(
     row: GoldenRow, *, ports: AgentPorts, workspace_id: str, scorer: Scorer
 ) -> QuestionResult:
@@ -153,7 +180,7 @@ def _judge_row(
             groundedness=None,
             relevancy=None,
             sources_present=None,
-            error=f"{type(captured.error).__name__}: {captured.error}",
+            error=_safe_error(captured.error),
         )
 
     answer = captured.answer
@@ -208,7 +235,15 @@ def _judge_row(
 
 
 def _aggregate(
-    workspace_id: str, run_at: str, results: tuple[QuestionResult, ...]
+    workspace_id: str,
+    run_at: str,
+    results: tuple[QuestionResult, ...],
+    *,
+    status: str = "completed",
+    question_total: int | None = None,
+    failed_question_number: int | None = None,
+    failed_question_id: str | None = None,
+    error: str | None = None,
 ) -> EvalReport:
     grounded_scores = [r.groundedness for r in results if r.groundedness is not None]
     relevancy_scores = [r.relevancy for r in results if r.relevancy is not None]
@@ -252,8 +287,13 @@ def _aggregate(
         refusal_total=len(refusal_rows),
         sources_pass=sources_pass,
         sources_total=len(answer_rows),
-        passed=g1 and g2 and g3,
+        passed=status == "completed" and g1 and g2 and g3,
         failing_question_ids=failing,
+        status=status,
+        question_total=len(results) if question_total is None else question_total,
+        failed_question_number=failed_question_number,
+        failed_question_id=failed_question_id,
+        error=error,
     )
 
 
@@ -268,6 +308,98 @@ def _report_path(workspace_id: str, run_at: str, reports_dir: Path | None) -> Pa
     return base / workspace_id / f"{safe_run_at}.json"
 
 
+def _write_report(report: EvalReport, path: Path) -> None:
+    """Replace one valid snapshot with another; never expose a half-written file."""
+    temporary = path.with_suffix(f"{path.suffix}.tmp")
+    temporary.write_text(
+        json.dumps(report.to_json(), indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    temporary.replace(path)
+
+
+def _save_result(db_path: str | Path | None, run_id: str, result: QuestionResult) -> None:
+    with repo.session(db_path) as conn:
+        repo.insert_eval_result(
+            conn,
+            eval_run_id=run_id,
+            question_id=result.question_id,
+            kind=result.kind,
+            passed=result.passed,
+            groundedness=result.groundedness,
+            relevancy=result.relevancy,
+            answer_kind=result.answer_kind,
+            answer_text=result.answer_text,
+            sources_present=result.sources_present,
+            error=result.error,
+        )
+
+
+def _save_run_state(
+    db_path: str | Path | None, run_id: str, report: EvalReport
+) -> None:
+    with repo.session(db_path) as conn:
+        repo.update_eval_run(
+            conn,
+            run_id,
+            status=report.status,
+            groundedness=report.groundedness,
+            relevancy=report.relevancy,
+            refusal_pass=report.refusal_pass,
+            refusal_total=report.refusal_total,
+            passed=report.passed,
+            failed_question_number=report.failed_question_number,
+            failed_question_id=report.failed_question_id,
+            error=report.error,
+        )
+
+
+def _partial_report(
+    *,
+    workspace_id: str,
+    run_at: str,
+    results: list[QuestionResult],
+    question_total: int,
+    question_number: int,
+    question_id: str,
+    error: BaseException,
+    report_path: Path,
+) -> EvalReport:
+    return dataclasses.replace(
+        _aggregate(
+            workspace_id,
+            run_at,
+            tuple(results),
+            status="partial",
+            question_total=question_total,
+            failed_question_number=question_number,
+            failed_question_id=question_id,
+            error=_safe_error(error),
+        ),
+        report_path=str(report_path),
+    )
+
+
+def _preserve_partial(
+    *,
+    db_path: str | Path | None,
+    run_id: str,
+    report: EvalReport,
+    report_path: Path,
+) -> None:
+    """Try both durable copies even when one of them is the failed operation."""
+    try:
+        _save_run_state(db_path, run_id, report)
+    except Exception:
+        # The JSON snapshot may still preserve the failure when SQLite is
+        # unavailable. The original error remains the one reported.
+        pass
+    try:
+        _write_report(report, report_path)
+    except Exception:
+        # SQLite may already carry Partial when the report disk is unavailable.
+        pass
+
+
 def run_evaluation(
     *,
     workspace_id: str,
@@ -278,10 +410,9 @@ def run_evaluation(
     reports_dir: Path | None = None,
 ) -> EvalReport:
     """The one command's whole body. Runs every golden row through the
-    real product, scores it, writes the dated JSON report AND the
-    matching `eval_run` / `eval_result` rows from the SAME result list --
-    so the file on disk and the database can never disagree about one
-    run -- and returns the report.
+    real product, scores it, writes the dated JSON report and matching
+    `eval_run` / `eval_result` rows. Each completed question is committed
+    before the next starts; the JSON is an atomic snapshot of those rows.
 
     `workspace_id` must already exist in the database at `db_path`
     (`eval_run.workspace_id` is a foreign key, ON DELETE CASCADE); the
@@ -301,40 +432,115 @@ def run_evaluation(
     rows = load_golden_set(golden_dir)
     run_at = repo.utc_now()
 
-    results = tuple(
-        _judge_row(row, ports=ports, workspace_id=workspace_id, scorer=scorer)
-        for row in rows
-    )
-    report = _aggregate(workspace_id, run_at, results)
-
     path = _report_path(workspace_id, run_at, reports_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(report.to_json(), indent=2, ensure_ascii=False), encoding="utf-8"
+    running = dataclasses.replace(
+        _aggregate(
+            workspace_id,
+            run_at,
+            (),
+            status="running",
+            question_total=len(rows),
+        ),
+        report_path=str(path),
     )
-    report = dataclasses.replace(report, report_path=str(path))
+    _write_report(running, path)
 
     with repo.session(db_path) as conn:
         run_id = repo.insert_eval_run(
             conn,
             workspace_id=workspace_id,
             run_at=run_at,
-            groundedness=report.groundedness,
-            relevancy=report.relevancy,
-            refusal_pass=report.refusal_pass,
-            refusal_total=report.refusal_total,
-            passed=report.passed,
+            status="running",
+            question_total=len(rows),
             report_path=str(path),
         )
-        for r in results:
-            repo.insert_eval_result(
-                conn,
-                eval_run_id=run_id,
-                question_id=r.question_id,
-                kind=r.kind,
-                passed=r.passed,
-                groundedness=r.groundedness,
-                relevancy=r.relevancy,
+
+    results: list[QuestionResult] = []
+    for number, row in enumerate(rows, start=1):
+        try:
+            result = _judge_row(
+                row, ports=ports, workspace_id=workspace_id, scorer=scorer
             )
+            _save_result(db_path, run_id, result)
+            results.append(result)
+            running = dataclasses.replace(
+                _aggregate(
+                    workspace_id,
+                    run_at,
+                    tuple(results),
+                    status="running",
+                    question_total=len(rows),
+                ),
+                report_path=str(path),
+            )
+            _save_run_state(db_path, run_id, running)
+            _write_report(running, path)
+        except (KeyboardInterrupt, SystemExit) as exc:
+            partial = _partial_report(
+                workspace_id=workspace_id,
+                run_at=run_at,
+                results=results,
+                question_total=len(rows),
+                question_number=number,
+                question_id=row.id,
+                error=exc,
+                report_path=path,
+            )
+            _preserve_partial(
+                db_path=db_path, run_id=run_id, report=partial, report_path=path
+            )
+            raise
+        except Exception as exc:
+            partial = _partial_report(
+                workspace_id=workspace_id,
+                run_at=run_at,
+                results=results,
+                question_total=len(rows),
+                question_number=number,
+                question_id=row.id,
+                error=exc,
+                report_path=path,
+            )
+            _preserve_partial(
+                db_path=db_path, run_id=run_id, report=partial, report_path=path
+            )
+            raise EvaluationPartialError(partial) from None
+
+    report = dataclasses.replace(
+        _aggregate(
+            workspace_id,
+            run_at,
+            tuple(results),
+            status="completed",
+            question_total=len(rows),
+        ),
+        report_path=str(path),
+    )
+    # BaseException, not Exception: a Ctrl+C after the "completed" file is
+    # written but before the registry agrees would leave a file the release
+    # gate passes while Reports says Running. Either both say completed, or
+    # the file is rewritten Partial (review of d790e05).
+    try:
+        _write_report(report, path)
+        _save_run_state(db_path, run_id, report)
+    except BaseException as exc:
+        last = rows[-1]
+        partial = _partial_report(
+            workspace_id=workspace_id,
+            run_at=run_at,
+            results=results,
+            question_total=len(rows),
+            question_number=len(rows),
+            question_id=last.id,
+            error=exc,
+            report_path=path,
+        )
+        _preserve_partial(
+            db_path=db_path, run_id=run_id, report=partial, report_path=path
+        )
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
+        raise EvaluationPartialError(partial) from None
 
     return report

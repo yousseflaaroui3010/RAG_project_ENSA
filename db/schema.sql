@@ -62,23 +62,34 @@ CREATE TABLE IF NOT EXISTS sync_item (
 );
 
 CREATE TABLE IF NOT EXISTS eval_run (
-  id             TEXT    PRIMARY KEY,
-  workspace_id   TEXT    NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-  run_at         TEXT    NOT NULL,
-  groundedness   REAL,
-  relevancy      REAL,
-  refusal_pass   INTEGER NOT NULL DEFAULT 0,
-  refusal_total  INTEGER NOT NULL DEFAULT 0,
-  passed         INTEGER NOT NULL DEFAULT 0,
-  report_path    TEXT
+  id                       TEXT    PRIMARY KEY,
+  workspace_id             TEXT    NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  run_at                   TEXT    NOT NULL,
+  status                   TEXT    NOT NULL DEFAULT 'completed' CHECK (
+                                      status IN ('running', 'completed', 'partial')
+                                    ),
+  question_total           INTEGER NOT NULL DEFAULT 0,
+  groundedness             REAL,
+  relevancy                REAL,
+  refusal_pass             INTEGER NOT NULL DEFAULT 0,
+  refusal_total            INTEGER NOT NULL DEFAULT 0,
+  passed                   INTEGER NOT NULL DEFAULT 0,
+  report_path              TEXT,
+  failed_question_number   INTEGER,
+  failed_question_id       TEXT,
+  error                    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS eval_result (
-  id             TEXT    PRIMARY KEY,
-  eval_run_id    TEXT    NOT NULL REFERENCES eval_run(id) ON DELETE CASCADE,
-  question_id    TEXT    NOT NULL,
-  kind           TEXT    NOT NULL CHECK (kind IN ('in_scope', 'out_of_scope')),
-  groundedness   REAL,
-  relevancy      REAL,
-  passed         INTEGER NOT NULL
+  id               TEXT    PRIMARY KEY,
+  eval_run_id      TEXT    NOT NULL REFERENCES eval_run(id) ON DELETE CASCADE,
+  question_id      TEXT    NOT NULL,
+  kind             TEXT    NOT NULL CHECK (kind IN ('in_scope', 'out_of_scope')),
+  groundedness     REAL,
+  relevancy        REAL,
+  passed           INTEGER NOT NULL,
+  answer_kind      TEXT,
+  answer_text      TEXT,
+  sources_present  INTEGER,
+  error            TEXT
 );

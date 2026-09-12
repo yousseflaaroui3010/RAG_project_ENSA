@@ -87,10 +87,11 @@ class Scorer(Protocol):
     def score(
         self, *, question: str, answer_text: str, contexts: Sequence[str]
     ) -> ScoreResult:
-        """`contexts` must be the section text the writer actually read
-        (`evaluation.capture.Captured.contexts`), never the wider set
+        """`contexts` must be the labeled section text the writer actually
+        read (`evaluation.capture.Captured.contexts`), never the wider set
         retrieval found -- scoring the wider set would judge the answer
-        against text the model never saw."""
+        against text the model never saw, while dropping labels would make
+        valid source attributions appear unsupported."""
         ...
 
 
