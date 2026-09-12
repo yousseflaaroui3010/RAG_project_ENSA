@@ -127,6 +127,6 @@ treated as a pass.
 | Sev2 defects | 0 open, 7 closed |
 | Sev3 defects | 0 |
 | Tester signature and date | Not signed: human screen-reader evidence pending |
-| Release decision | BLOCKED |
+| Release decision | Released (v1.0.0, v1.0.1) with the 6 screen-reader rows still pending, by recorded decision (DECISIONS 2026-09-12); ST-38 is signed when the human pass is done |
 
 ST-38 is not complete. One human hearing pass remains.
