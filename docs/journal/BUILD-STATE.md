@@ -19,8 +19,9 @@ approval the merge key, so merging is MB's call.
 p95 18.1 s, cold first question 23.2 s (`data/spike-st18/traces.json`,
 2026-09-11): PASS. **G5, measured twice with `scripts/spike_st18.py index`,
 cold, model load included:** 2026-09-11 while other work ran, 823 s for 225
-pages = 731.6 s per 200 pages (FAIL); **2026-09-12 on a quiet laptop, 505.5 s
-= 449.4 s per 200 pages vs 600 s (PASS)**. Parts timed separately: embedding
+pages = 731.6 s per 200 pages (FAIL); **2026-09-12 on a quiet laptop, twice:
+505.5 s = 449.4 s per 200 pages, then 422.2 s = 375.3 s per 200 pages, both
+PASS vs 600 s**. Parts timed separately: embedding
 0.29 s/chunk x 1,121 chunks = about 320 s, PDF conversion about 100 s.
 VARIANCE WARNING: the Manuals workspace took 421 s in the first run and
 1,121 s in the second, so this laptop's timings swing widely; quote both
@@ -35,13 +36,16 @@ They were removed; `uv sync --frozen --dry-run` reports no changes. A red
 suite on this machine should be checked against `uv sync --frozen
 --dry-run` before blaming the code.
 
-**Decisions waiting on the humans:** (1) which ST-05 ships, ours (C) or
-MB's #86; (2) strict-local offline mode for ST-44 -- install a local model
-or rule that the defense runs in cloud mode; (3) whether to spend one more
-paid evaluation run (284 calls last time) so the tagged v1.0.0 code is the
-code that passed; (4) the screen-reader pass (ST-38's 6 blocked rows);
-(5) spec question: openapi says `disclaimer` is true on legal-flagged
-workspaces, the product omits it on refusals.
+**Decided 2026-09-12 (YL, DECISIONS rows):** the defense runs in cloud mode
+(ST-44's offline rehearsal descoped); refusals keep NO disclaimer (known
+deviation from openapi's description, not edited); one more paid 60-question
+run (~284 calls) is approved for AFTER #92 and #95 merge, and v1.0.0 is
+tagged only if it passes.
+
+**Still waiting on the humans:** (1) MB's review and merge, in order #85,
+#92, #95, then #93 and #94; (2) which ST-05 ships, #96 or MB's #86;
+(3) the screen-reader pass (ST-38's 6 blocked rows); (4) rehearsals (G6),
+the backup video, slides and report chapters -- "not now" per YL.
 
 **Not started:** ST-41 tag v1.0.0 (after merges), report chapters ST-31,
 ST-40, ST-42 (MB; not in the repo), ST-50 interviews. ST-47/48/49 descoped
