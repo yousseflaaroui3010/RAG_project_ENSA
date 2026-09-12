@@ -27,8 +27,8 @@ evaluation. Where both are listed, the first answers and the second adds.
 4. **What does "local-first" mean here, exactly?** (YL) Documents, index,
    database and reports stay on the machine. The question and the retrieved
    passages go to the cloud model to write the answer. A fully offline mode
-   with a local model is designed (ADR-06). State plainly whether it was
-   rehearsed.
+   with a local model is designed (ADR-06) but was not rehearsed for this
+   defense (a recorded ruling); say so plainly.
 5. **Is the data safe with Gemini?** (YL) The demo corpus is public law and
    public manuals, chosen so this question has a safe answer. The provider
    is the Gemini free tier; its terms were flagged for review before any

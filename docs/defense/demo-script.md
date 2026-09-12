@@ -16,7 +16,7 @@ These are not optional. Each one removes a failure we have already seen.
    machine; a busy one is visibly slower.
 2. Check the model key works: the evaluation ran on `gemini-3.6-flash`
    in cloud mode. Cloud mode needs internet. **Offline (strict-local)
-   mode is not set up** (Ollama was declined); see "Open decision" below.
+   mode is not used at the defense**; see "Ruling" below.
 3. Start the app from the repository folder:
 
    ```
@@ -63,13 +63,14 @@ the right-to-left layout preview, and press **Dark theme** in the header.
 - Scanned PDFs are skipped with a reason; there is no text recognition (OCR).
 - A human screen-reader pass is still pending (6 manual QA rows).
 
-## Open decision that changes this script
+## Ruling: the defense runs in cloud mode
 
-ST-44's exit gate asks for **one full offline run with the network
-disabled** (ADR-06 strict-local mode). That needs a local model (Ollama),
-which was declined. Either install it and rehearse offline, or record a
-written ruling that the defense runs in cloud mode. Until then, step 0.2
-above stays cloud-only.
+Decided 2026-09-12 (DECISIONS row "ST-44 ruling"): ST-44's offline
+rehearsal is descoped for this window. The defense runs on the cloud model,
+so the pre-jury checklist's step 2 (internet and model key) is mandatory,
+and "answers need the cloud model today" is said as a limit in the close.
+If the venue's network is unreliable, bring a phone hotspot and test it
+during setup.
 
 ## Numbers used above, and where they come from
 
