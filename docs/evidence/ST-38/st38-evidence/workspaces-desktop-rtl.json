@@ -1,0 +1,292 @@
+{
+  "name": "workspaces-desktop-rtl",
+  "page": {
+    "url": "http://127.0.0.1:8000/workspaces?dir=rtl",
+    "title": "Workspaces — Sanad",
+    "dir": "rtl",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "h1": [
+      "Workspaces"
+    ],
+    "landmarks": [
+      "header",
+      "nav",
+      "main",
+      "aside"
+    ],
+    "controls": [
+      {
+        "tag": "a",
+        "text": "Skip to content",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "select",
+        "text": "RH - Code du travail — legal",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Chat",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Workspaces",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Reports",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "Dark theme",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "RH - Code du travail Legal",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "input",
+        "text": "",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "input",
+        "text": "",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "input",
+        "text": "on",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "Create workspace",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "input",
+        "text": "RH - Code du travail",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "Rename",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "input",
+        "text": "on",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "Save",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Delete workspace…",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "Run Sync",
+        "disabled": false,
+        "tabindex": 0
+      }
+    ],
+    "overflows": [
+      {
+        "tag": "a",
+        "className": "skip-link",
+        "left": 11304.328125,
+        "right": 11439
+      }
+    ],
+    "animated": [
+      {
+        "tag": "button",
+        "className": "btn btn--quiet theme-toggle",
+        "animation": "none",
+        "transition": "0.15s"
+      },
+      {
+        "tag": "button",
+        "className": "btn btn--primary",
+        "animation": "none",
+        "transition": "0.15s"
+      },
+      {
+        "tag": "button",
+        "className": "btn btn--quiet",
+        "animation": "none",
+        "transition": "0.15s"
+      },
+      {
+        "tag": "button",
+        "className": "btn btn--quiet",
+        "animation": "none",
+        "transition": "0.15s"
+      },
+      {
+        "tag": "a",
+        "className": "btn btn--quiet",
+        "animation": "none",
+        "transition": "0.15s"
+      },
+      {
+        "tag": "button",
+        "className": "btn btn--primary",
+        "animation": "none",
+        "transition": "0.15s"
+      }
+    ],
+    "bodyText": "Skip to content\nSanad\nActive workspace\nRH - Code du travail — legal\nLegal\nChat\nWorkspaces\nReports\nDark theme\nWorkspaces\nRH - Code du travail\nLegal\nNew workspace\nRH - Code du travail\nLegal\n\ndata/corpus/hr\n\nRename, legal flag, delete\nRun Sync\n\nThis workspace has not been synced yet."
+  },
+  "accessibility": {
+    "nodeCount": 84,
+    "unnamedInteractive": []
+  },
+  "focusOrder": [
+    {
+      "tag": "a",
+      "text": "Skip to content",
+      "id": "",
+      "className": "skip-link"
+    },
+    {
+      "tag": "select",
+      "text": "RH - Code du travail — legal",
+      "id": "workspace-select",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Chat",
+      "id": "",
+      "className": "shell__link"
+    },
+    {
+      "tag": "a",
+      "text": "Workspaces",
+      "id": "",
+      "className": "shell__link is-current"
+    },
+    {
+      "tag": "a",
+      "text": "Reports",
+      "id": "",
+      "className": "shell__link"
+    },
+    {
+      "tag": "button",
+      "text": "Dark theme",
+      "id": "",
+      "className": "btn btn--quiet theme-toggle"
+    },
+    {
+      "tag": "a",
+      "text": "RH - Code du travail Legal",
+      "id": "",
+      "className": "ws-list__item is-current"
+    },
+    {
+      "tag": "summary",
+      "text": "New workspace",
+      "id": "",
+      "className": ""
+    },
+    {
+      "tag": "summary",
+      "text": "Rename, legal flag, delete",
+      "id": "",
+      "className": ""
+    },
+    {
+      "tag": "button",
+      "text": "Run Sync",
+      "id": "",
+      "className": "btn btn--primary"
+    },
+    {
+      "tag": "body",
+      "text": "Skip to content Sanad Active workspace RH - Code du travail — legal Switch Legal Chat Workspaces Rep",
+      "id": "",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Skip to content",
+      "id": "",
+      "className": "skip-link"
+    },
+    {
+      "tag": "select",
+      "text": "RH - Code du travail — legal",
+      "id": "workspace-select",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Chat",
+      "id": "",
+      "className": "shell__link"
+    },
+    {
+      "tag": "a",
+      "text": "Workspaces",
+      "id": "",
+      "className": "shell__link is-current"
+    },
+    {
+      "tag": "a",
+      "text": "Reports",
+      "id": "",
+      "className": "shell__link"
+    },
+    {
+      "tag": "button",
+      "text": "Dark theme",
+      "id": "",
+      "className": "btn btn--quiet theme-toggle"
+    },
+    {
+      "tag": "a",
+      "text": "RH - Code du travail Legal",
+      "id": "",
+      "className": "ws-list__item is-current"
+    },
+    {
+      "tag": "summary",
+      "text": "New workspace",
+      "id": "",
+      "className": ""
+    }
+  ]
+}

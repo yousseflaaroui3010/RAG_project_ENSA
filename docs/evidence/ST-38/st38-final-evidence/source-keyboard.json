@@ -1,0 +1,22 @@
+{
+  "before": {
+    "sourceText": "labour-code.pdf\n            \n              Article 13\n            \n            Open pa age",
+    "focused": true,
+    "dialogPresent": true,
+    "dialogSupport": true
+  },
+  "opened": {
+    "open": true,
+    "focusInside": true,
+    "marked": true,
+    "markedText": "Article 13. La periode d'essai est de trois mois pour les cadres et peut etre renouvelee une seule fois.",
+    "title": "labour-code.pdf\n          \n            — Article 13",
+    "url": "http://127.0.0.1:8012/"
+  },
+  "trapped": true,
+  "closed": {
+    "open": false,
+    "focusReturned": true,
+    "focusedText": "labour-code.pdf\n            \n              Article 13\n            \n            Open pa age"
+  }
+}

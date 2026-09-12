@@ -1,0 +1,210 @@
+{
+  "name": "chat-tablet-ltr",
+  "page": {
+    "url": "http://127.0.0.1:8012/",
+    "title": "Chat — Sanad",
+    "dir": "ltr",
+    "viewport": {
+      "width": 900,
+      "height": 1000
+    },
+    "scroll": {
+      "x": 0,
+      "width": 900
+    },
+    "h1": [
+      "Chat"
+    ],
+    "landmarks": [
+      "header",
+      "nav",
+      "main"
+    ],
+    "controls": [
+      {
+        "tag": "a",
+        "text": "Skip to content",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Sanad",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "select",
+        "text": "ST-38 Legal — legal",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Chat",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Workspaces",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "a",
+        "text": "Reports",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "Dark theme",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "New conversation",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "What does \"labour-code.pdf\" cover?",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "input",
+        "text": "",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "Send",
+        "disabled": false,
+        "tabindex": 0
+      }
+    ],
+    "overflows": [
+      {
+        "tag": "a",
+        "className": "skip-link",
+        "left": -9999,
+        "right": -9864.328125
+      }
+    ],
+    "animated": [
+      {
+        "tag": "button",
+        "className": "btn btn--quiet theme-toggle",
+        "animation": "none",
+        "transition": "0.15s"
+      },
+      {
+        "tag": "button",
+        "className": "btn btn--quiet",
+        "animation": "none",
+        "transition": "0.15s"
+      },
+      {
+        "tag": "button",
+        "className": "btn btn--primary",
+        "animation": "none",
+        "transition": "0.15s"
+      }
+    ],
+    "bodyText": "Skip to content\nSanad\nActive workspace\nST-38 Legal — legal\nLegal\nChat\nWorkspaces\nReports\nDark theme\nChat\n\nAnswering from ST-38 Legal\n\nNew conversation\nAsk a question about ST-38 Legal\n\nEvery answer carries the sources it was written from.\n\nWhat does \"labour-code.pdf\" cover?\nYour question\nSend"
+  },
+  "accessibility": {
+    "nodeCount": 76,
+    "unnamedInteractive": []
+  },
+  "focusOrder": [
+    {
+      "tag": "a",
+      "text": "Sanad",
+      "id": "",
+      "className": "shell__name"
+    },
+    {
+      "tag": "a",
+      "text": "Chat",
+      "id": "",
+      "className": "shell__link is-current"
+    },
+    {
+      "tag": "a",
+      "text": "Reports",
+      "id": "",
+      "className": "shell__link"
+    },
+    {
+      "tag": "button",
+      "text": "New conversation",
+      "id": "",
+      "className": "btn btn--quiet"
+    },
+    {
+      "tag": "input",
+      "text": "",
+      "id": "question",
+      "className": "composer__input"
+    },
+    {
+      "tag": "body",
+      "text": "Skip to content Sanad Active workspace ST-38 Legal — legal Switch Legal Chat Workspaces Reports Dark",
+      "id": "",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Sanad",
+      "id": "",
+      "className": "shell__name"
+    },
+    {
+      "tag": "a",
+      "text": "Chat",
+      "id": "",
+      "className": "shell__link is-current"
+    },
+    {
+      "tag": "a",
+      "text": "Reports",
+      "id": "",
+      "className": "shell__link"
+    },
+    {
+      "tag": "button",
+      "text": "New conversation",
+      "id": "",
+      "className": "btn btn--quiet"
+    },
+    {
+      "tag": "input",
+      "text": "",
+      "id": "question",
+      "className": "composer__input"
+    },
+    {
+      "tag": "body",
+      "text": "Skip to content Sanad Active workspace ST-38 Legal — legal Switch Legal Chat Workspaces Reports Dark",
+      "id": "",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Sanad",
+      "id": "",
+      "className": "shell__name"
+    }
+  ],
+  "afterFocus": {
+    "x": 0,
+    "width": 900
+  },
+  "afterEscape": null
+}
