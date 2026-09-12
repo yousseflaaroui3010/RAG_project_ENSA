@@ -93,10 +93,12 @@ evaluation. Where both are listed, the first answers and the second adds.
 19. **How fast is it?** (YL) Median answer 8.3 s, slowest 18.1 s over 20
     timed questions (target 20 s median, 60 s at the 95th percentile).
     The first question after a start takes about 23 s while models load.
-20. **How long to add documents?** (YL) Below target, and we say so:
-    731.6 s per 200 pages against a 600 s goal. Most of the measured time
-    is the embedding model on a CPU (about 0.29 s per chunk) and PDF
-    reading. A second Sync of unchanged files takes 0.13 s.
+20. **How long to add documents?** (YL) Measured twice, cold, on a laptop
+    CPU: 449.4 s per 200 pages on a quiet machine (target 600 s), and
+    731.6 s while other work was running. We report both, because the
+    honest answer is "within target, but sensitive to load". Most of the
+    time is the embedding model (about 0.29 s per chunk) and PDF reading.
+    A second Sync of unchanged files takes under 0.1 s.
 21. **How big can a workspace be?** (YL) The soft cap is 50 files or 1,500
     pages; above it Sanad warns and suggests splitting. It is a warning, not
     a hard limit.
