@@ -1,0 +1,177 @@
+[
+  {
+    "name": "workspace-delete",
+    "page": {
+      "url": "http://127.0.0.1:8000/workspaces/14b81a1d-5af0-4fb9-a46a-493fad3eb650/delete",
+      "title": "Delete RH - Code du travail — Sanad",
+      "dir": "ltr",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "scroll": {
+        "x": 0,
+        "width": 1440
+      },
+      "h1": [
+        "Delete \"RH - Code du travail\"?"
+      ],
+      "landmarks": [
+        "header",
+        "nav",
+        "main"
+      ],
+      "controls": [
+        {
+          "tag": "a",
+          "text": "Skip to content",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "select",
+          "text": "RH - Code du travail — legal",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "a",
+          "text": "Chat",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "a",
+          "text": "Workspaces",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "a",
+          "text": "Reports",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "button",
+          "text": "Dark theme",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "button",
+          "text": "Yes, delete RH - Code du travail",
+          "disabled": false,
+          "tabindex": 0
+        },
+        {
+          "tag": "a",
+          "text": "Cancel, keep this workspace",
+          "disabled": false,
+          "tabindex": 0
+        }
+      ],
+      "overflows": [
+        {
+          "tag": "a",
+          "className": "skip-link",
+          "left": -9999,
+          "right": -9864.328125
+        }
+      ],
+      "animated": [
+        {
+          "tag": "button",
+          "className": "btn btn--quiet theme-toggle",
+          "animation": "none",
+          "transition": "0.15s"
+        },
+        {
+          "tag": "button",
+          "className": "btn btn--primary",
+          "animation": "none",
+          "transition": "0.15s"
+        }
+      ],
+      "bodyText": "Skip to content\nSanad\nActive workspace\nRH - Code du travail — legal\nLegal\nChat\nWorkspaces\nReports\nDark theme\nDelete \"RH - Code du travail\"?\n\nThis removes RH - Code du travail's synced index -- every passage Sanad can currently answer from -- and its sync history. It does not touch the files in\n\ndata/corpus/hr\n\nThey stay on disk exactly as they are; only Sanad's copy of what it read from them is removed.\n\nYes, delete RH - Code du travail\n\nCancel, keep this workspace"
+    },
+    "accessibility": {
+      "nodeCount": 35,
+      "unnamedInteractive": []
+    },
+    "focusOrder": [
+      {
+        "tag": "body",
+        "text": "Skip to content Sanad Active workspace RH - Code du travail — legal Switch Legal Chat Workspaces Rep",
+        "id": "",
+        "className": ""
+      },
+      {
+        "tag": "button",
+        "text": "Yes, delete RH - Code du travail",
+        "id": "",
+        "className": "btn btn--primary"
+      },
+      {
+        "tag": "a",
+        "text": "Cancel, keep this workspace",
+        "id": "",
+        "className": ""
+      },
+      {
+        "tag": "body",
+        "text": "Skip to content Sanad Active workspace RH - Code du travail — legal Switch Legal Chat Workspaces Rep",
+        "id": "",
+        "className": ""
+      },
+      {
+        "tag": "button",
+        "text": "Yes, delete RH - Code du travail",
+        "id": "",
+        "className": "btn btn--primary"
+      },
+      {
+        "tag": "a",
+        "text": "Cancel, keep this workspace",
+        "id": "",
+        "className": ""
+      },
+      {
+        "tag": "body",
+        "text": "Skip to content Sanad Active workspace RH - Code du travail — legal Switch Legal Chat Workspaces Rep",
+        "id": "",
+        "className": ""
+      },
+      {
+        "tag": "button",
+        "text": "Yes, delete RH - Code du travail",
+        "id": "",
+        "className": "btn btn--primary"
+      },
+      {
+        "tag": "a",
+        "text": "Cancel, keep this workspace",
+        "id": "",
+        "className": ""
+      },
+      {
+        "tag": "body",
+        "text": "Skip to content Sanad Active workspace RH - Code du travail — legal Switch Legal Chat Workspaces Rep",
+        "id": "",
+        "className": ""
+      }
+    ],
+    "afterFocus": {
+      "x": 0,
+      "width": 1440
+    },
+    "afterEscape": {
+      "url": "http://127.0.0.1:8000/workspaces?ws=14b81a1d-5af0-4fb9-a46a-493fad3eb650&focus=delete",
+      "active": {
+        "tag": "a",
+        "text": "Delete workspace…",
+        "deleteTrigger": true
+      }
+    }
+  }
+]

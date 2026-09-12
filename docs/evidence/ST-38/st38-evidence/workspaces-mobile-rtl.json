@@ -1,0 +1,94 @@
+{
+  "name": "workspaces-mobile-rtl",
+  "page": {
+    "url": "http://127.0.0.1:8000/workspaces?dir=rtl",
+    "title": "Workspaces — Sanad",
+    "dir": "rtl",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "h1": [
+      "Workspaces"
+    ],
+    "landmarks": [
+      "header",
+      "nav",
+      "main",
+      "aside"
+    ],
+    "controls": [
+      {
+        "tag": "a",
+        "text": "Skip to content",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "select",
+        "text": "RH - Code du travail — legal",
+        "disabled": false,
+        "tabindex": 0
+      },
+      {
+        "tag": "button",
+        "text": "Dark theme",
+        "disabled": false,
+        "tabindex": 0
+      }
+    ],
+    "overflows": [
+      {
+        "tag": "a",
+        "className": "skip-link",
+        "left": 10254.328125,
+        "right": 10389
+      }
+    ],
+    "animated": [
+      {
+        "tag": "button",
+        "className": "btn btn--quiet theme-toggle",
+        "animation": "none",
+        "transition": "0.15s"
+      }
+    ],
+    "bodyText": "Skip to content\nSanad\nActive workspace\nRH - Code du travail — legal\nLegal\nDark theme\n\nSanad is built for a desktop browser. This window is too narrow to show a document, its sources and the passage behind them at once. Widen the window to carry on."
+  },
+  "accessibility": {
+    "nodeCount": 57,
+    "unnamedInteractive": []
+  },
+  "focusOrder": [
+    {
+      "tag": "a",
+      "text": "Skip to content",
+      "id": "",
+      "className": "skip-link"
+    },
+    {
+      "tag": "select",
+      "text": "RH - Code du travail — legal",
+      "id": "workspace-select",
+      "className": ""
+    },
+    {
+      "tag": "button",
+      "text": "Dark theme",
+      "id": "",
+      "className": "btn btn--quiet theme-toggle"
+    },
+    {
+      "tag": "body",
+      "text": "Skip to content Sanad Active workspace RH - Code du travail — legal Switch Legal Chat Workspaces Rep",
+      "id": "",
+      "className": ""
+    },
+    {
+      "tag": "a",
+      "text": "Skip to content",
+      "id": "",
+      "className": "skip-link"
+    }
+  ]
+}
