@@ -160,6 +160,46 @@ def test_report_rejects_a_boolean_disguised_as_a_full_numeric_score():
         )
 
 
+def test_report_rejects_the_right_rows_in_the_wrong_order():
+    report = _clean_report()
+    report["results"].reverse()
+
+    with pytest.raises(InvalidReportError, match="order"):
+        evaluate_report(
+            report, expected_question_ids=("g-in-001", "g-out-001")
+        )
+
+
+@pytest.mark.parametrize("field", ["groundedness", "relevancy"])
+@pytest.mark.parametrize("value", [1.5, -0.1])
+def test_report_rejects_a_score_outside_zero_to_one(field, value):
+    report = _clean_report()
+    report["results"][0][field] = value
+
+    with pytest.raises(InvalidReportError, match=field):
+        evaluate_report(
+            report, expected_question_ids=("g-in-001", "g-out-001")
+        )
+
+
+@pytest.mark.parametrize("status", ["partial", "running"])
+def test_a_full_report_marked_unfinished_cannot_pass(status):
+    """The runner can write every row and still end Partial when its final
+    registry update fails. Rows alone must not overrule the status."""
+    report = _clean_report()
+    report["status"] = status
+
+    with pytest.raises(InvalidReportError, match="status"):
+        _evaluate_fixture(report)
+
+
+def test_a_report_marked_completed_still_passes():
+    report = _clean_report()
+    report["status"] = "completed"
+
+    assert _evaluate_fixture(report).passed is True
+
+
 # --- G1: groundedness ---------------------------------------------------------
 
 
