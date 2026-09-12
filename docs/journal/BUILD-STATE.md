@@ -37,8 +37,9 @@ suite on this machine should be checked against `uv sync --frozen
 --dry-run` before blaming the code.
 
 **Decided 2026-09-12 (YL, DECISIONS rows):** the defense runs in cloud mode
-(ST-44's offline rehearsal descoped); refusals keep NO disclaimer (known
-deviation from openapi's description, not edited); one more paid 60-question
+(ST-44's offline rehearsal descoped); every response from a legal workspace,
+refusals included, carries the disclaimer (#91 merges; this SUPERSEDES the
+same day's no-disclaimer-on-refusals ruling); one more paid 60-question
 run (~284 calls) is approved for AFTER #92 and #95 merge, and v1.0.0 is
 tagged only if it passes.
 
