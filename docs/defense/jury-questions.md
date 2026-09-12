@@ -70,7 +70,7 @@ evaluation. Where both are listed, the first answers and the second adds.
     supported by the passages it was given).
 14. **Your results?** (MB) G1 37 of 40 fully grounded (target 36), G2 20 of
     20 refused, G3 37 of 37 answers with sources. The release gate passed.
-15. **What were the 3 failures?** (MB) g-in-014, 017 and 033: in-scope
+15. **What were the 3 failures?** (MB) g-in-014, 026 and 033 (v1.0.1): in-scope
     questions the system refused. The safe way to fail: it declined, it did
     not invent.
 16. **Who grades the answers? Isn't a model grading itself biased?** (MB,
@@ -81,7 +81,9 @@ evaluation. Where both are listed, the first answers and the second adds.
     passages the writer saw, the score must be a full 1.0 to count, and we
     read the low-scoring answers by hand (ST-36 triage).
 17. **Did you tune on the test set?** (MB) The set was frozen at v1 before
-    the first full run, and later edits need a new version. One tuning
+    the first full run, and later edits need a new version. Two v1 edits
+    skipped that rule; we found it (issue #88), published v2 with the history
+    written down, and re-measured v1.0.1 on v2 (evaluation/golden/README.md). One tuning
     iteration was allowed by the plan (ST-36) and is documented question by
     question.
 18. **Why French only?** (MB) The flagship corpus is Moroccan labour law in

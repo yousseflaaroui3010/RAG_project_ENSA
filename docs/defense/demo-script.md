@@ -80,7 +80,7 @@ during setup.
 
 | Claim | Number | Source |
 |---|---|---|
-| Release gate | G1 37/40, G2 20/20, G3 37/37 | `data/reports/14b81a1d-.../2026-09-10T21-11-27.750175+00-00.json`, re-read by `scripts/release_gate.py` |
+| Release gate (v1.0.1, golden v2) | G1 37/40, G2 20/20, G3 37/37 | `docs/evals/release-v1.0.1-2026-09-12.json` (from `data/reports/14b81a1d-.../2026-09-12T14-12-46.567306+00-00.json`), re-read by `scripts/release_gate.py` |
 | Answer speed (G4) | median 8.3 s, slowest 18.1 s, 20 questions; first question 23.2 s | `data/measurements/2026-09-11-spike-st18/traces.json` |
 | Intake speed (G5) | quiet laptop: 449.4 s and 375.3 s per 200 pages in two runs (PASS); under load: 823 s = 731.6 s (FAIL); unchanged re-Sync 0.09 s | `data/measurements/2026-09-12-spike-st18/results.json` and `2026-09-11-spike-st18/results.json` |
 | Corpus | HR: 3 files, 225 pages; Manuals: 10 files | same |
