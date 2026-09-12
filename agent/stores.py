@@ -32,18 +32,18 @@ condition `parent_store` raises `CorruptParentError` for, and answering
 around it would risk citing a section that is not the section it claims to
 be.
 
-PARKED, found by a review of this file and NOT fixed here because the fix
-belongs on the other side of a seam this story must not touch:
-`parent_store.py:176` turns ANY `OSError` into `CorruptParentError`, so a
-file briefly locked -- by antivirus, or by OneDrive sync, and this repo
-lives under OneDrive -- is indistinguishable from a genuinely corrupt one
-and takes the whole question down with it. A transient lock is retryable
-and corruption is not, so they should not share an outcome. Telling them
-apart means either a new exception type or an inspection of the cause
-chain inside `parent_store`, which is MB's module (ST-16) and is not
-ST-21's to edit. Raised for a human: it needs its own `fix/` branch with
-that owner's agreement. Until then the behaviour is: locked file, no
-answer, loud error -- wrong, but not silent.
+An UNAVAILABLE parent (issue #50, fixed on the other side of this seam in
+`parent_store.py`) is ALSO deliberately not caught here, and for a related
+but distinct reason. `parent_store.get_parent` now retries an OS-level read
+failure a few times before giving up, so by the time `ParentUnavailableError`
+reaches this module the lock has already outlasted a genuine transient hold
+(antivirus, OneDrive sync -- this repo lives under OneDrive). Treating it
+like a missing parent and quietly omitting the section would let an answer
+under-cite without saying why; letting it propagate means the question fails
+loudly with a message that says "retry", which the S1 error panel already
+renders with a Retry action -- no UI change needed for that to work. It used
+to arrive here as `CorruptParentError`, which said "do not trust this file"
+about a file whose content was never even read; it no longer does.
 """
 
 from __future__ import annotations

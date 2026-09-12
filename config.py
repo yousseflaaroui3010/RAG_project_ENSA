@@ -64,6 +64,22 @@ class Settings(BaseSettings):
     # Gemini / Google AI Studio API key; read in cloud mode only.
     cloud_api_key: str = ""
     ollama_base_url: str = "http://localhost:11434"
+    # Per-call ceiling, both providers (PRD section 11: "answering service
+    # unreachable -> clear error and a retry action"). Without this, one
+    # stalled network call hangs a question indefinitely and Cancel has
+    # nothing to cancel. Default 60 is the G4 p95 ceiling (ST-18/ST-36): a
+    # call already past that budget is not going to produce an answer
+    # worth waiting for.
+    model_call_timeout_seconds: float = 60.0
+    # How many RETRIES one failed cloud call gets after its first try. The
+    # Gemini client counts total attempts (it builds HttpRetryOptions(
+    # attempts=max_retries)), so agent/chat.py passes this + 1 -- verified
+    # against the installed client with a silent socket (review of 7ebc552).
+    # Worst case per call is therefore (retries + 1) x the timeout above, not
+    # the timeout alone. Its own default (6 attempts) is too patient for an
+    # interactive question. ChatOllama (langchain-ollama 1.1.0) has no retry
+    # field, so this applies to cloud mode only.
+    model_call_max_retries: int = 2
 
     # --- Embeddings (ADR-05) ---
     # Dense multilingual model; every embedded chunk MUST carry the

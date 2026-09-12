@@ -53,6 +53,29 @@ metadata only, so it was left out of the evaluated commit on purpose.
 `uv sync --frozen --dry-run` before blaming code (29 stale packages were
 removed on 2026-09-12).
 
+**POST-RELEASE FIX 2026-09-12, branch `fix/S4-ST-39-model-timeout` (cut from
+main 2e3f66c, not yet merged):** model calls had no time limit -- a stalled
+network call could hang a question indefinitely with nothing for Cancel to
+cancel, against PRD section 11's "answering service unreachable -> clear
+error and a retry action". Added `model_call_timeout_seconds` (60, the G4
+p95 ceiling) and `model_call_max_retries` (2) to config.py/.env.example;
+wired into `ChatGoogleGenerativeAI(timeout=, max_retries=)`. ChatOllama
+(installed langchain-ollama 1.1.0) has no such fields -- checked its
+`model_fields` directly, not memory -- so its timeout goes through
+`client_kwargs={"timeout": ...}` to `ollama.Client` instead, and no retry
+setting exists for it at any layer. `agent/chat.py::_LangChainChat.complete`
+now catches `httpx.TimeoutException` and re-raises the existing
+`ChatUnavailableError` (already mapped to 503 MODEL_UNREACHABLE in
+api/routes.py). 3 new tests in tests/unit/test_agent_chat.py, each proven
+red on a targeted revert of the change it guards, then restored green.
+Full suite 824 passed (main was 821), 2 skipped, ruff clean. Note: `httpx`
+is imported directly in agent/chat.py (production code) but is declared in
+pyproject.toml only under the `dev` group; it is a hard dependency of both
+google-genai and ollama (the packages this file already wires up), so it
+is always present, but this mirrors the exact undeclared-import shape
+ST-27 warned about -- flagged for a human call on whether to also declare
+it under `[project.dependencies]`.
+
 ---
 
 Last verified commit: **fd2e6fa on main**, 2026-09-03. One PR landed since
@@ -2925,6 +2948,27 @@ the fix is a startup warm-up in `app.py`, which trades a slow boot for a
 fast first question -- deliberately NOT improvised here, because it makes
 `uv run python app.py` take half a minute before it serves anything and
 that is a call for whoever owns the demo.
+
+**ADDRESSED 2026-09-12, ST-39, `feat/S4-ST-39-model-warmup` -- on a branch,
+cut from `main` after the v1.0.0 tag, not yet merged.** The trade above is
+now made without paying either side of it: `Runtime.warm_up` (off by
+default; `app.main` turns it on for the real server only) spawns a daemon
+thread in `create_app`'s lifespan that calls the exact public functions a
+real question uses -- `embeddings.embed_query` and
+`embeddings.embed_sparse_query` -- with a short fixed string, so the models
+a question finds are already loaded. Start-up itself is unchanged (the
+thread is fire-and-forget, never awaited), and a warm-up failure is logged
+and swallowed rather than crashing the server -- the first question then
+loads the model itself exactly as before. 5 new tests in
+`tests/unit/test_app_warmup.py`, each proven by breaking the behaviour it
+guards and watching it go red (default-off, thread identity by name
+`sanad-warmup` since `TestClient`'s own lifespan thread name does not
+discriminate, non-blocking start-up timed on context-entry rather than on
+the request alone, and the swallow-and-log path) before restoring it green;
+full suite 826 passed / 2 skipped (up from 821, exactly the 5 new tests),
+ruff clean. `docs/defense/demo-script.md` step 5 updated: the self warm-up
+is now the primary defence against the cold 23s question, the manual
+warm-up question kept as a belt-and-braces check.
 
 ## ST-27's TWO REVIEW PASSES, 2026-08-31, and what they cost
 
