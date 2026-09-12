@@ -287,7 +287,7 @@ def test_a_broken_workspace_does_not_stop_the_others_this_poll():
 
 def test_snapshot_folder_excludes_unsupported_extensions_and_subfolders(tmp_path):
     (tmp_path / "a.pdf").write_text("x", encoding="utf-8")
-    (tmp_path / "notes.pptx").write_text("x", encoding="utf-8")  # unsupported (F-11 is V1.1)
+    (tmp_path / "notes.xlsx").write_text("x", encoding="utf-8")  # unsupported: no rung
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "b.pdf").write_text("x", encoding="utf-8")  # not recursive
 
@@ -330,7 +330,7 @@ def test_real_folder_real_files_driven_by_os_utime_no_sleeping(tmp_path):
     _poll_real()  # poll 4: unchanged, already committed -> no repeat
     assert trigger.calls == ["w1"]
 
-    ignored = folder / "notes.pptx"
+    ignored = folder / "notes.xlsx"
     ignored.write_text("ignored", encoding="utf-8")
     os.utime(ignored, ns=(fixed_ns, fixed_ns))
     _poll_real()
