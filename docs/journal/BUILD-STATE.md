@@ -8,21 +8,26 @@ approval the merge key, so merging is MB's call.
 
 | Branch | Stories | PR | Clean-checkout tests | Review |
 |---|---|---|---|---|
-| `fix/S3-ST-39-evaluation-failures` (A) | ST-36 (#85's commits) + ST-39 | #92 -> main | 782 passed, 2 skipped, ruff clean | MERGE AFTER FIXES; fixes 1,2,3,5,6 done and mutation-proven (7/7); cold re-check running |
-| `feat/S3-ST-51-thin-api` (B, on A) | ST-51 + ST-52 | not yet | 779 passed (before fixes) | MERGE AFTER FIXES, one Sev1: drift tests missed 11 of 14 deliberate breaks. Fixes in progress |
-| `feat/S3-ST-05-local-container` (C, on B) | ST-05 | not yet | tree = 781 passed | conflicts in intent with MB's #86 (second ST-05): the team picks one |
+| `fix/S3-ST-39-evaluation-failures` (A) | ST-36 (#85's commits) + ST-39 | #92 -> main | 787 passed, 2 skipped, ruff clean, CI green | briefed review MERGE AFTER FIXES + cold re-check NOT CLEAN; every blocking finding fixed, 11/11 deliberate breaks caught |
+| `feat/S3-ST-51-thin-api` (B, on A) | ST-51 + ST-52 | #95 -> A | 812 passed, 2 skipped, ruff clean | MERGE AFTER FIXES (Sev1: drift tests missed 11 of 14 breaks); fixed, now 12/12 caught; API Sync uses the screen's starter; start-up recovery lives here |
+| `feat/S3-ST-05-local-container` (C, on B) | ST-05 | #96 -> B | B + 2 packaging tests | competes with MB's #86; recommendation: keep #86, close #96 (nothing else is lost) |
 | `docs/S3-ST-38-manual-qa-results` | ST-38 | #93 | docs only | 35 pass, 6 blocked on a human screen-reader pass |
 | `docs/S4-ST-44-defense-kit` | ST-30/43/44/45/46 drafts | #94 | docs only | drafts, not rehearsed |
 
 **Measured, with sources:** release gate on the final report G1 37/40, G2
 20/20, G3 37/37, `RELEASE GATE: PASS` (re-run 2026-09-12). G4 median 8.3 s,
 p95 18.1 s, cold first question 23.2 s (`data/spike-st18/traces.json`,
-2026-09-11): PASS. G5 823 s for 225 pages = **731.6 s per 200 pages vs
-600 s: FAIL**, reported as the V1.0 gate allows ("measured and reported").
-Parts timed 2026-09-12: embedding 0.29 s/chunk x 1,121 chunks = about 320 s,
-PDF conversion about 100 s; the other ~400 s of that run is unexplained and
-likely other load on the laptop. Re-measure on a quiet machine before
-quoting a cause.
+2026-09-11): PASS. **G5, measured twice with `scripts/spike_st18.py index`,
+cold, model load included:** 2026-09-11 while other work ran, 823 s for 225
+pages = 731.6 s per 200 pages (FAIL); **2026-09-12 on a quiet laptop, 505.5 s
+= 449.4 s per 200 pages vs 600 s (PASS)**. Parts timed separately: embedding
+0.29 s/chunk x 1,121 chunks = about 320 s, PDF conversion about 100 s.
+VARIANCE WARNING: the Manuals workspace took 421 s in the first run and
+1,121 s in the second, so this laptop's timings swing widely; quote both
+G5 runs, not only the pass, and a third quiet run would firm it up. Both
+result files are kept in `data/measurements/` (git-ignored); the 2026-09-11
+`traces.json` there is the only G4 evidence, since the script wipes
+`data/spike-st18/` on every run.
 
 **Environment trap found:** this laptop's `.venv` held 29 packages the lock
 no longer lists (RAGAS era); a half-deleted `aiohttp` made one test fail.
