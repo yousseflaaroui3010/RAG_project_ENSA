@@ -53,6 +53,29 @@ metadata only, so it was left out of the evaluated commit on purpose.
 `uv sync --frozen --dry-run` before blaming code (29 stale packages were
 removed on 2026-09-12).
 
+**POST-RELEASE FIX 2026-09-12, branch `fix/S4-ST-39-model-timeout` (cut from
+main 2e3f66c, not yet merged):** model calls had no time limit -- a stalled
+network call could hang a question indefinitely with nothing for Cancel to
+cancel, against PRD section 11's "answering service unreachable -> clear
+error and a retry action". Added `model_call_timeout_seconds` (60, the G4
+p95 ceiling) and `model_call_max_retries` (2) to config.py/.env.example;
+wired into `ChatGoogleGenerativeAI(timeout=, max_retries=)`. ChatOllama
+(installed langchain-ollama 1.1.0) has no such fields -- checked its
+`model_fields` directly, not memory -- so its timeout goes through
+`client_kwargs={"timeout": ...}` to `ollama.Client` instead, and no retry
+setting exists for it at any layer. `agent/chat.py::_LangChainChat.complete`
+now catches `httpx.TimeoutException` and re-raises the existing
+`ChatUnavailableError` (already mapped to 503 MODEL_UNREACHABLE in
+api/routes.py). 3 new tests in tests/unit/test_agent_chat.py, each proven
+red on a targeted revert of the change it guards, then restored green.
+Full suite 824 passed (main was 821), 2 skipped, ruff clean. Note: `httpx`
+is imported directly in agent/chat.py (production code) but is declared in
+pyproject.toml only under the `dev` group; it is a hard dependency of both
+google-genai and ollama (the packages this file already wires up), so it
+is always present, but this mirrors the exact undeclared-import shape
+ST-27 warned about -- flagged for a human call on whether to also declare
+it under `[project.dependencies]`.
+
 ---
 
 Last verified commit: **fd2e6fa on main**, 2026-09-03. One PR landed since
