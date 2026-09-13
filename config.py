@@ -152,14 +152,28 @@ class Settings(BaseSettings):
     # Set to "" to switch the behaviour off and fall back to headings
     # alone, which is the right setting for a corpus with no numbered
     # citable unit.
-    parent_citation_marker_pattern: str = r"Article\s+\d+"
+    #
+    # "Slide N" is F-11's citable unit: conversion.py stamps a "Slide N"
+    # line at the top of every slide's text, so a child cut from a deck
+    # whose short slides merged into one parent is cited by ITS slide, not
+    # by the parent's "Slide 1 ... Slide 20" range. Adding it changes no
+    # existing citation: zero of the 187 stored parents and zero of the
+    # manuals contained a capital "Slide" plus a number (checked
+    # 2026-09-13), and the match stays case-sensitive like "Article".
+    parent_citation_marker_pattern: str = r"Article\s+\d+|Slide\s+\d+"
 
     # --- Change detection (ST-12, PRD F-02, architecture §5.1) ---
     # File extensions Sync fingerprints and hands to the conversion ladder.
-    # PRD F-02 scopes V1 to PDF, DOCX, TXT, MD; PPTX is V1.1 (F-11 / ST-48)
-    # and is deliberately absent, so a deck in the folder is reported
-    # Skipped-unsupported rather than silently ingested. Lower-case, no dot.
-    supported_document_extensions: tuple[str, ...] = ("pdf", "docx", "txt", "md")
+    # PRD F-02 scopes V1 to PDF, DOCX, TXT, MD; PPTX joined for V1.1's F-11
+    # (ST-48), converted the same way DOCX is (ADR-07: markitdown), cited
+    # by slide number (conversion.py's `_read_pptx`). Lower-case, no dot.
+    supported_document_extensions: tuple[str, ...] = (
+        "pdf",
+        "docx",
+        "txt",
+        "md",
+        "pptx",
+    )
     # Bytes read per hashing iteration. Files are hashed incrementally so a
     # 500 MB PDF never lands in memory whole.
     hash_read_chunk_bytes: int = 1024 * 1024

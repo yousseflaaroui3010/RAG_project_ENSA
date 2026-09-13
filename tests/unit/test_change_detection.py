@@ -386,8 +386,8 @@ def test_a_file_whose_type_stopped_being_supported_is_not_reported_removed(
     a file the user never touched.
 
     Reachable by narrowing `supported_document_extensions`, which is a
-    supported operator setting -- config.py notes PPTX moving the other
-    way for ST-48, so the list is not frozen."""
+    supported operator setting -- the list already changed once, when
+    PPTX joined it for F-11/ST-48, so it is not frozen."""
     _write(folder, "deck.pptx", "slides")
     _register(db_path, workspace.id, "deck.pptx", "sha256:deadbeef:6")
     settings = cd.get_settings()
