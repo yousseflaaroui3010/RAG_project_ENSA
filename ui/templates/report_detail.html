@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Report detail — Sanad{% endblock %}
+{% block title %}{{ t('title.report_detail') }}{% endblock %}
 
 {#
   S3 detail (UX spec 8.1-8.2): per-question table, pass/fail against
@@ -11,14 +11,14 @@
 {% block main %}
 {% if detail is none %}
   <div class="panel panel--error" role="alert">
-    <p class="error__sentence">No such report.</p>
+    <p class="error__sentence">{{ t('rd.missing') }}</p>
     <p class="error__value mono">{{ eval_run_id }}</p>
-    <p><a href="/reports">Back to all reports</a></p>
+    <p><a href="/reports">{{ t('rd.back_all') }}</a></p>
   </div>
 {% else %}
-  <section aria-label="Report detail"
-           {% if detail.summary.is_running %}data-report-refresh="true"{% else %}data-report-final-status="Evaluation {{ 'stopped with partial results' if detail.summary.is_partial else 'completed' }}."{% endif %}>
-    <p class="back-link"><a href="/reports" data-report-focus="back">All reports</a></p>
+  <section aria-label="{{ t('rd.aria') }}"
+           {% if detail.summary.is_running %}data-report-refresh="true"{% else %}data-report-final-status="{{ t('rd.final.partial') if detail.summary.is_partial else t('rd.final.completed') }}"{% endif %}>
+    <p class="back-link"><a href="/reports" data-report-focus="back">{{ t('rd.all') }}</a></p>
     {#
       F-14: `workspace_name` is user-typed (F-01) sitting beside a
       timestamp -- `<bdi>` isolates it the same way base.html's workspace
@@ -31,13 +31,13 @@
     {% if detail.summary.is_running %}
       <div class="stage" role="status" aria-live="polite"
            data-eval-status="{{ detail.summary.id }}">
-        <span class="stage__label" data-status-label>Evaluation running: {{ detail.summary.completed_count }}/{{ detail.summary.question_total }} questions completed.</span>
+        <span class="stage__label" data-status-label>{{ t('rd.running', done=detail.summary.completed_count, total=detail.summary.question_total) }}</span>
       </div>
     {% elif detail.summary.is_partial %}
       <div class="panel panel--error" role="alert">
-        <p class="error__sentence">Partial: stopped at question {{ detail.summary.failed_question_number }} of {{ detail.summary.question_total }} ({{ detail.summary.failed_question_id }}).</p>
+        <p class="error__sentence">{{ t('rd.partial', number=detail.summary.failed_question_number, total=detail.summary.question_total, qid=detail.summary.failed_question_id) }}</p>
         <p class="error__value mono">{{ detail.summary.error }}</p>
-        <p>{{ detail.summary.completed_count }} completed question{{ '' if detail.summary.completed_count == 1 else 's' }} kept.</p>
+        <p>{{ t('rd.kept', count=detail.summary.completed_count) }}</p>
       </div>
     {% endif %}
 
@@ -52,41 +52,41 @@
       {% if detail.summary.status != 'completed' %}
         <span class="status-pill">
           <span class="status-dot status-dot--neutral status-dot--hollow-circle" aria-hidden="true"></span>
-          Not final
+          {{ t('rd.not_final') }}
         </span>
       {% elif passed is none %}
         <span class="status-pill">
           <span class="status-dot status-dot--neutral status-dot--hollow-circle" aria-hidden="true"></span>
-          Not judged
+          {{ t('rd.not_judged') }}
         </span>
       {% elif passed %}
         <span class="status-pill">
           <span class="status-dot status-dot--positive status-dot--filled-circle" aria-hidden="true"></span>
-          Pass
+          {{ t('rd.pass') }}
         </span>
       {% else %}
         <span class="status-pill">
           <span class="status-dot status-dot--danger status-dot--filled-square" aria-hidden="true"></span>
-          Fail
+          {{ t('rd.fail') }}
         </span>
       {% endif %}
     {% endmacro %}
     <div class="table-card">
     <table class="file-table" data-report-scores>
-      <caption class="sources__title">Release gates</caption>
+      <caption class="sources__title">{{ t('rd.gates') }}</caption>
       <thead>
         <tr>
-          <th scope="col">Metric</th>
-          <th scope="col">Value</th>
-          <th scope="col">Threshold</th>
-          <th scope="col">Outcome</th>
+          <th scope="col">{{ t('rd.col.metric') }}</th>
+          <th scope="col">{{ t('rd.col.value') }}</th>
+          <th scope="col">{{ t('rd.col.threshold') }}</th>
+          <th scope="col">{{ t('rd.col.outcome') }}</th>
         </tr>
       </thead>
       <tbody>
         {% for row in detail.score_rows %}
           <tr>
-            <td>{{ row.metric }}</td>
-            <td class="mono">{{ row.value_label }}</td>
+            <td>{{ tx(row.metric) }}</td>
+            <td class="mono">{{ tx(row.value_label) }}</td>
             <td class="mono">{{ row.threshold_label }}</td>
             <td>{{ _outcome_pill(row.passed) }}</td>
           </tr>
@@ -103,39 +103,39 @@
     #}
     {% if detail.file_error %}
       <div class="panel panel--error" role="alert">
-        <p class="error__sentence">The full per-question report file is unavailable.</p>
-        <p class="error__value mono">{{ detail.file_error }}</p>
+        <p class="error__sentence">{{ t('rd.file_unavailable') }}</p>
+        <p class="error__value mono">{{ tx(detail.file_error) }}</p>
       </div>
     {% endif %}
 
     <div class="table-card">
     <table class="file-table" data-report-questions>
-      <caption class="sources__title">Per-question results</caption>
+      <caption class="sources__title">{{ t('rd.questions') }}</caption>
       <thead>
         <tr>
-          <th scope="col">Question</th>
-          <th scope="col">Kind</th>
-          <th scope="col">Outcome</th>
-          <th scope="col">Groundedness</th>
-          <th scope="col">Relevancy</th>
-          <th scope="col">Sources</th>
-          <th scope="col">Error</th>
+          <th scope="col">{{ t('rd.col.question') }}</th>
+          <th scope="col">{{ t('rd.col.kind') }}</th>
+          <th scope="col">{{ t('rd.col.outcome') }}</th>
+          <th scope="col">{{ t('rd.col.groundedness') }}</th>
+          <th scope="col">{{ t('rd.col.relevancy') }}</th>
+          <th scope="col">{{ t('rd.col.sources') }}</th>
+          <th scope="col">{{ t('rd.col.error') }}</th>
         </tr>
       </thead>
       <tbody>
         {% for q in detail.questions %}
           <tr>
             <td class="mono">{{ q.question_id }}</td>
-            <td>{{ q.kind_label }}</td>
+            <td>{{ tx(q.kind_label) }}</td>
             <td>
               <span class="status-pill">
                 <span class="status-dot status-dot--{{ 'positive' if q.passed else 'danger' }} status-dot--{{ 'filled-circle' if q.passed else 'filled-square' }}" aria-hidden="true"></span>
-                {{ 'Pass' if q.passed else 'Fail' }}
+                {{ t('rd.pass') if q.passed else t('rd.fail') }}
               </span>
             </td>
             <td class="mono">{{ q.groundedness_label }}</td>
             <td class="mono">{{ q.relevancy_label }}</td>
-            <td>{{ q.sources_label }}</td>
+            <td>{{ tx(q.sources_label) }}</td>
             <td>{{ q.error or '' }}</td>
           </tr>
         {% endfor %}
@@ -151,7 +151,7 @@
       #}
       <a class="btn btn--quiet" href="/reports/{{ detail.summary.id }}/export"
          data-report-focus="export">
-        Export as Markdown for the report annex
+        {{ t('rd.export') }}
       </a>
     </p>
   </section>

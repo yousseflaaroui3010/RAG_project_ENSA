@@ -1064,8 +1064,12 @@ def test_an_arabic_workspace_auto_mirrors_the_whole_screen(sanad, monkeypatch, t
 
     page = client.get("/").text
 
-    assert 'dir="rtl"' in page
-    assert 'lang="ar"' in page
+    # S6 (2026-09-13): <html lang> follows the INTERFACE language (English
+    # in this suite) so the screen reader reads the copy correctly; Arabic
+    # CONTENT still mirrors the screen, and each Arabic block carries its
+    # own lang="ar". Asserted on the <html> tag itself: a bare 'lang="ar"'
+    # anywhere on the page is always true (the brand seal carries it).
+    assert '<html lang="en" dir="rtl">' in page
     # And it is the CONTENT, not a side effect of the fixture's db/config --
     # the same client, workspace and settings override with an EMPTY
     # arabic_dir (nothing written to it) must stay LTR/English, or this
@@ -1074,8 +1078,7 @@ def test_an_arabic_workspace_auto_mirrors_the_whole_screen(sanad, monkeypatch, t
     empty_settings = get_settings().model_copy(update={"parent_store_path": str(empty_dir)})
     monkeypatch.setattr(rtl_module, "get_settings", lambda: empty_settings)
     control_page = client.get("/").text
-    assert 'dir="ltr"' in control_page
-    assert 'lang="en"' in control_page
+    assert '<html lang="en" dir="ltr">' in control_page
 
 
 def test_a_french_workspace_does_not_auto_mirror(sanad):
@@ -1089,8 +1092,7 @@ def test_a_french_workspace_does_not_auto_mirror(sanad):
 
     page = client.get("/").text
 
-    assert 'dir="ltr"' in page
-    assert 'lang="en"' in page
+    assert '<html lang="en" dir="ltr">' in page
 
 
 def test_the_rtl_preview_override_does_not_force_lang_ar(sanad):
@@ -1106,8 +1108,7 @@ def test_the_rtl_preview_override_does_not_force_lang_ar(sanad):
 
     page = client.get("/?dir=rtl").text
 
-    assert 'dir="rtl"' in page
-    assert 'lang="en"' in page
+    assert '<html lang="en" dir="rtl">' in page
 
 
 def test_an_arabic_answer_gets_dir_auto_and_lang_ar_while_the_french_question_does_not(

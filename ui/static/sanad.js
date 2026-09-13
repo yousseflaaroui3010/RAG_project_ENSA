@@ -28,6 +28,19 @@
   /* ---- Theme toggle (UX spec 3.4) ---------------------------------- */
 
   var root = document.documentElement;
+
+  // S6: the few strings this script can show come from the page's own
+  // language (base.html renders them into <script id="sanad-i18n">).
+  var uiStrings = {};
+  try {
+    var stringsBlock = document.getElementById("sanad-i18n");
+    uiStrings = JSON.parse((stringsBlock && stringsBlock.textContent) || "{}");
+  } catch (err) {
+    uiStrings = {};
+  }
+  function uiString(key, fallback) {
+    return typeof uiStrings[key] === "string" ? uiStrings[key] : fallback;
+  }
   var toggle = document.querySelector(".theme-toggle");
   var STORED = "sanad-theme";
 
@@ -322,7 +335,7 @@
               liveDot.className = nextDot.className;
             }
             if (liveLabel && !nextLabel && !freshBlock.hasAttribute("data-report-refresh")) {
-              liveLabel.textContent = freshBlock.getAttribute("data-report-final-status") || "Evaluation finished.";
+              liveLabel.textContent = freshBlock.getAttribute("data-report-final-status") || uiString("reports.status.finished_sentence", "Evaluation finished.");
             }
           });
           reportBlock.querySelectorAll("[data-report-value]").forEach(function (live) {

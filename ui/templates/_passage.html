@@ -24,9 +24,7 @@
           reader has no way to detect.
         #}
         <p class="passage__note">
-          Showing the whole section. Sanad could not locate the exact
-          retrieved span inside it, so nothing here is marked as the
-          cited text.
+          {{ t('passage.not_located') }}
         </p>
       {% endif %}
       <p class="passage__text">{% for segment in passage.segments %}{%
