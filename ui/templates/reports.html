@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_dashboard.html" as dash with context %}
 {% block title %}{{ t('title.reports') }}{% endblock %}
 
 {#
@@ -25,6 +26,9 @@
       <h1>{{ t('rep.title') }}</h1>
       <p class="page-head__lead">{{ t('rep.lead') }}</p>
     </div>
+    {# S6: inside the polled section, so a run that finishes while the page
+       is open refreshes the tiles along with the table. #}
+    {% if dashboard %}{{ dash.dashboard_section(dashboard) }}{% endif %}
     <div class="table-card">
     <table class="file-table">
       <caption class="sources__title">{{ t('rep.caption') }}</caption>

@@ -108,6 +108,13 @@ class ReportSummary:
     failed_question_id: str | None
     error: str | None
     report_path: str | None
+    # S6 dashboard: the counts behind the labels above. None when the JSON
+    # snapshot that carries them is unavailable -- the tile then says so
+    # instead of drawing a ratio it does not have.
+    grounded_pass: int | None = None
+    grounded_total: int | None = None
+    sources_pass: int | None = None
+    sources_total: int | None = None
 
     @property
     def is_running(self) -> bool:
@@ -166,6 +173,10 @@ def _summary(row: Any) -> ReportSummary:
         failed_question_id=row["failed_question_id"],
         error=row["error"],
         report_path=row["report_path"],
+        grounded_pass=counts.grounded_pass if counts is not None else None,
+        grounded_total=counts.grounded_total if counts is not None else None,
+        sources_pass=counts.sources_pass if counts is not None else None,
+        sources_total=counts.sources_total if counts is not None else None,
     )
 
 
@@ -522,3 +533,178 @@ def list_feedback(*, db_path: str | Path | None = None) -> list[FeedbackRow]:
     """Every stored answer-feedback row, newest first (task brief)."""
     with repo.session(db_path) as conn:
         return [_feedback_row(r) for r in repo.list_answer_feedback(conn)]
+
+
+# --- S6 dashboard: gate tiles, trend lines, question grid ------------------
+#
+# Every number drawn here is one the tables below already print. The charts
+# are a faster way to read the same facts, never a second source of them:
+# a tile's ratio is the gate's own pass count over its own total, and the
+# trend line joins the same counts across completed runs in date order.
+
+SPARK_WIDTH = 160
+SPARK_HEIGHT = 40
+_SPARK_PAD = 5
+
+
+@dataclass(frozen=True)
+class Spark:
+    """A small trend line, already in SVG coordinates (y grows downward).
+
+    `points` is the polyline's `points` attribute; `threshold_y` is None
+    for a gate whose threshold is the whole (100%) line, which would sit
+    on the top edge and say nothing a Pass label does not."""
+
+    points: str
+    last_x: float
+    last_y: float
+    threshold_y: float | None
+    run_count: int
+    # One hover target per run: (x, y, run_at, percent label). The value is
+    # never ONLY here -- the runs table below prints every count.
+    marks: tuple[tuple[float, float, str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class GateTile:
+    code: str
+    metric: str
+    value_label: str
+    ratio: float | None
+    threshold: float
+    threshold_label: str
+    passed: bool | None
+    spark: Spark | None
+
+
+@dataclass(frozen=True)
+class FeedbackTile:
+    helpful: int
+    total: int
+
+    @property
+    def ratio(self) -> float | None:
+        return None if self.total == 0 else self.helpful / self.total
+
+
+@dataclass(frozen=True)
+class Dashboard:
+    latest: ReportSummary
+    gates: tuple[GateTile, ...]
+    feedback: FeedbackTile
+
+
+def _ratio(numerator: int | None, denominator: int | None) -> float | None:
+    if numerator is None or denominator is None or denominator <= 0:
+        return None
+    return numerator / denominator
+
+
+def _gate_ratios(summary: ReportSummary) -> tuple[float | None, float | None, float | None]:
+    return (
+        _ratio(summary.grounded_pass, summary.grounded_total),
+        _ratio(summary.refusal_pass, summary.refusal_total),
+        _ratio(summary.sources_pass, summary.sources_total),
+    )
+
+
+def _y(ratio: float) -> float:
+    usable = SPARK_HEIGHT - 2 * _SPARK_PAD
+    return round(SPARK_HEIGHT - _SPARK_PAD - ratio * usable, 2)
+
+
+def _spark(runs: list[tuple[str, float | None]], threshold: float) -> Spark | None:
+    """A line through every run that HAS this gate's counts, oldest first.
+    Fewer than two such runs is no trend, so no line (a single dot would
+    suggest one)."""
+    known = [(run_at, r) for run_at, r in runs if r is not None]
+    if len(known) < 2:
+        return None
+    step = (SPARK_WIDTH - 2 * _SPARK_PAD) / (len(known) - 1)
+    coords = [
+        (round(_SPARK_PAD + i * step, 2), _y(r), run_at, f"{r * 100:.0f}%")
+        for i, (run_at, r) in enumerate(known)
+    ]
+    return Spark(
+        points=" ".join(f"{x},{y}" for x, y, _, _ in coords),
+        last_x=coords[-1][0],
+        last_y=coords[-1][1],
+        threshold_y=None if threshold >= 1 else _y(threshold),
+        run_count=len(known),
+        marks=tuple(coords),
+    )
+
+
+def dashboard(
+    reports: list[ReportSummary], feedback: list[FeedbackRow]
+) -> Dashboard | None:
+    """The tiles for the most recent COMPLETED run, with trend lines over
+    every completed run. None when no run has completed: a running or
+    partial run's gates are not final, and a tile must never show them as
+    if they were."""
+    completed = sorted(
+        (r for r in reports if r.status == "completed"), key=lambda r: r.run_at
+    )
+    if not completed:
+        return None
+    latest = completed[-1]
+    g1_threshold = get_settings().eval_groundedness_threshold
+    history = [_gate_ratios(r) for r in completed]
+    latest_ratios = history[-1]
+    specs = (
+        ("G1", "G1 Groundedness", g1_threshold,
+         latest.grounded_pass, latest.grounded_total),
+        ("G2", "G2 Honest refusals", 1.0, latest.refusal_pass, latest.refusal_total),
+        ("G3", "G3 Sources on every answer", 1.0,
+         latest.sources_pass, latest.sources_total),
+    )
+    gates = []
+    for index, (code, metric, threshold, passing, total) in enumerate(specs):
+        ratio = latest_ratios[index]
+        gates.append(
+            GateTile(
+                code=code,
+                metric=metric,
+                value_label="\u2014" if ratio is None else f"{passing}/{total}",
+                ratio=ratio,
+                threshold=threshold,
+                threshold_label=f"{threshold * 100:.0f}%",
+                passed=None if ratio is None else ratio >= threshold,
+                spark=_spark(
+                    [(run.run_at, h[index]) for run, h in zip(completed, history, strict=True)],
+                    threshold,
+                ),
+            )
+        )
+    return Dashboard(
+        latest=latest,
+        gates=tuple(gates),
+        feedback=FeedbackTile(
+            helpful=sum(1 for f in feedback if f.verdict == "up"),
+            total=len(feedback),
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class QuestionGroup:
+    kind_label: str
+    questions: tuple[QuestionRow, ...]
+    passed: int
+
+
+def question_groups(questions: list[QuestionRow]) -> tuple[QuestionGroup, ...]:
+    """The question grid's rows: in-scope first, then out-of-scope, each in
+    the table's own order so square N and table row N are one question."""
+    groups = []
+    for label in (_kind_label("in_scope"), _kind_label(OUT_OF_SCOPE)):
+        members = tuple(q for q in questions if q.kind_label == label)
+        if members:
+            groups.append(
+                QuestionGroup(
+                    kind_label=label,
+                    questions=members,
+                    passed=sum(1 for q in members if q.passed),
+                )
+            )
+    return tuple(groups)
