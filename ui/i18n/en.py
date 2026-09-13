@@ -112,6 +112,39 @@ MESSAGES: dict[str, str] = {
     "sources.title": "Sources ({count})",
     "sources.open": "Open passage",
     "sources.close": "Close",
+    "docs.title": "Documents",
+    "docs.drop.title": "Drop your documents here",
+    "docs.drop.hint": (
+        "PDF, DOCX, PPTX, TXT or MD, up to {size}. Sync starts on its own afterwards."
+    ),
+    "docs.drop.choose": "Choose files",
+    "docs.upload.sending": "Sending {name}…",
+    "docs.upload.saved": "{name} added.",
+    "docs.upload.replaced": "{name} replaced.",
+    "docs.upload.failed": "{name}: {reason}",
+    "docs.upload.syncing": "Sync started.",
+    "docs.error.name": "this file name cannot be used.",
+    "docs.error.type": "unsupported type (accepted: {types}).",
+    "docs.error.size": "{name} is over the size limit.",
+    "docs.error.empty": "{name} is empty.",
+    "docs.error.missing": "No document named {name} in this workspace.",
+    "docs.error.folder": "the workspace folder is missing.",
+    "docs.error.evidence": "this published instance is read-only.",
+    "docs.error.workspace": "this workspace no longer exists.",
+    "docs.download": "Download",
+    "docs.download_aria": "Download {name}",
+    "docs.delete": "Remove",
+    "docs.delete_aria": "Remove {name} from the folder",
+    "docs.del.title_html": "Remove <bdi>{name}</bdi>?",
+    "docs.del.body": (
+        "The file is deleted from the workspace folder on disk. The Sync that follows "
+        "removes it from answers."
+    ),
+    "docs.del.yes": "Yes, remove this document",
+    "docs.del.cancel": "Cancel, keep this document",
+    "docs.removed": "{name} was removed from the folder.",
+    "files.col.actions": "Actions",
+    "sources.download": "Download original",
     "passage.not_located": (
         "Showing the whole section. Sanad could not locate the exact retrieved span "
         "inside it, so nothing here is marked as the cited text."

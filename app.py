@@ -36,7 +36,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, quote, unquote
 
 import jinja2
 import uvicorn
@@ -44,7 +44,14 @@ import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -60,8 +67,8 @@ from api.routes import build_router
 from api.service import ApiService
 from config import get_settings
 from db import repo
+from ui import documents, i18n, reports_screen, routing, rtl, screen, workspaces_screen
 from ui import feedback as feedback_module
-from ui import i18n, reports_screen, routing, rtl, screen, workspaces_screen
 from ui.access_gate import AccessGate
 from ui.answer_format import render_answer
 from ui.conversation import (
@@ -684,6 +691,21 @@ def _ws_context(
         # Evidence-only mode never starts the watcher (watcher.start_if_enabled),
         # so the line must not claim "on" there even if watch_folders is set.
         "watch_enabled": get_settings().watch_folders and not get_settings().evidence_only,
+        # S6 documents. The drop zone is not offered where uploads are
+        # refused anyway (evidence-only); `doc_error` is a catalog key from
+        # the remove route's redirect, accepted only if it is one of the
+        # document errors so a hand-edited URL cannot print another key.
+        "uploads_enabled": not get_settings().evidence_only,
+        "upload_max_mb": get_settings().upload_max_bytes // (1024 * 1024),
+        "upload_accept": ",".join(
+            f".{ext}" for ext in get_settings().supported_document_extensions
+        ),
+        "removed_name": request.query_params.get("removed", ""),
+        "doc_error": (
+            request.query_params.get("doc_error")
+            if request.query_params.get("doc_error", "").startswith("docs.error.")
+            else None
+        ),
     }
 
 
@@ -733,10 +755,10 @@ async def _form(request: Request) -> dict[str, str]:
     `python-multipart` -- FastAPI checks for it at import time and
     Starlette asserts on it inside `form()`, whatever the content type. It
     exists to parse `multipart/form-data`, which is the file-upload
-    encoding, and Sanad has no upload: UX spec 13 rules out drag-and-drop
-    file upload outright, "because workspaces point at folders on disk".
-    So the package would be a dependency added for a format the product
-    refuses to accept.
+    encoding. Since S6 Sanad does accept uploads (CR-03), but sanad.js sends
+    each file as the raw request body (`upload_document_route`), so the
+    multipart format -- and the package that parses it -- is still never
+    needed.
 
     This is NOT a hand-rolled parser. `urllib.parse.parse_qsl` is the
     standard library's own decoder for `application/x-www-form-urlencoded`
@@ -1293,6 +1315,116 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         if event is not None:
             event.set()
         return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
+
+    # --- S6 documents: upload, download, remove (ui/documents.py) --------
+
+    @app.post("/workspaces/{workspace_id}/documents")
+    async def upload_document_route(request: Request, workspace_id: str) -> Response:
+        """One file, sent by sanad.js as the raw request body.
+
+        RAW BYTES, NOT A MULTIPART FORM: parsing `multipart/form-data`
+        needs `python-multipart`, which this project deliberately does not
+        carry (see `_form`). The name travels percent-encoded in
+        `X-File-Name`, so an Arabic or accented name survives the header.
+        A custom header is also what keeps another site from posting here:
+        a cross-origin page cannot send one without a CORS preflight this
+        app never approves.
+
+        Answers JSON for the script: 201 with the reader's sentence, or a
+        4xx whose `error` is the translated reason. No row is written and
+        no Sync is started here; sanad.js starts one Sync after the whole
+        batch."""
+        lang = context_language(request)
+
+        def refused(key: str, status: int, **params: object) -> JSONResponse:
+            return JSONResponse(
+                status_code=status, content={"error": i18n.translate(lang, key, **params)}
+            )
+
+        if get_settings().evidence_only:
+            return refused("docs.error.evidence", 409)
+        try:
+            target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
+        except workspaces.WorkspaceNotFoundError:
+            return refused("docs.error.workspace", 404)
+        declared = request.headers.get("content-length", "")
+        try:
+            saved = await documents.save_document(
+                target.folder_path,
+                unquote(request.headers.get("x-file-name", "")),
+                request.stream(),
+                declared_size=int(declared) if declared.isdigit() else None,
+            )
+        except documents.DocumentError as exc:
+            return refused(exc.key, exc.status, **exc.params)
+        key = "docs.upload.replaced" if saved.replaced else "docs.upload.saved"
+        return JSONResponse(
+            status_code=201,
+            content={
+                "file_name": saved.file_name,
+                "size_bytes": saved.size_bytes,
+                "replaced": saved.replaced,
+                "message": i18n.translate(lang, key, name=saved.file_name),
+            },
+        )
+
+    @app.get("/workspaces/{workspace_id}/documents/{file_name}")
+    def download_document_route(request: Request, workspace_id: str, file_name: str) -> Response:
+        """The original file, as an attachment -- never rendered inline, so
+        a document can never run as a page on this origin."""
+        lang = context_language(request)
+        try:
+            target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
+            path = documents.existing_document(target.folder_path, file_name)
+        except workspaces.WorkspaceNotFoundError:
+            return PlainTextResponse(i18n.translate(lang, "docs.error.workspace"), status_code=404)
+        except documents.DocumentError as exc:
+            return PlainTextResponse(
+                i18n.translate(lang, exc.key, **exc.params), status_code=exc.status
+            )
+        return FileResponse(
+            path,
+            filename=path.name,
+            content_disposition_type="attachment",
+            headers={"X-Content-Type-Options": "nosniff"},
+        )
+
+    @app.get("/workspaces/{workspace_id}/documents/{file_name}/remove", response_class=HTMLResponse)
+    def confirm_remove_document(request: Request, workspace_id: str, file_name: str) -> Response:
+        """The confirmation page, the same no-JS pattern as deleting a
+        workspace: a removal always costs a deliberate second step."""
+        try:
+            target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
+            path = documents.existing_document(target.folder_path, file_name)
+        except (workspaces.WorkspaceNotFoundError, documents.DocumentError):
+            return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
+        return templates.TemplateResponse(
+            request,
+            "document_remove_confirm.html",
+            {**_ws_context(runtime, request), "target": target, "file_name": path.name},
+        )
+
+    @app.post("/workspaces/{workspace_id}/documents/{file_name}/remove")
+    def remove_document_route(request: Request, workspace_id: str, file_name: str) -> Response:
+        """Delete the file from the folder, then start a Sync so answers
+        stop citing it. A Sync that cannot start (one already running,
+        evidence-only) is not an error here: the file is gone either way
+        and the next Sync removes it."""
+        base = f"/workspaces?ws={workspace_id}"
+        if get_settings().evidence_only:
+            return RedirectResponse(f"{base}&doc_error=docs.error.evidence", status_code=SEE_OTHER)
+        try:
+            target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
+            removed = documents.remove_document(target.folder_path, file_name)
+        except workspaces.WorkspaceNotFoundError:
+            return RedirectResponse("/workspaces", status_code=SEE_OTHER)
+        except documents.DocumentError as exc:
+            return RedirectResponse(f"{base}&doc_error={exc.key}", status_code=SEE_OTHER)
+        with contextlib.suppress(sync.SyncInProgressError, sync.EvidenceOnlyError):
+            runtime.start_sync(workspace_id)
+        return RedirectResponse(
+            f"{base}&removed={quote(removed)}", status_code=SEE_OTHER
+        )
 
     @app.get("/reports", response_class=HTMLResponse)
     def reports_route(request: Request) -> HTMLResponse:

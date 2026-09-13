@@ -230,6 +230,120 @@
   }
   wirePassages(document);
 
+  /* ---- S6 documents: drop, upload, then one Sync ------------------ */
+
+  /*
+    Revealed only here, because sending a file needs this script (the
+    server takes the raw bytes, see app.py::upload_document_route). Files go
+    one at a time so each gets its own status line and a failure costs that
+    file only. When the batch is done and at least one file landed, the
+    page's own Sync form is submitted -- the ordinary Sync, nothing special.
+    Every line is built with textContent: a file name is never markup.
+  */
+  var dropzone = document.querySelector("[data-dropzone]");
+  if (dropzone) {
+    var uploadUrl = dropzone.getAttribute("data-upload-url");
+    var statusList = dropzone.querySelector("[data-upload-status]");
+    var fileInput = dropzone.querySelector("[data-upload-input]");
+    dropzone.hidden = false;
+
+    function statusLine(text, role) {
+      var item = document.createElement("li");
+      item.className = "dropzone__line dropzone__line--" + role;
+      item.textContent = text;
+      statusList.appendChild(item);
+      return item;
+    }
+
+    function fill(key, fallback, name, reason) {
+      return uiString(key, fallback)
+        .split("{name}").join(name || "")
+        .split("{reason}").join(reason || "");
+    }
+
+    function sendOne(file) {
+      var line = statusLine(fill("docs.upload.sending", "Sending {name}…", file.name), "pending");
+      return fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          "X-File-Name": encodeURIComponent(file.name),
+          "X-Requested-With": "fetch",
+          "Content-Type": "application/octet-stream"
+        },
+        body: file
+      })
+        .then(function (response) {
+          return response.json().then(function (data) {
+            return { ok: response.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          if (result.ok) {
+            line.textContent = result.data.message;
+            line.className = "dropzone__line dropzone__line--done";
+            return true;
+          }
+          line.textContent = fill("docs.upload.failed", "{name}: {reason}", file.name, result.data.error);
+          line.className = "dropzone__line dropzone__line--failed";
+          return false;
+        })
+        .catch(function () {
+          line.textContent = fill("docs.upload.failed", "{name}: {reason}", file.name, "—");
+          line.className = "dropzone__line dropzone__line--failed";
+          return false;
+        });
+    }
+
+    function sendAll(files) {
+      var list = Array.prototype.slice.call(files);
+      if (!list.length) {
+        return;
+      }
+      dropzone.classList.add("is-busy");
+      var landed = 0;
+      list
+        .reduce(function (chain, file) {
+          return chain.then(function () {
+            return sendOne(file).then(function (ok) {
+              if (ok) {
+                landed += 1;
+              }
+            });
+          });
+        }, Promise.resolve())
+        .then(function () {
+          dropzone.classList.remove("is-busy");
+          var syncForm = document.querySelector('.ws-sync form[action$="/sync"]');
+          if (landed && syncForm) {
+            statusLine(uiString("docs.upload.syncing", "Sync started."), "done");
+            syncForm.submit();
+          }
+        });
+    }
+
+    ["dragenter", "dragover"].forEach(function (type) {
+      dropzone.addEventListener(type, function (event) {
+        event.preventDefault();
+        dropzone.classList.add("is-over");
+      });
+    });
+    ["dragleave", "drop"].forEach(function (type) {
+      dropzone.addEventListener(type, function (event) {
+        event.preventDefault();
+        dropzone.classList.remove("is-over");
+      });
+    });
+    dropzone.addEventListener("drop", function (event) {
+      sendAll(event.dataTransfer ? event.dataTransfer.files : []);
+    });
+    if (fileInput) {
+      fileInput.addEventListener("change", function () {
+        sendAll(fileInput.files);
+        fileInput.value = "";
+      });
+    }
+  }
+
   /* ---- S2 Sync progress: poll the real count (UX spec 7.2, 7.4) ----- */
 
   /*

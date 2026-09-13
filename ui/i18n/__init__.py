@@ -236,11 +236,15 @@ def js_strings(lang: str) -> dict[str, str]:
     "evaluation finished" fallback, `reports_screen.py`/`reports.html`
     build every OTHER label server-side and the script only ever copies
     text across, never invents it) -- see DECISIONS.md, 2026-09-13."""
-    return {
-        "reports.status.finished_sentence": translate(
-            lang, "reports.status.finished_sentence"
-        ),
-    }
+    keys = (
+        "reports.status.finished_sentence",
+        # S6 upload: per-file progress lines. `{name}`/`{reason}` are
+        # filled in by sanad.js with textContent, never as markup.
+        "docs.upload.sending",
+        "docs.upload.failed",
+        "docs.upload.syncing",
+    )
+    return {key: translate(lang, key, name="{name}", reason="{reason}") for key in keys}
 
 
 __all__ = [

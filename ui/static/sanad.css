@@ -1131,6 +1131,51 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
   }
 }
 
+/* ---- S6 documents: drop zone and table actions --------------------- */
+
+.dropzone {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-8);
+  margin: var(--space-16) 0;
+  padding: var(--space-24) var(--space-16);
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  text-align: center;
+  transition: border-color var(--motion) var(--ease), background var(--motion) var(--ease);
+}
+.dropzone.is-over { border-color: var(--accent); background: var(--accent-soft); }
+.dropzone.is-busy { border-style: solid; }
+.dropzone__icon { width: 28px; height: 28px; color: var(--accent); }
+.dropzone__title { margin: 0; font-weight: 600; }
+.dropzone .muted { margin: 0; }
+.dropzone__choose { position: relative; cursor: pointer; }
+.dropzone__choose:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* The real input stays in the page and in the tab order, only invisible. */
+.dropzone__input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.dropzone__status { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+.dropzone__status:empty { display: none; }
+.dropzone__line { font-size: var(--size-meta); overflow-wrap: anywhere; }
+.dropzone__line--pending { color: var(--text-muted); }
+.dropzone__line--done { color: var(--positive); }
+.dropzone__line--failed { color: var(--danger); }
+
+.file-table__actions { white-space: nowrap; }
+.file-table__actions a + a { margin-inline-start: var(--space-12); }
+.source__download {
+  display: inline-block;
+  margin: var(--space-4) 0 0;
+  font-size: var(--size-meta);
+}
+
 /* ---- Notice banner and form errors --------------------------------- */
 
 .notice {
@@ -1312,6 +1357,8 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 /* .num: dates and counts written as words and digits. Unlike .mono it does
    not force left-to-right, so an Arabic date keeps its own word order. */
 .file-table td.mono, .file-table .num { font-variant-numeric: tabular-nums; }
+/* S6: a size like "726 B" never breaks across two lines. */
+.file-table td:nth-child(3) { white-space: nowrap; }
 .file-table .num { white-space: nowrap; }
 .file-table__sort {
   display: inline-flex;
