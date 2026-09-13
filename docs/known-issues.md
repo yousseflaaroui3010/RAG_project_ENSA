@@ -1,4 +1,4 @@
-# Known issues (V1.0.1)
+# Known issues (V2.0.0)
 
 Everything below is known, reproduced or reasoned from the code, and
 deliberately not fixed before the defense. Each line says what happens, why
@@ -19,7 +19,6 @@ breaks a signed gate (G1-G3 pass on the golden set).
 |---|---|---|---|
 | Ollama's timeout is per wait for data, not per call, and it has no retry setting | A slow local model can fail at 60 s before its first word | The defense runs in cloud mode (DECISIONS 2026-09-12) | Measure strict-local mode, then set its own timeout |
 | `agent/chat.py` imports httpx, declared only as a dev dependency | None today: both provider clients require httpx and it is pinned in uv.lock | Declaring it changes the dependency list (partner sign-off) | Declare httpx as a runtime dependency |
-| The Docker image is about 9 GB | It bundles the CUDA build of PyTorch, unused on CPU | Not on the demo path (the defense runs `uv run python app.py`) | Port #86's CPU-only PyTorch build |
 | Intake speed depends on machine load | G5 375-449 s per 200 pages quiet, 731.6 s under load | Measured and reported, as the V1.0 gate requires | Batch or smaller embedding model, re-measured against G5 |
 
 ## Data layer (from the ST-17 reviews and the data-layer follow-ups)
@@ -42,6 +41,19 @@ breaks a signed gate (G1-G3 pass on the golden set).
 
 | Issue | Status |
 |---|---|
-| Answer traces are not persisted (issue #51) | Deferred to V1.1 with F-10 (DECISIONS 2026-09-12) |
+| Answer traces are shown per answer (F-10) but not persisted (issue #51) | A trace lives as long as the conversation on screen (DECISIONS 2026-09-12) |
 | Sample questions show file names rather than questions | Cosmetic |
 | The six ST-38 screen-reader rows | Open until the human Narrator pass |
+
+## V1.1 and V2.0 features (F-10 to F-16)
+
+| Issue | Effect | Why it waits |
+|---|---|---|
+| Workspace routing has no minimum score (F-12) | An off-topic question still gets a proposal (measured 0.769 vs 0.757) | No tuning data for a cutoff yet; nothing is answered before the user confirms |
+| Arabic article numbers can be displaced in PDF text (F-14) | Arabic with an embedded digit sometimes extracts out of order; pure Arabic text and TXT/MD/DOCX are fine | No reliable trigger found; pinned as a strict xfail so the day it starts passing it turns red |
+| PDFs mixing scanned and typed pages are not OCR'd (F-16) | Only a PDF with no text at all is OCR'd | Per-page detection would change the output of every typed PDF |
+| OCR has no per-page timeout beyond `OCR_MAX_PAGES` (F-16) | A very slow page holds up its Sync | No other conversion rung has one either |
+| Real-OCR tests skip in CI (F-16) | CI has no tessdata; the local run is the proof | The language files are an external asset, not in the repo |
+| Tessdata_fast Arabic drops the space in "المادة12" (F-16) | Handled: the citation label is normalised to "المادة 12" | Upstream model quality |
+| A watched folder never syncs on a deletion alone (F-13) | The removed file's chunks stay until the next Sync | A disappearance is not something the watcher can wait to "settle" |
+| PowerPoint citations inside one long slide fall back to the parent range (F-11) | A window wholly inside a slide longer than ~400 characters is cited by a range that still contains the right slide | Changing chunking would also change Article labels and need a new paid evaluation |
