@@ -83,6 +83,8 @@
       #}
       {% if input_reason %}
         <p class="composer__reason" id="composer-reason">{{ input_reason }}</p>
+      {% else %}
+        <p class="composer__hint">Press Enter to send. Every answer names the passages it rests on.</p>
       {% endif %}
     </form>
   </div>

@@ -24,7 +24,7 @@
     <h3 class="sources__title">Sources ({{ message.sources | length }})</h3>
     <ul class="sources__list">
       {% for card in message.sources %}
-        <li class="source">
+        <li class="source" id="source-{{ message_index }}-{{ card.index }}">
           {#
             A real <a> to a real page. Scripting off: it opens the passage
             on its own page. Scripting on: sanad.js opens the <dialog>
@@ -36,11 +36,12 @@
           <a class="source__link"
              href="/chat/passage/{{ workspace_id }}/{{ message_index }}/{{ card.index }}"
              data-passage="passage-{{ message_index }}-{{ card.index }}">
+            <span class="seal" aria-hidden="true">{{ loop.index }}</span>
             <span class="source__file mono">{{ card.file_name }}</span>
             {% if card.section_label %}
               <span class="source__section mono">{{ card.section_label }}</span>
             {% endif %}
-            <span class="source__action">Open passage</span>
+            <span class="source__action">Open passage<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
           </a>
         </li>
       {% endfor %}

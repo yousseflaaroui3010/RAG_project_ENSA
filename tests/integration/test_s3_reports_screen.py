@@ -468,6 +468,18 @@ def test_feedback_rows_are_listed_newest_first(tmp_path):
     assert feedback_section.index("ws-newest") < feedback_section.index("ws-oldest")
 
 
+def test_feedback_dates_read_as_dates_not_raw_timestamps(tmp_path):
+    """v2.1: stored ISO timestamps are shown as "1 Jan 2030, 00:00 UTC".
+    The raw form must not reach the page as visible text."""
+    client, db_path = _app(tmp_path)
+    _seed_feedback(db_path, created_at="2030-01-01T00:00:00+00:00")
+
+    feedback_section = client.get("/reports").text.split(">Answer feedback<")[1]
+
+    assert "1 Jan 2030, 00:00 UTC" in feedback_section
+    assert "2030-01-01T00:00:00+00:00" not in feedback_section
+
+
 def test_feedback_comment_containing_script_is_escaped_on_reports(tmp_path):
     """The same hostile-markup discipline test_s1_chat_screen.py's trace
     disclosure test applies to a comment a user typed: it must render as

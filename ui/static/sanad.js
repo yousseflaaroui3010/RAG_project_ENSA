@@ -31,17 +31,34 @@
   var toggle = document.querySelector(".theme-toggle");
   var STORED = "sanad-theme";
 
+  var systemDark = window.matchMedia
+    ? window.matchMedia("(prefers-color-scheme: dark)")
+    : null;
+
+  function isDark() {
+    var explicit = root.getAttribute("data-theme");
+    if (explicit === "dark" || explicit === "light") {
+      return explicit === "dark";
+    }
+    return Boolean(systemDark && systemDark.matches);
+  }
+
+  // The label stays "Dark theme"; aria-pressed says whether it is on, and it
+  // starts from what the reader actually sees -- including a dark screen
+  // that came from the operating system rather than from this button.
+  function syncToggle() {
+    if (toggle) {
+      toggle.setAttribute("aria-pressed", isDark() ? "true" : "false");
+    }
+  }
+
   function applyTheme(theme) {
     if (theme === "dark" || theme === "light") {
       root.setAttribute("data-theme", theme);
     } else {
       root.removeAttribute("data-theme");
     }
-    if (toggle) {
-      var dark = theme === "dark";
-      toggle.setAttribute("aria-pressed", dark ? "true" : "false");
-      toggle.textContent = dark ? "Light theme" : "Dark theme";
-    }
+    syncToggle();
   }
 
   var stored = null;
@@ -53,6 +70,11 @@
   }
   if (stored) {
     applyTheme(stored);
+  } else {
+    syncToggle();
+  }
+  if (systemDark && systemDark.addEventListener) {
+    systemDark.addEventListener("change", syncToggle);
   }
 
   if (toggle) {
@@ -60,8 +82,7 @@
     // and a control that does nothing is worse than an absent one.
     toggle.hidden = false;
     toggle.addEventListener("click", function () {
-      var dark = root.getAttribute("data-theme") === "dark";
-      var next = dark ? "light" : "dark";
+      var next = isDark() ? "light" : "dark";
       applyTheme(next);
       try {
         window.localStorage.setItem(STORED, next);
@@ -109,6 +130,39 @@
       window.location.assign(returnUrl);
     });
   }
+
+  /* ---- Answer feedback, compact (F-15) ---------------------------- */
+
+  /*
+    With scripting off every feedback form shows its comment box, which is
+    the complete no-script path. Here the box waits until "Not helpful" is
+    pressed once: that first press opens it and moves focus into it, and the
+    next press sends.
+  */
+  function wireFeedback(scope) {
+    scope.querySelectorAll("[data-feedback]").forEach(function (block) {
+      if (block.hasAttribute("data-feedback-wired")) {
+        return;
+      }
+      block.setAttribute("data-feedback-wired", "");
+      var downForm = block.querySelector(".feedback__form--down");
+      var textarea = downForm && downForm.querySelector("textarea");
+      var submit = downForm && downForm.querySelector("button[type=submit]");
+      if (!downForm || !textarea || !submit) {
+        return;
+      }
+      block.classList.add("is-compact");
+      submit.addEventListener("click", function (event) {
+        if (block.classList.contains("is-compact")) {
+          event.preventDefault();
+          block.classList.remove("is-compact");
+          block.classList.add("is-commenting");
+          textarea.focus();
+        }
+      });
+    });
+  }
+  wireFeedback(document);
 
   /* ---- Sample questions (UX spec 6.3) ------------------------------ */
 
@@ -358,6 +412,7 @@
     added.forEach(function (node) {
       transcript.appendChild(document.importNode(node, true));
       wirePassages(node);
+      wireFeedback(node);
     });
 
     // The run is over: drop the stage block, put the composer back.

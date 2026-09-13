@@ -1,53 +1,53 @@
 /*
   Sanad's visual system (UX spec 3), hand-written per CR-02.
 
-  THE PALETTE BELOW IS THE SPEC'S OWN, hex for hex, and that is deliberate
-  rather than tidy. The React reference in `designrag-main/` dropped these
-  values for Tailwind defaults, and the build journal records the measured
-  result: `border-strong` came out at 1.48:1 in light and 1.88:1 in dark
-  against a 3:1 floor, failing UX spec criterion 10 and WCAG 1.4.11 while
-  looking perfectly fine. Section 3.4's own values pass -- 4.59 light and
-  3.94 dark -- because they were computed when they were chosen.
+  DIRECTION (v2.1 refresh): an archive reading room. Warm paper and iron-gall
+  ink in light mode, a lamp-lit night reading room in dark mode, one ink-blue
+  accent, and evidence styled as numbered seals. "Sanad" is the support a
+  claim rests on; the interface makes that support the most legible thing on
+  the page (design principle 1).
 
-  Every ratio in this file is checked by
-  tests/unit/test_ui_contrast.py, which reads the tokens out of this
-  stylesheet rather than out of a copy. A palette that agrees with a test
-  fixture and disagrees with the page is the usual way this check goes
-  green on a broken screen.
+  UX spec 3.4 fixes the colour ROLES and their contrast floors, not the hex
+  values ("Roles, not brand. Swap the hex values, keep the roles and the
+  contrast ratios"). Every value below was re-measured against both
+  `--surface` and `--surface-raised` before it was written, and
+  tests/unit/test_ui_contrast.py re-measures the bytes in this file on every
+  run -- a palette that agrees with a fixture and disagrees with the page is
+  the usual way that check goes green on a broken screen.
 */
 
 /* ---- Tokens (UX spec 3.1-3.5) -------------------------------------- */
 
 :root {
-  /* 3.4 Colour roles, light. */
-  --surface: #FFFFFF;
-  --surface-raised: #F6F7F9;
-  --border: #DFE3E8;          /* decorative only, no floor */
-  --border-strong: #6E7681;   /* floor 3:1  -- control boundaries */
-  --text: #16191D;            /* floor 4.5:1 */
-  --text-muted: #5A626D;      /* floor 4.5:1 */
-  --accent: #1F5F8B;          /* floor 4.5:1 */
-  --focus: #0B7285;           /* floor 3:1 */
+  /* 3.4 Colour roles, light: paper and ink. */
+  --surface: #FCFBF8;
+  --surface-raised: #F4F1EA;
+  --border: #E6E1D6;          /* decorative only, no floor */
+  --border-strong: #77705F;   /* floor 3:1  -- control boundaries */
+  --text: #1C1A16;            /* floor 4.5:1 */
+  --text-muted: #5C564B;      /* floor 4.5:1 */
+  --accent: #1D4E78;          /* floor 4.5:1 -- ink blue */
+  --focus: #0A6C7C;           /* floor 3:1 */
 
-  /* 3.5 Status roles. The spec fixes the ROLES and their floors, not the
-     hex ("Roles, not brand. Swap the hex values, keep the roles and the
-     contrast ratios"), so these were chosen here and then computed --
-     never estimated. `notice` carries the refusal variant and `danger`
-     the error panel, and the two must never be interchangeable: design
-     principle 2 says a refusal that looks like an error teaches users to
-     distrust the honest path. */
-  --notice: #8A5A00;          /* floor 4.5:1 -- refusal border and lead */
-  --danger: #A3271B;          /* floor 4.5:1 -- error panel only */
+  /* 3.5 Status roles. `notice` carries the refusal variant and `danger` the
+     error panel; the two must never be interchangeable (principle 2). */
+  --notice: #865500;          /* floor 4.5:1 -- ochre */
+  --danger: #9E2F1E;          /* floor 4.5:1 -- brick */
+  --positive: #2D6A39;        /* floor 4.5:1 -- Added */
+  --warning: #8A4200;         /* floor 4.5:1 -- Skipped */
+  --neutral: #5C564B;         /* floor 4.5:1 -- Unchanged; = text-muted */
+  --neutral-strong: #1C1A16;  /* floor 4.5:1 -- Removed; = text */
 
-  /* The other four of 3.5's six sync-status roles (S2, ST-28). `neutral`
-     and `neutral-strong` are deliberately the SAME values as `text-muted`
-     and `text` above -- a status role need not be a new hue, only a role
-     the six-row table can point at, and shape plus label already carry
-     the distinction colour alone is banned from carrying (criterion 10). */
-  --positive: #1E7A34;        /* floor 4.5:1 -- Added */
-  --warning: #8A3D00;         /* floor 4.5:1 -- Skipped */
-  --neutral: #5A626D;         /* floor 4.5:1 -- Unchanged; = text-muted */
-  --neutral-strong: #16191D;  /* floor 4.5:1 -- Removed; = text */
+  /* Tints and depth. Decorative only: never the sole carrier of meaning,
+     so no floor applies (text on them always uses a floored role). */
+  --canvas: #F7F4EE;          /* page ground behind the paper surfaces */
+  --accent-soft: #E3EBF3;     /* seal and chip fill */
+  --notice-soft: #F6ECD9;     /* refusal and disclaimer wash */
+  --danger-soft: #F7E3DF;     /* error wash */
+  --positive-soft: #E2EEE3;   /* pass wash */
+  --shadow-color: 38 30 16;
+  --shadow-1: 0 0 0 1px rgb(var(--shadow-color) / 6%), 0 1px 2px rgb(var(--shadow-color) / 6%);
+  --shadow-2: 0 0 0 1px rgb(var(--shadow-color) / 6%), 0 2px 4px rgb(var(--shadow-color) / 5%), 0 8px 24px -8px rgb(var(--shadow-color) / 12%);
 
   /* 3.1 Layout. */
   --shell-max: 1280px;
@@ -55,8 +55,7 @@
   --gutter: 24px;
   --rail: 320px;
 
-  /* 3.2 Spacing scale. Eight values, nothing between. A value not on this
-     scale is a bug, so there is nowhere in this file to write one. */
+  /* 3.2 Spacing scale. Eight values, nothing between. */
   --space-4: 4px;
   --space-8: 8px;
   --space-12: 12px;
@@ -66,24 +65,15 @@
   --space-48: 48px;
   --space-64: 64px;
 
-  /* 3.3 Type scale. Body is 15px, not 16px, "because the file tables
-     carry a lot of columns". Anything below 13px is banned, so 13px is
-     the floor here and no smaller value appears in this file. */
-  /*
-    F-14: Arabic fallbacks appended, not swapped in for the existing
-    stack -- "Segoe UI" etc. still lead for Latin/French text, and a
-    browser only reaches for "Tahoma" or "Noto Naskh/Sans Arabic" per
-    CHARACTER, when the leading fonts have no glyph for it (standard font
-    fallback, not a language switch). No new webfont: both are common
-    system fonts (Tahoma ships with Windows; Noto Naskh/Sans Arabic ship
-    with most Linux/Android/Chrome OS installs and are Google Fonts on
-    the rest, so on a machine without either the stack still ends in a
-    generic and the OS still substitutes something with Arabic coverage).
-    Loading either from Google Fonts was considered and rejected: the CSP
-    that already governs this app is not spent on a webfont when a system
-    stack meets the PRD criterion ("correct script") without one.
-  */
-  --font-sans: "Segoe UI", Tahoma, "Noto Naskh Arabic", "Noto Sans Arabic", "Noto Sans", "Lucida Grande", "Frutiger", sans-serif;
+  /* Radius scale: small controls, cards, dialogs. Concentric where nested. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* 3.3 Type scale. Nothing below 13px. F-14's Arabic fallbacks follow the
+     Latin faces so a browser reaches for them per character only. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", Tahoma, "Noto Naskh Arabic", "Noto Sans Arabic", "Noto Sans", "Lucida Grande", "Frutiger", sans-serif;
   --font-mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
   --size-display: 28px;
   --size-section: 20px;
@@ -91,121 +81,132 @@
   --size-meta: 13px;
   --size-mono: 13px;
 
-  /* 3.6 Motion. Transitions cap at 150ms. */
+  /* 3.6 Motion. Transitions cap at 150ms; ease-out so the first frame moves. */
   --motion: 150ms;
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
 }
 
-/* Dark theme. Follows the operating system, with an explicit override on
-   <html data-theme> for the toggle -- UX spec 3.4 wants both, "because a
-   defense room projector is unpredictable and you want that switch on
-   stage". */
+/* Dark theme: the night reading room. Follows the operating system, with an
+   explicit override on <html data-theme> for the toggle (UX spec 3.4). The
+   two blocks must stay identical; the contrast test asserts they do. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --surface: #14161A;
-    --surface-raised: #1C1F25;
-    --border: #2C313A;
-    --border-strong: #6E7681;
-    --text: #E8EAED;
-    --text-muted: #9AA2AE;
-    --accent: #5AA9DC;
-    --focus: #3BC9DB;
-    --notice: #E3B341;
-    --danger: #F1958A;
-    --positive: #4CAF63;
-    --warning: #E8963D;
-    --neutral: #9AA2AE;
-    --neutral-strong: #E8EAED;
+    --surface: #131210;
+    --surface-raised: #1B1A17;
+    --border: #2E2B26;
+    --border-strong: #7D7668;
+    --text: #EDE9E0;
+    --text-muted: #A8A194;
+    --accent: #86B7E3;
+    --focus: #4CC3D0;
+    --notice: #E0AF4C;
+    --danger: #EF9784;
+    --positive: #7BC287;
+    --warning: #E99D52;
+    --neutral: #A8A194;
+    --neutral-strong: #EDE9E0;
+    --canvas: #0E0D0B;
+    --accent-soft: #1D2A36;
+    --notice-soft: #2A2214;
+    --danger-soft: #2E1C18;
+    --positive-soft: #18261A;
+    --shadow-color: 0 0 0;
+    --shadow-1: 0 0 0 1px rgb(255 255 255 / 6%);
+    --shadow-2: 0 0 0 1px rgb(255 255 255 / 7%), 0 8px 24px -8px rgb(0 0 0 / 60%);
   }
 }
 
 :root[data-theme="dark"] {
-  --surface: #14161A;
-  --surface-raised: #1C1F25;
-  --border: #2C313A;
-  --border-strong: #6E7681;
-  --text: #E8EAED;
-  --text-muted: #9AA2AE;
-  --accent: #5AA9DC;
-  --focus: #3BC9DB;
-  --notice: #E3B341;
-  --danger: #F1958A;
-  --positive: #4CAF63;
-  --warning: #E8963D;
-  --neutral: #9AA2AE;
-  --neutral-strong: #E8EAED;
+  --surface: #131210;
+  --surface-raised: #1B1A17;
+  --border: #2E2B26;
+  --border-strong: #7D7668;
+  --text: #EDE9E0;
+  --text-muted: #A8A194;
+  --accent: #86B7E3;
+  --focus: #4CC3D0;
+  --notice: #E0AF4C;
+  --danger: #EF9784;
+  --positive: #7BC287;
+  --warning: #E99D52;
+  --neutral: #A8A194;
+  --neutral-strong: #EDE9E0;
+  --canvas: #0E0D0B;
+  --accent-soft: #1D2A36;
+  --notice-soft: #2A2214;
+  --danger-soft: #2E1C18;
+  --positive-soft: #18261A;
+  --shadow-color: 0 0 0;
+  --shadow-1: 0 0 0 1px rgb(255 255 255 / 6%);
+  --shadow-2: 0 0 0 1px rgb(255 255 255 / 7%), 0 8px 24px -8px rgb(0 0 0 / 60%);
 }
 
 /* ---- Base ---------------------------------------------------------- */
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* The hidden attribute must win over every display rule below: the theme
+   toggle and the no-script Switch button rely on it (sanad.js). */
+[hidden] { display: none !important; }
+
+html { color-scheme: light dark; }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
 body {
   margin: 0;
-  background: var(--surface);
+  background: var(--canvas);
   color: var(--text);
   font-family: var(--font-sans);
   font-size: var(--size-body);
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-h1 { font-size: var(--size-display); font-weight: 600; line-height: 1.25; }
-h2 { font-size: var(--size-section); font-weight: 600; line-height: 1.3; }
+h1, h2, h3 { text-wrap: balance; color: var(--text); }
+h1 { font-size: var(--size-display); font-weight: 600; line-height: 1.25; letter-spacing: -0.015em; }
+h2 { font-size: var(--size-section); font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; }
 h3 { font-size: var(--size-body); font-weight: 600; line-height: 1.6; }
+p { text-wrap: pretty; }
+
+a { color: var(--accent); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
 
 .mono, code {
   font-family: var(--font-mono);
   font-size: var(--size-mono);
   line-height: 1.5;
   /* UX spec 6.5: mono file names and article numbers stay left-to-right
-     inside a mirrored layout, "which is the case most implementations get
-     wrong". Set here, once, so every file name and article number in the
-     product inherits it. */
+     inside a mirrored layout. Set once, inherited everywhere. */
   direction: ltr;
   unicode-bidi: isolate;
 }
 
 .muted { color: var(--text-muted); font-size: var(--size-meta); line-height: 1.45; }
 
-/*
-  F-14: two Arabic-script requirements the task brief names directly.
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 
-  NO LETTER-SPACING: Arabic is cursive -- each letter joins its neighbour
-  into a different glyph shape depending on position in the word, and
-  `letter-spacing` forces gaps that break that joining outright, not just
-  loosen it (unlike Latin, where it is merely wider). This app applies
-  letter-spacing in exactly two places today (`.sources__title`,
-  `.incomplete-mark`), both fixed English labels Sanad writes itself, so
-  neither would ever carry Arabic text -- but `:lang(ar)` resets it back
-  to `normal` wherever it inherits or is set, as a standing guarantee
-  rather than a fact that happens to hold today and could stop holding
-  the next time a `letter-spacing` rule is added near user-facing text.
-
-  LINE-HEIGHT: Arabic's stacked diacritics (tashkeel) and taller
-  ascenders/descenders want more vertical room than the Latin text this
-  stack was tuned for -- 1.6 (`body`) is workable but tight; 1.8 is the
-  commonly recommended floor for Arabic body copy and costs nothing for a
-  script that is never mixed mid-line with Latin at a different
-  line-height (line-height applies per block, and F-14's `dir="auto"`
-  targets are block-level elements: `<p>`, `<li>`).
-
-  `:lang(ar)` rather than `[dir="rtl"]`: direction and script are
-  different facts here (a citation's mono LTR-forced span can still be
-  Arabic script, UX spec 6.5) and `:lang()` also matches the individual
-  `dir="auto"` elements once F-14's per-message `lang` is set on them --
-  not only the whole mirrored document.
-*/
+/* F-14: Arabic is cursive, so no letter-spacing (it breaks joining), and its
+   stacked diacritics want more line-height than Latin. */
 :lang(ar) {
   letter-spacing: normal;
   line-height: 1.8;
 }
 
 /* UX spec 6.4: "Visible focus ring at 3:1 against its background, never
-   removed." Two rings, because one colour cannot clear 3:1 against both a
-   light and a dark control -- the outline carries --focus and the offset
-   paints --surface behind it. */
+   removed." */
 :focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .skip-link {
@@ -213,194 +214,419 @@ h3 { font-size: var(--size-body); font-weight: 600; line-height: 1.6; }
   inset-inline-start: -9999px;
   top: var(--space-8);
   padding: var(--space-8) var(--space-16);
-  background: var(--surface-raised);
+  background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border-strong);
-  z-index: 10;
+  border-radius: var(--radius-sm);
+  z-index: 30;
 }
 .skip-link:focus { inset-inline-start: var(--space-8); }
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 
 /* ---- Shell (UX spec 4) --------------------------------------------- */
 
 .shell {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-raised);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: saturate(140%) blur(10px);
 }
 .shell__inner {
   max-width: var(--shell-max);
   margin: 0 auto;
-  padding: var(--space-12) var(--gutter);
+  padding: var(--space-8) var(--gutter);
   display: flex;
   align-items: center;
   gap: var(--space-16);
   flex-wrap: wrap;
+  min-height: 64px;
 }
 .shell__name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
   color: var(--text);
-  font-weight: 600;
+  font-weight: 650;
   font-size: var(--size-section);
+  letter-spacing: -0.02em;
   text-decoration: none;
 }
-.shell__workspace { display: flex; align-items: center; gap: var(--space-8); }
+/* The brand seal: the Arabic letter sin, first letter of سند, pressed into
+   an ink-blue stamp. Decorative; the product name beside it is the text. */
+.shell__seal {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--surface);
+  font-size: var(--size-section);
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--surface) 22%, transparent);
+}
+.shell__workspace {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding-inline-start: var(--space-16);
+  border-inline-start: 1px solid var(--border);
+}
 .shell__label { font-size: var(--size-meta); color: var(--text-muted); }
-.shell__nav { display: flex; gap: var(--space-12); margin-inline-start: auto; }
-.shell__link { color: var(--accent); text-decoration: none; }
-.shell__link.is-current { font-weight: 600; text-decoration: underline; }
-.shell__link.is-disabled { color: var(--text-muted); cursor: not-allowed; }
+.shell__nav {
+  display: flex;
+  gap: var(--space-4);
+  margin-inline-start: auto;
+  padding: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.shell__link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-16);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-weight: 500;
+  text-decoration: none;
+  transition: background-color var(--motion) var(--ease), color var(--motion) var(--ease);
+}
+.shell__link:hover { color: var(--text); background: var(--surface); }
+/* Current screen: weight, a raised chip AND aria-current -- never colour
+   alone (criterion 10). */
+.shell__link.is-current {
+  color: var(--text);
+  font-weight: 600;
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+.shell__link.is-disabled { color: var(--text-muted); cursor: not-allowed; opacity: 0.7; }
+.shell__link.is-disabled:hover { background: transparent; }
 
 .marker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
   font-size: var(--size-meta);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  padding: 0 var(--space-4);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--notice);
+  background: var(--notice-soft);
+  border: 1px solid color-mix(in srgb, var(--notice) 45%, transparent);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-8);
+  white-space: nowrap;
 }
 
-select, input[type="text"] {
+.theme-toggle { display: inline-flex; align-items: center; gap: var(--space-8); }
+.theme-toggle .icon--sun { display: none; }
+/* On: the accent border and fill AND aria-pressed (never colour alone --
+   the pressed state is also exposed to assistive tech). */
+.theme-toggle[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---- Controls ------------------------------------------------------ */
+
+select, input[type="text"], textarea {
   font: inherit;
   color: var(--text);
   background: var(--surface);
-  /* border-strong, because a border is the only thing identifying this
-     control's boundary (UX spec 3.4). */
+  /* border-strong: a border is the only thing marking this control's
+     boundary (UX spec 3.4). */
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: var(--space-8) var(--space-12);
+  transition: border-color var(--motion) var(--ease), box-shadow var(--motion) var(--ease);
 }
-input[type="text"]:disabled, select:disabled, button:disabled {
+select:hover, input[type="text"]:hover, textarea:hover { border-color: var(--text-muted); }
+input[type="text"]::placeholder, textarea::placeholder { color: var(--text-muted); }
+input[type="text"]:disabled, select:disabled, button:disabled, textarea:disabled {
   color: var(--text-muted);
+  background: var(--surface-raised);
   cursor: not-allowed;
 }
+input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
   font: inherit;
-  border-radius: 4px;
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong);
   padding: var(--space-8) var(--space-16);
   background: var(--surface);
   color: var(--text);
+  text-decoration: none;
   cursor: pointer;
-  transition: background var(--motion) linear;
+  white-space: nowrap;
+  transition: background-color var(--motion) var(--ease), border-color var(--motion) var(--ease), transform var(--motion) var(--ease);
 }
-.btn--primary { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+.btn:hover { background: var(--surface-raised); }
+.btn:active { transform: scale(0.97); }
+.btn--primary { background: var(--accent); color: var(--surface); border-color: var(--accent); font-weight: 600; }
+.btn--primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
 .btn--quiet { background: var(--surface-raised); }
-.btn:disabled { background: var(--surface-raised); border-color: var(--border); }
+.btn--quiet:hover { background: var(--surface); }
+.btn--small { padding: var(--space-4) var(--space-12); font-size: var(--size-meta); }
+.btn:disabled { background: var(--surface-raised); border-color: var(--border); transform: none; }
 
-/* ---- Main and the S1 grid (UX spec 6.1, 3.1) ----------------------- */
+/* ---- Main and panels ----------------------------------------------- */
 
 .main {
   max-width: var(--shell-max);
   margin: 0 auto;
-  padding: var(--space-24) var(--gutter) var(--space-64);
+  padding: var(--space-32) var(--gutter) var(--space-64);
 }
 
 .panel {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: var(--space-24);
-  background: var(--surface-raised);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
   max-width: var(--prose-max);
 }
+.panel > :first-child { margin-top: 0; }
+.panel > :last-child { margin-bottom: 0; }
 .panel--empty { background: var(--surface); }
+
+.page-head { display: flex; align-items: flex-end; gap: var(--space-16); flex-wrap: wrap; margin-bottom: var(--space-24); }
+.page-head h1 { margin: 0; }
+.page-head__lead { margin: 0; color: var(--text-muted); }
+
+/* ---- S1 Chat (UX spec 6) ------------------------------------------- */
+
+/* Empty state: the promise as three numbered steps. */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: var(--space-12);
+  margin: var(--space-16) 0 var(--space-24);
+  padding: 0;
+  list-style: none;
+}
+.steps__item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-12);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  font-size: var(--size-meta);
+  line-height: 1.45;
+}
+.steps__item .seal { flex: none; }
+.panel--empty h2 { margin-bottom: var(--space-8); }
 
 .chat__header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-16);
+  flex-wrap: wrap;
   margin-bottom: var(--space-24);
+  padding-bottom: var(--space-16);
+  border-bottom: 1px solid var(--border);
 }
 .chat__title { margin: 0; }
-.chat__grounding { margin: 0; color: var(--text-muted); font-size: var(--size-meta); }
+.chat__grounding {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: 0;
+  padding: var(--space-4) var(--space-12);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  color: var(--text-muted);
+  font-size: var(--size-meta);
+}
+.chat__grounding strong { color: var(--text); font-weight: 600; }
 .chat__header form { margin-inline-start: auto; }
+
+.chat { max-width: calc(var(--prose-max) + var(--rail) + var(--space-32)); margin-inline: auto; }
 
 .transcript { list-style: none; margin: 0; padding: 0; }
 
 /*
-  UX spec 3.1: "the source panel moves from a side rail to a stacked
-  section below the answer" at 1024px. ONE grid does both. The cards stay
-  attached to their own answer either way (6.2), so nothing is duplicated
-  into a separate rail and no two copies of a card can disagree.
+  UX spec 3.1: the source panel is a side rail that stacks below the answer
+  under 1024px. ONE grid does both, so a card stays attached to its own
+  answer (6.2) and no two copies of a card can disagree.
 */
 .msg {
   display: grid;
   grid-template-columns: minmax(0, var(--prose-max)) var(--rail);
-  gap: var(--space-24);
-  margin-bottom: var(--space-24);
+  column-gap: var(--space-32);
+  row-gap: var(--space-8);
+  margin-bottom: var(--space-32);
   align-items: start;
+  animation: rise var(--motion) var(--ease) both;
 }
+@keyframes rise { from { opacity: 0; transform: translateY(4px); } }
 @media (max-width: 1023px) {
   .msg { grid-template-columns: minmax(0, var(--prose-max)); }
 }
 
 .bubble {
   grid-column: 1;
+  position: relative;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: var(--space-16);
+  border-radius: var(--radius-lg);
+  padding: var(--space-16) var(--space-24);
   margin: 0;
   max-width: var(--prose-max);
+  background: var(--surface);
 }
+.bubble > :first-child { margin-top: 0; }
+.bubble > :last-child { margin-bottom: 0; }
 
 /* 6.2 User: right-aligned in LTR, surface-raised, no source panel. */
-.msg--user { justify-items: end; }
-.bubble--user { background: var(--surface-raised); }
+.msg--user { justify-items: end; margin-bottom: var(--space-16); }
+.bubble--user {
+  background: var(--accent-soft);
+  border-color: transparent;
+  border-end-end-radius: var(--radius-sm);
+  padding: var(--space-12) var(--space-16);
+  color: var(--text);
+}
 /* 6.5: alignment mirrors under RTL. */
 [dir="rtl"] .msg--user { justify-items: start; }
 
-/* 6.2 Answer: aligned to the reading start, surface. */
-.bubble--answer { background: var(--surface); }
-.answer__text { margin: 0; white-space: pre-line; }
+/* 6.2 Answer: the folio. Paper, a quiet lift, and its evidence attached. */
+.bubble--answer { box-shadow: var(--shadow-2); border-color: transparent; }
+.bubble__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: 0 0 var(--space-12);
+  font-size: var(--size-meta);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.bubble__head .icon { color: var(--accent); }
+.answer__text { margin: 0; white-space: pre-line; line-height: 1.7; }
+
+/* The evidence strip: every source this answer rests on, as numbered seals
+   that jump to the matching card. The signature of this interface. */
+.evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  margin: var(--space-16) 0 0;
+  padding: var(--space-12) 0 0;
+  border-top: 1px dashed var(--border);
+  list-style: none;
+  font-size: var(--size-meta);
+}
+.evidence__label { color: var(--text-muted); font-weight: 600; }
+.seal-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: 0 var(--space-8) 0 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--text);
+  text-decoration: none;
+  transition: background-color var(--motion) var(--ease);
+}
+[dir="rtl"] .seal-link { padding: 0 0 0 var(--space-8); }
+.seal-link:hover { background: color-mix(in srgb, var(--accent-soft) 70%, var(--accent)); }
+.seal {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--surface);
+  font-size: var(--size-meta);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
 
 .retries {
-  display: inline-block;
-  margin-top: var(--space-8);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-12);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-pill);
   font-size: var(--size-meta);
   color: var(--text-muted);
-  border-bottom: 1px dotted var(--border-strong);
+  background: var(--surface-raised);
+  border: 1px dotted var(--border-strong);
   cursor: help;
 }
 
-/* F-10: the trace disclosure, one per answer/refusal/clarification.
-   Colour carries nothing here (criterion 10 applies just as much to a new
-   component as to an old one) -- the summary's affordance is the native
-   <details> marker plus the accent colour already used for every other
-   disclosure trigger on this screen (.ws-list__new, .ws-detail__settings
-   summary). */
-.trace {
-  grid-column: 1;
-  margin-top: var(--space-8);
-  max-width: var(--prose-max);
-  font-size: var(--size-meta);
-}
-.trace__summary { cursor: pointer; color: var(--accent); }
-.trace__body { margin-top: var(--space-8); }
-.trace__label { margin: var(--space-8) 0 var(--space-4); font-weight: 600; }
-.trace__label:first-child { margin-top: 0; }
-.trace__list { margin: 0; padding-inline-start: var(--space-24); }
-
-/* F-09, between the answer body and the source cards (6.2). */
+/* F-09 disclaimer, directly under the answer (6.2). */
 .disclaimer {
   grid-column: 1;
-  margin: var(--space-8) 0 0;
+  display: flex;
+  gap: var(--space-8);
+  align-items: flex-start;
+  margin: 0;
   padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-md);
   border-inline-start: 3px solid var(--notice);
-  background: var(--surface-raised);
+  background: var(--notice-soft);
+  color: var(--text);
   font-size: var(--size-meta);
   line-height: 1.45;
   max-width: var(--prose-max);
 }
 
-/*
-  6.2 Refusal: bordered in `notice` rather than `danger`, "styled as a
-  legitimate outcome, not a failure". The border is 2px and coloured, and
-  the variant is ALSO carried by the "What Sanad searched for" heading --
-  never by the colour alone (criterion 10).
-*/
-.bubble--refusal { border: 2px solid var(--notice); background: var(--surface); }
-.refusal__lead { margin: 0; font-weight: 600; }
-.refusal__label { margin: var(--space-12) 0 var(--space-4); font-size: var(--size-meta); }
-.searched { margin: 0; padding-inline-start: var(--space-24); }
+/* 6.2 Refusal: a legitimate outcome, bordered in `notice`, never `danger`.
+   The variant is ALSO carried by its heading text, never colour alone. */
+.bubble--refusal {
+  border: 2px solid var(--notice);
+  background: linear-gradient(var(--notice-soft), var(--surface) 72px);
+}
+.refusal__lead { margin: 0; font-weight: 600; line-height: 1.6; }
+.refusal__label {
+  margin: var(--space-16) 0 var(--space-8);
+  font-size: var(--size-meta);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.searched {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.searched li {
+  padding: var(--space-4) var(--space-12);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: var(--size-meta);
+}
+.bubble--refusal .muted { margin: var(--space-12) 0 0; }
 
-.bubble--clarification { background: var(--surface-raised); border-color: var(--border-strong); }
+.bubble--clarification { background: var(--surface); border: 1px solid var(--border-strong); }
 .choices, .samples { list-style: none; margin: var(--space-12) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.choices form, .samples form { margin: 0; }
 
 .sample {
   font: inherit;
@@ -408,39 +634,104 @@ input[type="text"]:disabled, select:disabled, button:disabled {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-pill);
+  padding: var(--space-8) var(--space-16);
   cursor: pointer;
+  transition: background-color var(--motion) var(--ease), border-color var(--motion) var(--ease), transform var(--motion) var(--ease);
 }
-.samples { flex-direction: column; }
+.sample:hover { background: var(--accent-soft); border-color: var(--accent); }
+.sample:active { transform: scale(0.98); }
+
+/* F-10 trace: a quiet provenance disclosure. */
+.trace {
+  grid-column: 1;
+  max-width: var(--prose-max);
+  font-size: var(--size-meta);
+}
+.trace__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-8);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 600;
+  list-style: none;
+}
+.trace__summary::-webkit-details-marker { display: none; }
+.trace__summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-inline-end: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--motion) var(--ease);
+}
+.trace[open] > .trace__summary::before { transform: rotate(45deg); }
+/* Under RTL the chevron is drawn on the left and bottom edges (logical
+   inline-end), so the rotations flip: left when closed, down when open. */
+[dir="rtl"] .trace__summary::before { transform: rotate(45deg); }
+[dir="rtl"] .trace[open] > .trace__summary::before { transform: rotate(-45deg); }
+.trace__summary:hover { background: var(--accent-soft); }
+.trace__body {
+  margin: var(--space-8) 0 0 var(--space-12);
+  padding: var(--space-4) 0 var(--space-4) var(--space-16);
+  border-inline-start: 2px solid var(--border);
+}
+[dir="rtl"] .trace__body { margin: var(--space-8) var(--space-12) 0 0; padding: var(--space-4) var(--space-16) var(--space-4) 0; }
+.trace__label {
+  margin: var(--space-12) 0 var(--space-4);
+  font-weight: 600;
+  color: var(--text);
+}
+.trace__label:first-child { margin-top: 0; }
+.trace__list { margin: 0; padding-inline-start: var(--space-16); color: var(--text); }
+.trace__list li::marker { color: var(--text-muted); }
 
 /*
-  F-15 answer feedback. Both buttons stay on screen always (never swapped
-  for plain text after a click) so aria-pressed always has both a true and
-  a false state to carry the saved verdict -- see the macro's own comment
-  in _conversation.html. `.btn--primary` marks the chosen one; no new
-  colour token, and the button's own text plus the status line beneath say
-  the same thing in words (criterion 10: never colour alone).
+  F-15 feedback: compact by default. Both buttons stay on screen always so
+  aria-pressed always carries the saved verdict; the chosen one gets the
+  primary style AND its own words in the status line (never colour alone).
+  With scripting on, the comment box waits until "Not helpful" is pressed.
 */
-.feedback { grid-column: 1; margin-top: var(--space-8); max-width: var(--prose-max); }
-.feedback__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-12); }
-.feedback__form { display: flex; flex-direction: column; gap: var(--space-4); }
-.feedback__form--down { flex: 1 1 260px; }
-.feedback__label { font-size: var(--size-meta); color: var(--text-muted); }
-.feedback__textarea {
-  font: inherit;
-  min-height: 2.5em;
-  padding: var(--space-8);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--text);
-  resize: vertical;
+.feedback {
+  grid-column: 1;
+  max-width: var(--prose-max);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-16);
 }
-.feedback__status { margin: var(--space-8) 0 0; font-size: var(--size-meta); color: var(--text-muted); }
+.feedback__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-8); flex: 1 1 auto; }
+.feedback__form { display: flex; flex-direction: column; gap: var(--space-4); margin: 0; }
+.feedback__form--down { flex: 1 1 280px; }
+.feedback__label { font-size: var(--size-meta); color: var(--text-muted); }
+.feedback__textarea { min-height: 64px; resize: vertical; }
+.feedback .btn { padding: var(--space-4) var(--space-12); font-size: var(--size-meta); align-self: flex-start; }
+.feedback .btn[aria-pressed="true"] { font-weight: 600; }
+.feedback__status {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--size-meta);
+  color: var(--positive);
+  font-weight: 600;
+}
+.feedback.is-compact .feedback__form--down { flex: 0 0 auto; }
+.feedback.is-compact .feedback__label,
+.feedback.is-compact .feedback__textarea { display: none; }
+.feedback.is-commenting .feedback__form--down {
+  flex-basis: 100%;
+  padding: var(--space-12);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
 
-/* Section 11 + criterion 8: marked incomplete, and no control anywhere on
-   it presents it as a finished answer. */
+/* Section 11 + criterion 8: marked incomplete; nothing presents it as final. */
 .bubble--interrupted { border: 2px dashed var(--border-strong); background: var(--surface-raised); }
 .incomplete-mark {
   margin: 0 0 var(--space-8);
@@ -452,14 +743,18 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 }
 
 /* UX spec 5's ErrorPanel: the only place `danger` appears. */
-.panel--error { border: 2px solid var(--danger); background: var(--surface); }
+.panel--error {
+  border: 2px solid var(--danger);
+  background: linear-gradient(var(--danger-soft), var(--surface) 64px);
+  box-shadow: none;
+}
 .error__sentence { margin: 0 0 var(--space-8); font-weight: 600; color: var(--danger); }
 .error__attempted, .error__value {
   margin: 0 0 var(--space-8);
-  padding: var(--space-8);
+  padding: var(--space-8) var(--space-12);
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
 }
 .error__hint { margin: 0; color: var(--text-muted); font-size: var(--size-meta); }
@@ -468,97 +763,173 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 
 /*
   Principle 1: "never collapsed by default, never smaller than body text,
-  never grey-on-grey." So the file name is mono at 13px (the spec's own
-  Mono role) but the card's text colour is --text, not --text-muted, and
-  nothing here is hidden behind a disclosure.
+  never grey-on-grey." The rail sticks beside its answer while the answer
+  scrolls, so evidence and claim stay in view together.
 */
-.sources { grid-column: 2; grid-row: 1 / span 3; }
-@media (max-width: 1023px) {
-  .sources { grid-column: 1; grid-row: auto; }
+.sources {
+  grid-column: 2;
+  grid-row: 1 / span 4;
+  position: sticky;
+  top: 88px;
 }
-.sources__title { margin: 0 0 var(--space-8); font-size: var(--size-meta); text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+@media (max-width: 1023px) {
+  .sources { grid-column: 1; grid-row: auto; position: static; }
+}
+.sources__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: 0 0 var(--space-12);
+  font-size: var(--size-meta);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+caption.sources__title { display: table-caption; text-align: start; padding: 0 0 var(--space-12); }
 
 /*
-  ESCALATION, NOT A DECISION (ENGINEERING-RULES.md rule 1). Two signed statements
-  disagree about the text inside a source card and this file cannot settle
-  it:
-    * design principle 1 -- "A source card is never collapsed by default,
-      NEVER SMALLER THAN BODY TEXT, never grey-on-grey";
-    * section 3.3 -- the Mono role is 13px, and file names and section
-      labels are exactly what it is for.
-  A card's file name is both. An earlier version of this stylesheet
-  resolved the conflict silently in a comment, at 13px, which is the
-  reinterpretation rule 1 forbids.
-  Shipped at BODY size pending a human ruling, because between two signed
-  readings the accessible one is the safer place to sit and principle 1 is
-  the more specific sentence -- it is about this component by name.
-  Recorded in BUILD-STATE for UX-01's owner.
+  ESCALATION, NOT A DECISION (ENGINEERING-RULES.md rule 1): principle 1 says a source
+  card is never smaller than body text, while 3.3's Mono role is 13px. A
+  card's file name is both. Shipped at BODY size pending a human ruling,
+  because principle 1 names this component directly. Recorded in BUILD-STATE.
 */
 .source__file, .source__section { font-size: var(--size-body); }
-.sources__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-8); }
+.sources__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-12); }
+.source { scroll-margin-top: calc(var(--space-64) + var(--space-32)); }
 .source__link {
+  position: relative;
   display: grid;
-  gap: var(--space-4);
-  padding: var(--space-12);
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-12);
+  row-gap: var(--space-4);
+  padding: var(--space-12) var(--space-16);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text);
   text-decoration: none;
-  transition: background var(--motion) linear;
+  transition: background-color var(--motion) var(--ease), border-color var(--motion) var(--ease), box-shadow var(--motion) var(--ease), transform var(--motion) var(--ease);
 }
-.source__link:hover { background: var(--surface-raised); }
-.source__file { font-weight: 600; }
+.source__link:hover { border-color: var(--accent); box-shadow: var(--shadow-2); }
+.source__link:active { transform: scale(0.99); }
+.source:target .source__link { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.source__link .seal { grid-row: 1 / span 3; margin-top: var(--space-4); }
+.source__file { font-weight: 600; overflow-wrap: anywhere; }
 .source__section { color: var(--text); }
-.source__action { color: var(--accent); font-size: var(--size-meta); text-decoration: underline; }
+.source__action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--accent);
+  font-size: var(--size-meta);
+  font-weight: 600;
+}
 
 /* ---- Passage viewer (UX spec 5) ------------------------------------ */
 
 .viewer {
-  max-width: 72ch;
+  max-width: 76ch;
   width: calc(100% - var(--space-32));
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  max-height: calc(100vh - var(--space-64));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
   color: var(--text);
-  padding: var(--space-24);
+  padding: 0;
+  box-shadow: 0 24px 64px -12px rgb(0 0 0 / 45%);
 }
-.viewer::backdrop { background: rgb(0 0 0 / 55%); }
-.viewer__head { display: flex; align-items: start; gap: var(--space-16); margin-bottom: var(--space-16); }
-.viewer__title { margin: 0; }
+.viewer[open] { animation: pop var(--motion) var(--ease) both; }
+@keyframes pop { from { opacity: 0; transform: scale(0.97); } }
+.viewer::backdrop { background: rgb(12 10 6 / 55%); backdrop-filter: blur(2px); }
+.viewer__head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  padding: var(--space-16) var(--space-24);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.viewer__title { margin: 0; font-size: var(--size-body); display: flex; flex-wrap: wrap; gap: var(--space-4) var(--space-8); align-items: baseline; }
 .viewer__head .btn { margin-inline-start: auto; }
+.viewer > .passage { padding: var(--space-24); margin: 0; }
 
 .passage { margin: 0 0 var(--space-24); }
 .passage__heading { margin: 0 0 var(--space-16); }
 .passage__note {
-  margin: 0 0 var(--space-8);
-  padding: var(--space-8);
+  margin: 0 0 var(--space-12);
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-sm);
   border-inline-start: 3px solid var(--notice);
-  background: var(--surface-raised);
+  background: var(--notice-soft);
   font-size: var(--size-meta);
   line-height: 1.45;
 }
-.passage__text { margin: 0; white-space: pre-wrap; max-width: var(--prose-max); }
+.passage__text { margin: 0; white-space: pre-wrap; max-width: var(--prose-max); line-height: 1.75; }
 
-/*
-  The cited span. Colour is NOT the only cue (criterion 10): the mark also
-  carries a left rule and a bolder weight, so it survives a monochrome
-  projector and a colour-blind reader.
-*/
+/* The cited span: tint AND an underline AND weight (criterion 10). */
 .cited {
-  background: var(--surface-raised);
+  background: var(--accent-soft);
   color: var(--text);
   border-bottom: 2px solid var(--accent);
+  border-radius: 2px;
   font-weight: 600;
   padding: 0 var(--space-4);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 /* ---- Composer (UX spec 6.1: pinned to the bottom of the area) ------- */
 
-.composer { margin-top: var(--space-24); max-width: var(--prose-max); }
-.composer__label { display: block; font-size: var(--size-meta); color: var(--text-muted); margin-bottom: var(--space-4); }
-.composer__row { display: flex; gap: var(--space-8); }
-.composer__input { flex: 1; }
+.composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  margin-top: var(--space-24);
+  padding: var(--space-12) 0 var(--space-24);
+  max-width: var(--prose-max);
+  background: var(--canvas);
+}
+/* The fade sits ABOVE the pinned bar, so text scrolling under it softens
+   out instead of showing through the label. Decorative; ignores clicks. */
+.composer::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: var(--space-32);
+  background: linear-gradient(to bottom, transparent, var(--canvas));
+  pointer-events: none;
+}
+.composer__label { display: block; font-size: var(--size-meta); font-weight: 600; color: var(--text-muted); margin-bottom: var(--space-8); }
+.composer__row {
+  display: flex;
+  gap: var(--space-8);
+  padding: var(--space-8);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  transition: border-color var(--motion) var(--ease), box-shadow var(--motion) var(--ease);
+}
+/* UX spec 6.4 focus ring, drawn on the row: 2px of --focus (3:1 floor). */
+.composer__row:focus-within { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus), var(--shadow-2); }
+.composer__row .composer__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: var(--space-8) var(--space-12);
+  font-size: var(--size-body);
+}
+.composer__row .composer__input:hover { border-color: transparent; }
+/* The whole row carries the focus ring (:focus-within above, 3px accent-soft
+   plus the accent border), so the input itself does not draw a second one. */
+.composer__row .composer__input:focus-visible { outline: none; }
+.composer__row .btn { border-radius: var(--radius-md); padding: var(--space-8) var(--space-16); }
+.composer__hint { margin: var(--space-8) 0 0; font-size: var(--size-meta); color: var(--text-muted); }
 .composer__reason {
   margin: var(--space-8) 0 0;
   font-size: var(--size-meta);
@@ -574,60 +945,63 @@ input[type="text"]:disabled, select:disabled, button:disabled {
   gap: var(--space-12);
   max-width: var(--prose-max);
   padding: var(--space-12) var(--space-16);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
 }
 .stage__label { font-weight: 600; }
 .stage form { margin-inline-start: auto; }
 
-/* 3.6: "Progress and stage hints animate. Nothing else moves." */
+/* 3.6: "Progress and stage hints animate. Nothing else moves." Three ink
+   drops pulse in turn; the TEXT beside them is the stage itself. */
 .stage__dot {
-  width: 10px;
-  height: 10px;
+  position: relative;
+  width: 8px;
+  height: 8px;
+  margin-inline: var(--space-12);
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1200ms ease-in-out infinite 200ms;
+}
+.stage__dot::before, .stage__dot::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--accent);
   animation: pulse 1200ms ease-in-out infinite;
 }
-@keyframes pulse { 50% { opacity: 0.25; } }
+.stage__dot::before { inset-inline-start: -12px; }
+.stage__dot::after { inset-inline-start: 12px; animation-delay: 400ms; }
+@keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 
 /* ---- Reduced motion (3.6, criterion 12) ---------------------------- */
 
-/*
-  "Honour reduced-motion by disabling all transitions and replacing any
-  animated indicator with a static one plus text." The dot stops moving
-  and gains a ring so it is still visibly an indicator; the TEXT beside it
-  was always the stage hint, so nothing is lost with the animation.
-*/
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0s !important;
   }
-  .stage__dot {
+  .stage__dot, .stage__dot::before, .stage__dot::after {
     animation: none;
     background: var(--surface);
-    border: 3px solid var(--accent);
+    border: 2px solid var(--accent);
   }
 }
 
-/* ---- Notice banner (the "moved" message on S1, sync-blocked on S2) - */
+/* ---- Notice banner and form errors --------------------------------- */
 
-/*
-  Was used (class="notice") on S1's "moved" message since ST-27 with no
-  rule to back it -- an unstyled paragraph, found while adding S2's own
-  use of the same class rather than inventing a second one. Fixed here
-  rather than filed separately (boy-scout rule): same left-rule treatment
-  as .disclaimer, which already carries this exact meaning ("something
-  changed, nothing failed").
-*/
 .notice {
   max-width: var(--prose-max);
   margin: 0 0 var(--space-16);
   padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-md);
   border-inline-start: 3px solid var(--notice);
-  background: var(--surface-raised);
+  background: var(--notice-soft);
   font-size: var(--size-meta);
   line-height: 1.45;
 }
@@ -643,14 +1017,24 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 .workspaces {
   display: grid;
   grid-template-columns: var(--rail) minmax(0, 1fr);
-  gap: var(--space-24);
+  gap: var(--space-32);
   align-items: start;
 }
 @media (max-width: 1023px) {
   .workspaces { grid-template-columns: minmax(0, 1fr); }
 }
 
-.ws-list__title { margin: 0 0 var(--space-16); }
+.ws-list { position: sticky; top: 88px; }
+@media (max-width: 1023px) { .ws-list { position: static; } }
+.ws-list__title { margin: 0 0 var(--space-8); }
+.ws-list__watch-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: 0 0 var(--space-16);
+  font-size: var(--size-meta);
+  color: var(--text-muted);
+}
 .ws-list__items {
   list-style: none;
   margin: 0 0 var(--space-16);
@@ -661,71 +1045,170 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 .ws-list__item {
   display: flex;
   align-items: center;
-  gap: var(--space-8);
-  padding: var(--space-8) var(--space-12);
+  gap: var(--space-12);
+  padding: var(--space-12) var(--space-16);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
   color: var(--text);
   text-decoration: none;
+  transition: border-color var(--motion) var(--ease), box-shadow var(--motion) var(--ease);
 }
-/* UX spec 3.4: "the selected workspace" is named as one of the places
-   border-strong's 3:1 floor is required because a border is the only
-   thing marking the boundary/state -- so the current item's border is
-   what carries "selected", not colour, and aria-current carries it to
-   assistive tech. */
+.ws-list__item:hover { border-color: var(--border-strong); box-shadow: var(--shadow-1); }
+.ws-list__item .marker { margin-inline-start: auto; }
+.ws-list__glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-weight: 700;
+}
+/* UX spec 3.4 names "the selected workspace" as a border-strong boundary:
+   the border, the weight and aria-current carry "selected", never colour. */
 .ws-list__item.is-current {
   border-color: var(--border-strong);
-  background: var(--surface-raised);
+  box-shadow: inset 3px 0 0 var(--accent), var(--shadow-1);
   font-weight: 600;
 }
+[dir="rtl"] .ws-list__item.is-current { box-shadow: inset -3px 0 0 var(--accent), var(--shadow-1); }
+.ws-list__item.is-current .ws-list__glyph { background: var(--accent); color: var(--surface); }
 
 .ws-list__new summary,
 .ws-detail__settings summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--accent);
-  margin-bottom: var(--space-12);
+  font-weight: 600;
+  list-style: none;
+}
+.ws-list__new summary::-webkit-details-marker,
+.ws-detail__settings summary::-webkit-details-marker { display: none; }
+.ws-list__new summary:hover,
+.ws-detail__settings summary:hover { background: var(--accent-soft); }
+.ws-list__new[open] > summary,
+.ws-detail__settings[open] > summary { margin-bottom: var(--space-12); }
+.ws-list__new[open] .ws-form {
+  padding: var(--space-16);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
 }
 
-.ws-detail__head { display: flex; align-items: baseline; gap: var(--space-12); margin-bottom: var(--space-4); }
-.ws-detail__head h2 { margin: 0; }
-.ws-detail__path { color: var(--text-muted); margin: 0 0 var(--space-16); }
-.ws-detail__settings { margin-bottom: var(--space-24); }
+.ws-detail {
+  padding: var(--space-24);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+}
+.ws-detail__head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-12); margin-bottom: var(--space-8); }
+.ws-detail__head h2 { margin: 0; font-size: var(--size-display); letter-spacing: -0.015em; }
+.ws-detail__path {
+  display: inline-block;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-16);
+  padding: var(--space-4) var(--space-12);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.ws-detail__settings { margin-bottom: var(--space-16); }
+.ws-detail__settings[open] {
+  padding: var(--space-16);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
 
 .ws-form { max-width: var(--prose-max); margin-bottom: var(--space-16); }
-.ws-form__label { display: block; font-size: var(--size-meta); color: var(--text-muted); margin-bottom: var(--space-4); }
-.ws-form__row { display: flex; gap: var(--space-8); align-items: center; margin-bottom: var(--space-12); }
-.ws-form__row--check { gap: var(--space-8); }
+.ws-form__label { display: block; font-size: var(--size-meta); font-weight: 600; color: var(--text-muted); margin-bottom: var(--space-4); }
+.ws-form__row { display: flex; flex-wrap: wrap; gap: var(--space-8); align-items: center; margin-bottom: var(--space-12); }
+.ws-form__row .ws-form__label { flex-basis: 100%; margin: 0; }
+.ws-form__row--check { gap: var(--space-8); flex-wrap: nowrap; }
 .ws-form__input { flex: 1; }
 
-.ws-sync { max-width: var(--prose-max); margin: var(--space-16) 0; }
-.ws-sync .stage { margin-bottom: var(--space-12); }
+.ws-sync {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-12);
+  max-width: var(--prose-max);
+  margin: var(--space-16) 0;
+}
+.ws-sync > * { margin: 0; }
+.ws-sync .stage, .ws-sync .notice, .ws-sync .panel { flex-basis: 100%; }
 
-/* ---- FileTable (UX spec 5, 7.2, 7.4) --------------------------------- */
+/* ---- Tables: FileTable, report lists (UX spec 5, 7.2, 7.4, 8) -------- */
 
 .file-table {
   width: 100%;
-  border-collapse: collapse;
-  margin-top: var(--space-12);
+  border-collapse: separate;
+  border-spacing: 0;
+  margin-top: var(--space-16);
+  font-size: var(--size-body);
 }
 .file-table th, .file-table td {
   text-align: start;
+  vertical-align: middle;
   padding: var(--space-8) var(--space-12);
   border-bottom: 1px solid var(--border);
 }
+.file-table thead th {
+  font-size: var(--size-meta);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  border-bottom-color: var(--border);
+  white-space: nowrap;
+}
+.file-table thead th:first-child { border-start-start-radius: var(--radius-sm); border-end-start-radius: var(--radius-sm); }
+.file-table thead th:last-child { border-start-end-radius: var(--radius-sm); border-end-end-radius: var(--radius-sm); }
+.file-table tbody tr { transition: background-color var(--motion) var(--ease); }
+.file-table tbody tr:hover { background: var(--surface-raised); }
+.file-table tbody tr:last-child td { border-bottom: 0; }
+.file-table td.mono, .file-table .num { font-variant-numeric: tabular-nums; }
 .file-table__sort {
-  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: inherit;
   text-decoration: none;
   font-weight: 600;
 }
 .file-table__sort:hover { color: var(--accent); }
+.file-table a { font-weight: 600; }
 
-/* Six statuses, shape plus label plus colour (3.5): the ROLE class sets
-   the colour via `color`, the SHAPE class draws with `currentColor`, so
-   neither can be applied without the other going along -- exactly what
-   "any one of the three can be removed and the table still reads" needs,
-   since the text label sits right beside this and never depends on it. */
-.status-pill { display: inline-flex; align-items: center; gap: var(--space-8); }
-.status-dot { width: 10px; height: 10px; display: inline-block; }
+.table-card {
+  padding: var(--space-8) var(--space-16) var(--space-16);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  overflow-x: auto;
+  margin-bottom: var(--space-32);
+}
+.table-card .file-table { margin-top: 0; }
+
+/* Six statuses, shape plus label plus colour (3.5). The ROLE class sets the
+   colour, the SHAPE class draws with currentColor, the text label sits
+   beside it, so any one of the three can be removed and the row still reads. */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  font-size: var(--size-meta);
+  font-weight: 600;
+  line-height: 1.8;
+  white-space: nowrap;
+}
+.status-dot { width: 10px; height: 10px; display: inline-block; flex: none; }
 
 .status-dot--positive { color: var(--positive); }
 .status-dot--notice { color: var(--notice); }
@@ -736,29 +1219,39 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 
 .status-dot--filled-circle { background: currentColor; border-radius: 50%; }
 .status-dot--hollow-circle { border: 2px solid currentColor; border-radius: 50%; }
-.status-dot--filled-square { background: currentColor; }
-.status-dot--hollow-square { border: 2px solid currentColor; }
-.status-dot--dash { background: currentColor; height: 2px; margin-block-start: 4px; border-radius: 1px; }
-/* Known, minor RTL gap: a physical direction rather than a logical one,
-   left because the shape is decorative (shape + label + colour already
-   carry the status three ways over) and a logical gradient keyword is
-   not the reliable cross-browser choice a floor-4.5:1 text colour is. */
+.status-dot--filled-square { background: currentColor; border-radius: 2px; }
+.status-dot--hollow-square { border: 2px solid currentColor; border-radius: 2px; }
+.status-dot--dash { background: currentColor; height: 2px; border-radius: 1px; }
+/* Known, minor RTL gap: the half-circle gradient is physical. The shape is
+   decorative -- label and colour already carry the status. */
 .status-dot--half-circle {
   border-radius: 50%;
+  border: 1px solid currentColor;
   background: linear-gradient(to right, currentColor 50%, transparent 50%);
 }
 
+/* ---- S3 Reports (UX spec 8) ---------------------------------------- */
+
+.report-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-8) var(--space-16); margin: 0 0 var(--space-24); }
+.report-head h1 { margin: 0; }
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-16);
+  font-size: var(--size-meta);
+  font-weight: 600;
+}
+
+.section-title { margin: var(--space-32) 0 var(--space-12); }
+
 /* ---- Below 768px (3.1) --------------------------------------------- */
 
-/*
-  "Below 768px the app shows a plain notice that Sanad targets a desktop
-  browser. Do not build a phone layout." So this is a notice, not a
-  breakpoint: the screen is hidden rather than reflowed, which is the
-  whole point of the instruction.
-*/
+/* "Below 768px the app shows a plain notice that Sanad targets a desktop
+   browser. Do not build a phone layout." */
 .desktop-only { display: none; }
 @media (max-width: 767px) {
-  .shell__nav, .main { display: none; }
+  .shell__nav, .main, .shell__workspace { display: none; }
   .desktop-only {
     display: block;
     max-width: var(--prose-max);

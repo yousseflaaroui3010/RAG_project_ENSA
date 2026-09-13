@@ -858,6 +858,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     # also carry `lang="ar"` when it truly is one (see `ui.rtl.text_is_arabic`
     # docstring for why this is decided at render time, not stored).
     templates.env.globals["is_arabic"] = rtl.text_is_arabic
+    # Stored ISO timestamps rendered for people (S2 sync times, S3 report
+    # dates, feedback dates); see ui.screen.format_when.
+    templates.env.filters["when"] = screen.format_when
 
     def render(request: Request, name: str = "chat.html") -> HTMLResponse:
         return templates.TemplateResponse(request, name, _context(runtime, request))
