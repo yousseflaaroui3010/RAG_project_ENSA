@@ -22,7 +22,11 @@
 {% else %}
   <section aria-label="Evaluation reports"
            {% if busy %}data-report-refresh="true"{% endif %}>
-    <h1>Reports</h1>
+    <div class="page-head">
+      <h1>Reports</h1>
+      <p class="page-head__lead">Golden-set evaluation runs and the release gates each one met.</p>
+    </div>
+    <div class="table-card">
     <table class="file-table">
       <caption class="sources__title">Evaluation runs</caption>
       <thead>
@@ -41,7 +45,7 @@
             <td class="mono">
               <a href="/reports/{{ r.id }}"
                  data-report-focus="run-{{ r.id }}"
-                 aria-label="Open the {{ r.run_at }} report for {{ r.workspace_name }}">{{ r.run_at }}</a>
+                 aria-label="Open the {{ r.run_at | when }} report for {{ r.workspace_name }}">{{ r.run_at | when }}</a>
             </td>
             <td><bdi{% if is_arabic(r.workspace_name) %} lang="ar"{% endif %}>{{ r.workspace_name }}</bdi></td>
             <td class="mono" data-report-value="{{ r.id }}-grounded">{{ r.groundedness_label }}</td>
@@ -58,6 +62,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
   </section>
 {% endif %}
 
@@ -67,8 +72,9 @@
   including NO_REPORTS, rather than being folded into that branch.
 #}
 <section aria-label="Answer feedback">
-  <h2>Answer feedback</h2>
+  <h2 class="section-title">Answer feedback</h2>
   {% if feedback %}
+    <div class="table-card">
     <table class="file-table">
       <caption class="sources__title">Feedback on answers</caption>
       <thead>
@@ -83,7 +89,7 @@
       <tbody>
         {% for f in feedback %}
           <tr>
-            <td class="mono">{{ f.created_at }}</td>
+            <td class="mono">{{ f.created_at | when }}</td>
             {# F-14: user-typed text in any script reads in its own direction. #}
             <td dir="auto">{{ f.workspace_name }}</td>
             <td>{{ f.verdict_label }}</td>
@@ -93,6 +99,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
   {% else %}
     <p class="muted">No feedback yet.</p>
   {% endif %}

@@ -18,7 +18,7 @@
 {% else %}
   <section aria-label="Report detail"
            {% if detail.summary.is_running %}data-report-refresh="true"{% else %}data-report-final-status="Evaluation {{ 'stopped with partial results' if detail.summary.is_partial else 'completed' }}."{% endif %}>
-    <p><a href="/reports" data-report-focus="back">All reports</a></p>
+    <p class="back-link"><a href="/reports" data-report-focus="back">All reports</a></p>
     {#
       F-14: `workspace_name` is user-typed (F-01) sitting beside a
       timestamp -- `<bdi>` isolates it the same way base.html's workspace
@@ -26,7 +26,7 @@
       out of its own left-to-right order (UX spec 8.5: "numbers and
       thresholds stay left-to-right").
     #}
-    <h1><bdi{% if is_arabic(detail.summary.workspace_name) %} lang="ar"{% endif %}>{{ detail.summary.workspace_name }}</bdi> <span class="mono">{{ detail.summary.run_at }}</span></h1>
+    <h1><bdi{% if is_arabic(detail.summary.workspace_name) %} lang="ar"{% endif %}>{{ detail.summary.workspace_name }}</bdi> <span class="muted">{{ detail.summary.run_at | when }}</span></h1>
 
     {% if detail.summary.is_running %}
       <div class="stage" role="status" aria-live="polite"
@@ -71,6 +71,7 @@
         </span>
       {% endif %}
     {% endmacro %}
+    <div class="table-card">
     <table class="file-table" data-report-scores>
       <caption class="sources__title">Release gates</caption>
       <thead>
@@ -92,6 +93,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
 
     {#
       UX spec 8.3's error clause, the reachable half: the run's own row
@@ -106,6 +108,7 @@
       </div>
     {% endif %}
 
+    <div class="table-card">
     <table class="file-table" data-report-questions>
       <caption class="sources__title">Per-question results</caption>
       <thead>
@@ -138,6 +141,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
 
     <p>
       {#
