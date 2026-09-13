@@ -24,11 +24,14 @@ plausible.
 from __future__ import annotations
 
 import logging
+import re
 import zipfile
 
 import pymupdf
 import pytest
+from pptx import Presentation
 
+import chunking
 import conversion
 from config import get_settings
 from conversion import ConversionOutcome
@@ -115,6 +118,35 @@ def _docx(path, document_xml=_DOCUMENT_XML):
     return path
 
 
+def _pptx(path, slides, *, titles=None):
+    """A genuine PPTX package, built with python-pptx -- a transitive
+    dependency of `markitdown[all]` (already a project dependency, ADR-07),
+    used directly here the same way `pymupdf` is used above to build real
+    PDF fixtures: the risk this rung carries lives in what a real parser
+    does with a real file, and a mocked one would answer that by assuming
+    it. Not a project dependency in its own right (see DECISIONS.md).
+
+    `slides` is one entry per slide: a body string for a slide with text,
+    or None for a genuinely blank slide -- F-11's binding empty-slide case,
+    and the one a naive "count slides seen so far" numbering gets wrong.
+    `titles`, if given, is the same length and sets a real title
+    placeholder on the matching slide (None entries skip it)."""
+    prs = Presentation()
+    layout_with_body = prs.slide_layouts[1]
+    layout_blank = prs.slide_layouts[6]
+    titles = titles or [None] * len(slides)
+    for text, title in zip(slides, titles, strict=True):
+        if text is None:
+            prs.slides.add_slide(layout_blank)
+            continue
+        slide = prs.slides.add_slide(layout_with_body)
+        if title is not None:
+            slide.shapes.title.text = title
+        slide.placeholders[1].text_frame.text = text
+    prs.save(str(path))
+    return path
+
+
 # --- the happy rungs --------------------------------------------------
 
 
@@ -172,6 +204,218 @@ def test_docx_has_no_page_count(tmp_path):
 
     assert result.outcome is ConversionOutcome.CONVERTED
     assert result.page_count is None
+
+
+def test_pptx_converts_and_labels_each_slide(tmp_path):
+    """F-11's core claim, at the conversion layer: markitdown's own
+    `<!-- Slide number: N -->` marker (verified against a real deck)
+    becomes a real "Slide N" heading, one per slide with text.
+
+    Slide 2 is genuinely blank -- the middle slide, not the last, so a
+    numbering scheme that merely counts headings seen so far would land on
+    2 for slide 3's text instead of 3. Asserted by absence too: "Slide 2"
+    must not appear anywhere, or a blank slide would be inventing a
+    citable but empty section."""
+    path = _pptx(
+        tmp_path / "deck.pptx",
+        ["Alpha content on slide one.", None, "Gamma content on slide three."],
+    )
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert "# Slide 1" in result.markdown
+    assert "# Slide 3" in result.markdown
+    assert "Slide 2" not in result.markdown
+    assert "Alpha content on slide one." in result.markdown
+    assert "Gamma content on slide three." in result.markdown
+
+
+def test_pptx_slide_title_is_kept_as_text_not_a_second_heading(tmp_path):
+    """markitdown emits a slide's own title as its own "# Title" heading.
+    Left alone, chunking would split that into a second section with no
+    slide number at all -- so `_read_pptx` demotes it to plain text, and
+    this is the one test that would catch that demotion being dropped:
+    exactly one H1 for the slide, and the title text still present, just
+    not as a heading."""
+    path = _pptx(tmp_path / "deck.pptx", ["Alpha content."], titles=["Intro"])
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    heading_lines = [
+        line for line in result.markdown.splitlines() if line.startswith("#")
+    ]
+    assert heading_lines == ["# Slide 1"]
+    assert "Intro" in result.markdown
+
+
+def test_pptx_has_no_page_count(tmp_path):
+    """None means "this format has no pages", matching DOCX: a slide deck
+    is cited by slide number (PRD F-11), never a page."""
+    result = conversion.convert_file(_pptx(tmp_path / "deck.pptx", ["Some text."]))
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert result.page_count is None
+
+
+def test_pptx_with_no_text_reports_skipped(tmp_path):
+    """A deck of genuinely blank slides reaches the same shared emptiness
+    gate as a scanned PDF or an empty DOCX -- nothing to index, and not the
+    user's fault."""
+    path = _pptx(tmp_path / "deck.pptx", [None, None])
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.SKIPPED
+    assert result.markdown is None
+
+
+def test_corrupted_pptx_reports_failed_and_never_returns_its_own_bytes(tmp_path):
+    """The PPTX twin of `_read_docx`'s most dangerous behaviour, verified
+    against markitdown 0.1.5 rather than assumed: a `.pptx` that is not
+    even a ZIP comes back as its own raw bytes, reported a SUCCESS, with no
+    exception at all. Reported Added, those bytes would be chunked,
+    embedded, and one day cited to a user as a source.
+
+    The second assertion is the load-bearing one, for the same reason it
+    is in the DOCX test: FAILED alone would still pass if the guard were
+    removed and something else happened to reject the file; garbage can
+    never be in `markdown` while the guard holds."""
+    path = tmp_path / "broken.pptx"
+    path.write_bytes(b"PK\x03\x04garbage-not-a-zip")
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.FAILED
+    assert result.markdown is None
+    assert "PowerPoint" in result.reason
+
+
+def test_valid_zip_that_is_not_a_pptx_file_reports_failed(tmp_path):
+    """The half of the fallback a bare `zipfile.is_zipfile` check would
+    miss: a real ZIP renamed `.pptx` passes the zip check, and markitdown
+    returns a directory listing of its entries as the document's text.
+    Only the `ppt/presentation.xml` check catches it."""
+    path = tmp_path / "archive.pptx"
+    with zipfile.ZipFile(path, "w") as package:
+        package.writestr("hello.txt", "hi")
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.FAILED
+    assert result.markdown is None
+
+
+def test_pptx_with_a_corrupt_body_reports_failed(tmp_path):
+    """The rung's last guard: a package that has `ppt/presentation.xml` by
+    name but whose content is not something python-pptx can open (missing
+    the rest of the OOXML package here, invalid XML in the DOCX sibling
+    test). Passes both the zip and the main-part checks, so only
+    markitdown's own `MarkItDownException` catches it -- verified
+    reachable against a real minimal fixture, not assumed."""
+    path = tmp_path / "mangled.pptx"
+    with zipfile.ZipFile(path, "w") as package:
+        package.writestr("ppt/presentation.xml", "not xml at all <<<>>>")
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.FAILED
+    assert result.markdown is None
+    assert "PowerPoint" in result.reason
+
+
+def test_pptx_chunking_labels_the_right_slide_not_the_count_so_far(tmp_path, monkeypatch):
+    """The end-to-end F-11 claim: real conversion feeds real chunking with
+    no code change to chunking.py at all, and the citation a user would see
+    names the ACTUAL slide, not the position among slides that had text.
+
+    `parent_merge_below_chars` is forced to 1 (each section already clears
+    it) so slides 1 and 3 land in separate parents instead of merging --
+    the merged case, and its range label, is covered separately below."""
+    path = _pptx(
+        tmp_path / "deck.pptx",
+        ["Alpha content on slide one.", None, "Gamma content on slide three."],
+    )
+    settings = get_settings().model_copy(update={"parent_merge_below_chars": 1})
+    monkeypatch.setattr(chunking, "get_settings", lambda: settings)
+
+    result = conversion.convert_file(path)
+    chunked = chunking.chunk_document(result.markdown, source_file="deck.pptx")
+
+    assert [parent.section_label for parent in chunked.parents] == ["Slide 1", "Slide 3"]
+    slide_three_child = next(c for c in chunked.children if "Gamma" in c.text)
+    assert slide_three_child.section_label == "Slide 3"
+
+
+def test_pptx_chunk_spanning_slides_gets_a_range_label(tmp_path):
+    """Consistent with the existing merged-range convention chunking.py
+    already uses for headings and Article markers (`_merged_label` /
+    `_citation_label`'s "Article 1 ... Article 3"): a parent built from
+    several short slides is cited by the range it spans, never by its
+    first slide alone -- citing a sentence from slide 3 as "Slide 1" would
+    be as wrong a citation as citing Article 3 as Article 1.
+
+    Default settings on purpose (no monkeypatch): short real slide text
+    merges under the real `parent_merge_below_chars` (2,000), which is
+    exactly the input this behaviour is for."""
+    path = _pptx(tmp_path / "deck.pptx", ["Alpha.", None, "Gamma, distinct."])
+
+    result = conversion.convert_file(path)
+    chunked = chunking.chunk_document(result.markdown, source_file="deck.pptx")
+
+    assert len(chunked.parents) == 1
+    assert chunked.parents[0].section_label == "Slide 1 ... Slide 3"
+
+
+def test_each_pptx_child_is_cited_by_exactly_the_slides_its_text_comes_from(tmp_path):
+    """The citation a user reads comes from the CHILD. With default settings
+    a deck of short slides merges into one parent ("Slide 1 ... Slide 5"),
+    and before the in-text slide lines every child inherited that whole
+    range. Each slide's words carry its own prefix here, so the slides a
+    child really holds can be read back from its text and compared with its
+    label: no child may be cited by a slide it holds nothing from, and none
+    may omit one it does. Slide 2 is blank, so the numbers are not 1..4.
+
+    Kills: dropping "Slide" from the citation marker pattern (every child
+    gets the parent range); dropping the closing "(end of Slide N)" line
+    (the child that runs from slide 3 into slide 4 is cited "Slide 4")."""
+    words = {"alpha": 1, "gamma": 3, "delta": 4, "omega": 5}
+
+    def slide_text(word: str) -> str:
+        return " ".join(f"{word}{i}" for i in range(40)) + "."
+
+    path = _pptx(
+        tmp_path / "deck.pptx",
+        [slide_text("alpha"), None, slide_text("gamma"), slide_text("delta"), slide_text("omega")],
+    )
+
+    chunked = chunking.chunk_document(
+        conversion.convert_file(path).markdown, source_file="deck.pptx"
+    )
+
+    assert [p.section_label for p in chunked.parents] == ["Slide 1 ... Slide 5"]
+    assert len(chunked.children) >= 3, "fixture too small: children must span slides"
+    for child in chunked.children:
+        held = sorted({words[w] for w in re.findall(r"(alpha|gamma|delta|omega)\d", child.text)})
+        expected = (
+            f"Slide {held[0]}"
+            if held[0] == held[-1]
+            else f"Slide {held[0]} ... Slide {held[-1]}"
+        )
+        assert child.section_label == expected, child.text[:60]
+
+
+def test_an_empty_slide_title_leaves_no_stray_hash_in_the_text(tmp_path):
+    """markitdown writes an empty title placeholder as a bare "#" line
+    (verified on a real deck). It must be demoted like any other in-slide
+    heading, not stored and shown as a lone "#"."""
+    path = _pptx(tmp_path / "deck.pptx", ["Body text only, no title."])
+
+    markdown = conversion.convert_file(path).markdown
+
+    assert "Body text only, no title." in markdown
+    assert [line for line in markdown.splitlines() if line.strip() == "#"] == []
 
 
 def test_markdown_file_passes_through_unchanged(tmp_path):
@@ -339,7 +583,7 @@ def test_undecodable_text_file_reports_failed(tmp_path):
     assert "UTF-8" in result.reason
 
 
-@pytest.mark.parametrize("name", ["gone.pdf", "gone.docx", "gone.txt"])
+@pytest.mark.parametrize("name", ["gone.pdf", "gone.docx", "gone.pptx", "gone.txt"])
 def test_an_ordinary_missing_file_is_not_logged_as_an_unexpected_failure(
     tmp_path, caplog, name
 ):
@@ -405,18 +649,21 @@ def test_a_converter_crashing_in_an_undeclared_way_costs_one_file(monkeypatch, t
     assert "undeclared parser bug" in result.reason
 
 
-@pytest.mark.parametrize("name", ["gone.txt", "gone.md", "gone.pdf", "gone.docx"])
+@pytest.mark.parametrize(
+    "name", ["gone.txt", "gone.md", "gone.pdf", "gone.docx", "gone.pptx"]
+)
 def test_missing_file_reports_failed_on_every_rung(tmp_path, name):
     """A file deleted between the scan and the conversion is an ordinary
     race in a sync, and every rung has to survive it identically.
 
-    Parametrised across all four because each rung reaches it by a
+    Parametrised across all five because each rung reaches it by a
     different exception: OSError for text, `pymupdf.FileNotFoundError`
     (which shadows the builtin and subclasses RuntimeError, so `except
     OSError` does NOT catch it) for PDF, and the builtin OSError for
-    DOCX. The reason is asserted too -- a missing file must not be
-    described as damaged, or its owner goes hunting for corruption in a
-    file that simply is not there."""
+    DOCX and PPTX (both raised by `zipfile.ZipFile` on a missing path).
+    The reason is asserted too -- a missing file must not be described as
+    damaged, or its owner goes hunting for corruption in a file that
+    simply is not there."""
     result = conversion.convert_file(tmp_path / name)
 
     assert result.outcome is ConversionOutcome.FAILED
@@ -479,11 +726,12 @@ def test_docx_with_no_text_reports_skipped(tmp_path):
 
 
 def test_unsupported_extension_reports_skipped_with_the_shared_reason(tmp_path):
-    """A file type outside the V1 set (PPTX is F-11 / ST-48). The reason
-    is the SAME constant the folder scan uses -- asserted by identity, not
-    by repeating the string here, so one reworded copy cannot drift away
-    from the other and show the user two explanations for one situation."""
-    path = tmp_path / "deck.pptx"
+    """A file type outside the V1.1 set (PPTX joined it for F-11 / ST-48;
+    RTF has no story of its own). The reason is the SAME constant the
+    folder scan uses -- asserted by identity, not by repeating the string
+    here, so one reworded copy cannot drift away from the other and show
+    the user two explanations for one situation."""
+    path = tmp_path / "memo.rtf"
     path.write_bytes(b"anything")
 
     result = conversion.convert_file(path)
@@ -587,7 +835,9 @@ def test_every_supported_extension_has_a_rung():
     assert set(conversion._CONVERTERS) == set(get_settings().supported_document_extensions)
 
 
-@pytest.mark.parametrize("name", ["doc.PDF", "note.DocX", "readme.MD", "notes.TXT"])
+@pytest.mark.parametrize(
+    "name", ["doc.PDF", "note.DocX", "deck.PPTX", "readme.MD", "notes.TXT"]
+)
 def test_extension_matching_is_case_insensitive(tmp_path, name):
     """Windows and macOS hand over `REPORT.PDF` routinely. Dispatch shares
     `change_detection.file_type` precisely so a file the scan accepted can
@@ -597,6 +847,8 @@ def test_extension_matching_is_case_insensitive(tmp_path, name):
         _pdf_with_headings(path)
     elif path.suffix.lower() == ".docx":
         _docx(path)
+    elif path.suffix.lower() == ".pptx":
+        _pptx(path, ["Some text."])
     else:
         path.write_text("# Titre\n\nCorps.\n", encoding="utf-8")
 
