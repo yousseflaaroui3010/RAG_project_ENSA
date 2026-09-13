@@ -36,10 +36,13 @@ THREE THINGS THIS FILE DELIBERATELY DOES NOT DO:
    that two filters cannot drift apart. This records that same tuple, by
    reading the arguments `write_answer` is called with. Not a copy of the
    rule: the arguments themselves.
-3. It does not invent a partial answer. `write_answer` returns a whole
-   string or raises; nothing streams in V1. So cancelling during the
-   writing stage leaves no partial text, and the screen says so rather
-   than showing an empty bubble marked "incomplete".
+3. It does not invent a partial answer. Since S6 the writer streams, and
+   what this keeps is exactly the text the model has written so far
+   (`partial_text`), published by `agent.answering` only once it cannot
+   still turn into a decline. Cancelling while writing stops the model
+   stream and keeps that text, marked incomplete (UX spec section 11).
+   Cancelling before any text was shown still leaves none, and the screen
+   says so rather than showing an empty bubble marked "incomplete".
 """
 
 from __future__ import annotations
@@ -51,6 +54,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from agent import streaming
 from agent.ports import AgentPorts
 from agent.querying import ClarificationContext, clarified_question
 from agent.state import Answer, Turn
@@ -157,6 +161,7 @@ class Run:
     _done: bool = False
     _answer: Answer | None = None
     _error: BaseException | None = None
+    _partial_text: str = ""
     reading: Reading = field(default_factory=Reading)
     updated_summary: str | None = None
 
@@ -181,6 +186,15 @@ class Run:
         it does first. ONE read, so the label and the S6 step rail built
         from it can never disagree."""
         return self.stage or Stage.PREPARING
+
+    @property
+    def partial_text(self) -> str:
+        """The answer as written so far, while the model is still writing.
+
+        Empty until `agent.answering` judges the reply safe to show. Read
+        by the page on every poll, so it is guarded like `stage`."""
+        with self._lock:
+            return self._partial_text
 
     @property
     def done(self) -> bool:
@@ -319,7 +333,8 @@ class Run:
                 # about what was read.
                 self.reading.cited = tuple(passages)
                 self.reading.parents = dict(parent_texts)
-                written = write_answer(question, passages, parent_texts)
+                with streaming.listening_with(self._receive_partial):
+                    written = write_answer(question, passages, parent_texts)
                 # CANCEL HAS TO WORK ON THE LAST STAGE TOO. Writing is the
                 # final port, so without this checkpoint the flag set
                 # during it is never read again and the answer lands as if
@@ -345,6 +360,18 @@ class Run:
             fetch_parents=stoppable(ports.fetch_parents),
             write_answer=writing(ports.write_answer),
         )
+
+    def _receive_partial(self, text_so_far: str) -> None:
+        """Keep the latest partial answer, or stop the stream on Cancel.
+
+        Raising HERE, between two pieces of the model's reply, is what
+        makes Cancel stop the writing stage instead of waiting for the
+        last word: the exception leaves the stream loop, the provider's
+        stream is closed, and the rest of the answer is never paid for.
+        The text kept is what was already on screen."""
+        with self._lock:
+            self._raise_if_cancelled()
+            self._partial_text = text_so_far
 
     def _work(self, ports: AgentPorts) -> None:
         try:

@@ -369,7 +369,14 @@
           #}
           <div class="bubble bubble--interrupted">
             <p class="incomplete-mark">{{ t('conv.incomplete') }}</p>
-            <p dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ tx(message.text) }}</p>
+            {% if message.partial %}
+              {# S6: the model's own half-written answer, formatted like one
+                 but never given sources, feedback or a trace. #}
+              <div class="answer__text prose" dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text | answer_html }}</div>
+              <p class="muted">{{ t('conv.partial.note') }}</p>
+            {% else %}
+              <p dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ tx(message.text) }}</p>
+            {% endif %}
           </div>
 
         {% elif message.kind == MessageKind.ERROR %}
@@ -449,6 +456,22 @@
       A reword retry sends the agent back to Preparing, and the rail goes
       back with it. That is the truth, so it is shown.
     #}
+    {% if partial_text %}
+      {#
+        S6: the answer as the model writes it. OUTSIDE the transcript list
+        on purpose: sanad.js appends finished messages by counting that
+        list's children, and a live region announcing every new word would
+        be noise -- the finished answer is announced once, when it lands.
+        No sources, feedback or trace yet: those belong to a finished
+        answer, and this one may still be cancelled.
+      #}
+      <div class="msg msg--answer msg--streaming" data-streaming>
+        <div class="bubble bubble--answer">
+          <p class="bubble__head"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7Z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>{{ t('conv.streaming.head') }}</p>
+          <div class="answer__text prose" dir="auto"{% if is_arabic(partial_text) %} lang="ar"{% endif %} data-streaming-text>{{ partial_text | answer_html }}</div>
+        </div>
+      </div>
+    {% endif %}
     {% set current_step = stage_steps.index(stage_key) if stage_key in stage_steps else 0 %}
     <div class="stage stage--steps" role="status" aria-live="polite" data-stage
          data-stage-key="{{ stage_key }}">

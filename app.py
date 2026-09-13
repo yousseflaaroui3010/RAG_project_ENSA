@@ -25,6 +25,8 @@ the real object the graph returned.
 from __future__ import annotations
 
 import contextlib
+import functools
+import hashlib
 import logging
 import sqlite3
 import threading
@@ -78,6 +80,20 @@ logger = logging.getLogger(__name__)
 HERE = Path(__file__).resolve().parent
 TEMPLATES = HERE / "ui" / "templates"
 STATIC = HERE / "ui" / "static"
+
+
+@functools.cache
+def _static_url(name: str) -> str:
+    """`/static/<name>?v=<first 12 hex of its SHA-256>`.
+
+    Found by watching the S6 streaming draft freeze in a real browser: the
+    page was new and `sanad.js` was the copy the browser had cached hours
+    earlier, from before the draft code existed. A fingerprint of the
+    file's own bytes changes exactly when the file does, so a deploy can
+    never pair new templates with an old script or stylesheet. Read once
+    per process; a changed file ships with a restart anyway."""
+    digest = hashlib.sha256((STATIC / name).read_bytes()).hexdigest()[:12]
+    return f"/static/{name}?v={digest}"
 OPENAPI_CONTRACT = HERE / "docs" / "phase2" / "openapi.yaml"
 APP_VERSION = tomllib.loads((HERE / "pyproject.toml").read_text(encoding="utf-8"))[
     "project"
@@ -525,6 +541,9 @@ def _context(runtime: Runtime, request: Request) -> dict:
         # S6 waiting animation: which of the four real stages is current.
         "stage_key": stage.value if stage else "",
         "stage_steps": [step.value for step in Stage],
+        # S6 streaming: the answer as written so far, "" until it is safe
+        # to show (agent.answering._safe_to_show).
+        "partial_text": run.partial_text if (run and busy) else "",
         "input_reason": (
             screen.BUSY_REASON
             if busy
@@ -903,6 +922,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     templates.env.globals.update(t=_t, th=_th, tx=_tx, ui_lang=_ui_lang,
                                  language_links=_language_links, js_strings=_js_strings)
     templates.env.filters["when"] = _when
+    templates.env.globals["static_url"] = _static_url
     # S6: an answer's bold, lists and tables, with HTML, links and images off.
     templates.env.filters["answer_html"] = render_answer
 

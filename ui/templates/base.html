@@ -17,7 +17,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ t('title.app') }}{% endblock %}</title>
-  <link rel="stylesheet" href="/static/sanad.css">
+  <link rel="stylesheet" href="{{ static_url('sanad.css') }}">
   {#
     THE NO-JAVASCRIPT LOADING PATH. While a question is in flight the page
     re-fetches itself so the stage hint stays true (UX spec 6.3). Inside
@@ -144,6 +144,6 @@
   {# The few strings sanad.js can show, in the page's language. `tojson`
      escapes <, > and &, so the block cannot close itself early. #}
   <script type="application/json" id="sanad-i18n">{{ js_strings() | tojson }}</script>
-  <script src="/static/sanad.js" defer></script>
+  <script src="{{ static_url('sanad.js') }}" defer></script>
 </body>
 </html>

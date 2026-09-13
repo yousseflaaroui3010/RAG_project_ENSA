@@ -44,7 +44,8 @@ never runs.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any, Protocol
 
 import httpx
@@ -79,6 +80,73 @@ class ChatModel(Protocol):
         ...
 
 
+class StreamingChatModel(ChatModel, Protocol):
+    """A model that can also hand its reply back in pieces (S6).
+
+    A separate protocol, not a second required method on `ChatModel`: a
+    model that cannot stream is still a complete model, and the answer
+    writer falls back to `complete` for it."""
+
+    def stream(self, system: str, user: str) -> Iterator[str]:
+        """The same reply as `complete`, as text pieces in order."""
+        ...
+
+
+def _text_of(content: Any) -> str:
+    """A langchain message's content as plain text.
+
+    Some providers return content as a list of parts. Join the text ones
+    rather than str() the list, which would send Python repr syntax
+    downstream to a parser."""
+    if isinstance(content, list):
+        return "".join(
+            part if isinstance(part, str) else part.get("text", "")
+            for part in content
+        )
+    if not isinstance(content, str):
+        raise ChatUnavailableError(
+            f"the model returned {type(content).__name__}, not text. This "
+            f"seam is text in, text out (ADR-06)."
+        )
+    return content
+
+
+@contextmanager
+def _named_failures() -> Iterator[None]:
+    """Provider timeouts and connection failures, as the one named error.
+
+    Shared by `complete` and `stream` so a streamed answer fails with the
+    same sentence and the same Retry panel as a whole one."""
+    try:
+        yield
+    except httpx.TimeoutException as exc:
+        # Both builders below set a per-call timeout (config.py
+        # model_call_timeout_seconds). Google's client retries a
+        # timeout up to model_call_max_retries and then RE-RAISES the
+        # original httpx exception (google.genai._api_client.retry_args
+        # sets reraise=True); Ollama's client does not catch a timeout
+        # at all (ollama._client.Client._request_raw only rewraps
+        # httpx.ConnectError, verified against the installed package).
+        # Either way this is PRD section 11's "answering service
+        # unreachable" path, not a bug in this seam, and it must reach
+        # the caller as that named error -- never the provider's own
+        # exception text, which could carry request internals.
+        raise ChatUnavailableError(
+            "the configured model did not respond in time."
+        ) from exc
+    except (httpx.ConnectError, ConnectionError) as exc:
+        # The commonest "unreachable" of all -- no network, or no Ollama
+        # running -- used to escape as an unexpected 500 (review of
+        # 7ebc552). Gemini re-raises httpx.ConnectError after its
+        # retries; the ollama client rewraps it as the builtin
+        # ConnectionError. Same named error, same Retry panel.
+        raise ChatUnavailableError(
+            "the configured model could not be reached. Check the "
+            "network connection (cloud mode) or that Ollama is running "
+            "(strict-local mode), then retry."
+        ) from exc
+
+
 class _LangChainChat:
     """Adapts a langchain chat model to the one method above.
 
@@ -90,51 +158,24 @@ class _LangChainChat:
         self._model = model
 
     def complete(self, system: str, user: str) -> str:
-        try:
+        with _named_failures():
             response = self._model.invoke(
                 [("system", system), ("human", user)]
             )
-        except httpx.TimeoutException as exc:
-            # Both builders below set a per-call timeout (config.py
-            # model_call_timeout_seconds). Google's client retries a
-            # timeout up to model_call_max_retries and then RE-RAISES the
-            # original httpx exception (google.genai._api_client.retry_args
-            # sets reraise=True); Ollama's client does not catch a timeout
-            # at all (ollama._client.Client._request_raw only rewraps
-            # httpx.ConnectError, verified against the installed package).
-            # Either way this is PRD section 11's "answering service
-            # unreachable" path, not a bug in this seam, and it must reach
-            # the caller as that named error -- never the provider's own
-            # exception text, which could carry request internals.
-            raise ChatUnavailableError(
-                "the configured model did not respond in time."
-            ) from exc
-        except (httpx.ConnectError, ConnectionError) as exc:
-            # The commonest "unreachable" of all -- no network, or no Ollama
-            # running -- used to escape as an unexpected 500 (review of
-            # 7ebc552). Gemini re-raises httpx.ConnectError after its
-            # retries; the ollama client rewraps it as the builtin
-            # ConnectionError. Same named error, same Retry panel.
-            raise ChatUnavailableError(
-                "the configured model could not be reached. Check the "
-                "network connection (cloud mode) or that Ollama is running "
-                "(strict-local mode), then retry."
-            ) from exc
-        text = getattr(response, "content", response)
-        if isinstance(text, list):
-            # Some providers return content as a list of parts. Join the
-            # text ones rather than str() the list, which would send
-            # Python repr syntax downstream to a parser.
-            text = "".join(
-                part if isinstance(part, str) else part.get("text", "")
-                for part in text
-            )
-        if not isinstance(text, str):
-            raise ChatUnavailableError(
-                f"the model returned {type(text).__name__}, not text. This "
-                f"seam is text in, text out (ADR-06)."
-            )
-        return text
+        return _text_of(getattr(response, "content", response))
+
+    def stream(self, system: str, user: str) -> Iterator[str]:
+        """langchain's own `Runnable.stream`, one chunk per piece.
+
+        Failures inside the stream are mapped exactly as `complete` maps
+        them. Closing this generator early (the operator pressed Cancel)
+        closes the provider's stream too, so the rest of the answer is
+        never requested."""
+        with _named_failures():
+            for chunk in self._model.stream([("system", system), ("human", user)]):
+                piece = _text_of(getattr(chunk, "content", chunk))
+                if piece:
+                    yield piece
 
 
 def _build_cloud() -> ChatModel:

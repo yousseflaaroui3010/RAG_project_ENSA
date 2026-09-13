@@ -1050,6 +1050,21 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 .stage__dot::after { inset-inline-start: 12px; animation-delay: 400ms; }
 @keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 
+/* S6: the answer while it is being written. A blinking ink caret after the
+   last block says "still writing"; reduced motion turns it steady. */
+.msg--streaming { margin-bottom: var(--space-16); }
+.msg--streaming .prose > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-inline-start: var(--space-4);
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: caret 1000ms steps(1) infinite;
+}
+@keyframes caret { 50% { opacity: 0; } }
+
 /* S6: the chat's four real stages as a rail under the label. Done steps
    are solid ink, the current one fills in a slow sweep, the rest wait. */
 .stage--steps { flex-wrap: wrap; }
