@@ -121,6 +121,9 @@ class Message:
     text: str
     sources: tuple[SourceCard, ...] = ()
     searched: tuple[str, ...] = ()
+    # F-10: distinct file names any search step consulted, first-seen order
+    # (agent.trace.Trace.files_consulted, already de-duplicated there).
+    files_consulted: tuple[str, ...] = ()
     retries: int = 0
     disclaimer: bool = False
     error: ErrorDetail | None = None
@@ -128,6 +131,13 @@ class Message:
     # ST-22 currently generates one free-text question, not reply choices,
     # so this stays empty rather than being filled with guesses.
     choices: tuple[str, ...] = ()
+    # F-10: true only for a message built from a real `Answer.trace` by
+    # `message_for`. USER, ERROR and INTERRUPTED messages are built by hand
+    # elsewhere in this module and never carry one; a future message
+    # restored without its trace (e.g. from persisted session memory) would
+    # also default to False here. The template renders no disclosure at
+    # all rather than an empty one when this is False.
+    has_trace: bool = False
 
 
 def merge_spans(spans: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -244,8 +254,10 @@ def message_for(
         text=answer.text,
         sources=_cards_for(answer.sources, cited, parents or {}),
         searched=answer.searched,
+        files_consulted=answer.trace.files_consulted,
         retries=answer.retries,
         disclaimer=answer.disclaimer,
+        has_trace=True,
     )
 
 
