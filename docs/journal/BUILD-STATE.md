@@ -1,5 +1,53 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
+## STATE AT 2026-09-13, v2.0.0 (read this block first; older headers below are history)
+
+**V1.1 AND V2.0 FEATURES ARE ON MAIN AND LIVE ON RAILWAY.** Seven PRs,
+each reviewed, CI green, squash-merged one at a time with the Railway
+deploy and the public URL checked after every merge (health 200; `/`,
+`/workspaces`, `/reports` 401 without the password and 200 with it):
+#108 F-10 answer trace view, #109 F-13 live folder watching, #110 F-11
+PowerPoint ingestion cited by slide, #111 F-16 OCR for scanned PDFs, #112
+F-15 answer feedback, #113 F-12 workspace routing, #114 F-14 Arabic RTL.
+main suite **984 passed, 2 skipped, 1 xfailed** (the xfail is the strict
+pin on the known Arabic-PDF digit defect, see docs/known-issues.md).
+
+**Release run on the new code, golden set v2: G1 38/40, G2 20/20, G3
+38/38**, `scripts/release_gate.py` exit 0 (RELEASE GATE: PASS). Misses:
+g-in-026 and g-in-033 (033 is the known grader-window limit). Report:
+`docs/evals/release-v2.0.0-2026-09-13.json`. Run from a detached worktree
+of main (`C:\sanad-v2`, b84a93c) against a COPY of the demo data
+(`C:\sanad-eval`), so the `C:\sanad` v1.0.1 fallback was not touched.
+
+**Review findings fixed before merge (each pinned by a test seen red):**
+F-10 trace moved below the sources so the F-09 disclaimer stays under the
+answer; F-13 waits for a whole batch copy to settle, stays quiet on a
+first boot with no registry yet, and its S2 line says off in evidence-only
+mode; F-11 cites each child by exactly the slides its text holds
+("Slide N" and "(end of Slide N)" lines, marker pattern learns Slide), no
+stray "#" from an empty title, and .env.example lists pptx; F-12 refuses an
+over-long question before proposing; F-14 caches the Arabic verdict per
+folder state and covers F-12/F-15's new text spots. An AI attribution line
+in the F-12 commit was removed before push.
+
+**Real runs:** F-13 real app, dropped file -> one Sync after 2 s, both
+files added, no second Sync. F-16 4-page scan converted, pages in order,
+1.3-2.6 s/page. F-12 real E5 on the labour code plus the Python manuals:
+right workspace for 4 of 4 on-topic questions (margins 0.04-0.08); an
+off-topic question still gets a proposal (no threshold, by decision).
+
+**Operator settings new in 2.0.0** (all off or safe by default):
+`WATCH_FOLDERS`, `WATCH_INTERVAL_SECONDS`, `OCR_TESSDATA_DIR`,
+`OCR_LANGUAGES`, `OCR_DPI`, `OCR_MAX_PAGES`, `FEEDBACK_COMMENT_MAX_CHARS`;
+`SUPPORTED_DOCUMENT_EXTENSIONS` gains pptx and
+`PARENT_CITATION_MARKER_PATTERN` gains `Slide\s+\d+` and `المادة\s*\d+` --
+an existing `.env` that sets either of those two keeps the old value.
+
+**Still for humans:** Narrator pass (6 ST-38 rows), 10 rehearsals and a
+backup video, mock defense.
+
+---
+
 ## STATE AT 2026-09-12, RAILWAY LIVE (read this block first; older headers below are history)
 
 **RAILWAY IS FIXED AND VERIFIED LIVE** on main `dd2243b` (#105 + #106),
