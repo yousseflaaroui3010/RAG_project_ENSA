@@ -58,7 +58,7 @@ from api.service import ApiService
 from config import get_settings
 from db import repo
 from ui import feedback as feedback_module
-from ui import reports_screen, routing, screen, workspaces_screen
+from ui import reports_screen, routing, rtl, screen, workspaces_screen
 from ui.access_gate import AccessGate
 from ui.conversation import (
     Conversation,
@@ -393,26 +393,58 @@ def _conversation_key(runtime: Runtime) -> str | None:
     return None
 
 
-def _direction(request: Request) -> str:
-    """The RTL PREVIEW UX spec 6.5 asks for, and nothing more.
+def _workspace_is_arabic(workspace_id: str | None) -> bool:
+    """F-14's real trigger, in one place so `_direction` and `_lang` never
+    answer it two different ways: is the workspace whose content this
+    screen is actually showing majority Arabic script (`ui.rtl`)?
 
-    "Verify with an RTL preview even though V1 ships LTR, per PRD section
-    5." A preview is what makes acceptance criterion 11 checkable at all
-    -- without one, "layout mirrors under a right-to-left locale" can only
-    ever be inspected by hand in a browser's devtools, and open risk 3
-    already says RTL "is specified but never exercised until a late
-    preview".
+    `workspace_id` is `None` for a screen with nothing to show (no
+    workspace exists yet) or, for S3's list view, no single content
+    workspace at all (it spans every workspace -- see the DECISIONS row);
+    either way that is an honest "not Arabic". Takes the bare id rather
+    than a `WorkspaceOption`/`Workspace` object because the three screens
+    reach this from two different domain types (S1/S3's shell selector is
+    `screen.WorkspaceOption`, S2's `selected` is `workspaces.Workspace`)
+    and both already have the id in hand at the call site."""
+    return workspace_id is not None and rtl.workspace_is_arabic(workspace_id)
 
-    This is deliberately NOT a locale switch. There is no Arabic copy, no
-    translation layer and no language negotiation; assumption 3 in UX spec
-    14 fixes the interface copy as English for V1, and ST-38 owns actually
-    exercising RTL. All this does is set the `dir` attribute so the
-    stylesheet's logical properties can be seen doing their job.
 
-    Anything that is not "rtl" is "ltr", including a missing, empty or
-    hostile value -- the attribute is written straight into the document
-    element and only these two strings may ever reach it."""
-    return "rtl" if request.query_params.get("dir") == "rtl" else "ltr"
+def _direction(request: Request, workspace_id: str | None) -> str:
+    """Which way the WHOLE SCREEN reads (F-14 PRD acceptance criterion:
+    "the surrounding screen mirrors").
+
+    Two sources, in priority order:
+
+    1. The `?dir=rtl`/`?dir=ltr` query override -- the ST-38 RTL PREVIEW
+       UX spec 6.5 asks for ("Verify with an RTL preview even though V1
+       ships LTR"). This predates F-14 and stays exactly what it was: NOT
+       a locale switch, no Arabic copy, no translation layer -- a QA tool
+       for looking at the mirrored CSS, and it affects `dir` ONLY (see
+       `_lang`). Anything that is not the literal string "rtl" or "ltr" is
+       treated as "ltr" here, including a missing, empty or hostile value;
+       only these two strings may ever reach the document element.
+    2. Failing that, F-14's real trigger: `_workspace_is_arabic`."""
+    override = request.query_params.get("dir")
+    if override in ("rtl", "ltr"):
+        return override
+    return "rtl" if _workspace_is_arabic(workspace_id) else "ltr"
+
+
+def _lang(workspace_id: str | None) -> str:
+    """The document's `lang`, computed from the SAME real signal
+    `_direction` uses -- `_workspace_is_arabic` -- but NEVER from the
+    `?dir=` preview override.
+
+    The two are one fact when the fact is real ("this workspace's content
+    is Arabic" is the only reason this product ever sets `dir="rtl"`,
+    there being no other RTL script in scope per PRD section 5) but they
+    must stay two separate reads of it: the preview override exists
+    precisely so the mirrored CSS can be inspected with NO Arabic copy on
+    the page at all, and stamping `lang="ar"` on English preview text
+    would misinform a screen reader rather than test anything. A real
+    Arabic workspace gets `lang="ar"` whether or not anyone is previewing
+    `dir` that request."""
+    return "ar" if _workspace_is_arabic(workspace_id) else "en"
 
 
 def _context(runtime: Runtime, request: Request) -> dict:
@@ -445,9 +477,11 @@ def _context(runtime: Runtime, request: Request) -> dict:
     )
     run = conversation.run if conversation else None
     busy = bool(conversation and conversation.busy)
+    active_id = active.id if active else None
     return {
         "request": request,
-        "dir": _direction(request),
+        "dir": _direction(request, active_id),
+        "lang": _lang(active_id),
         "current_screen": "chat",
         # UX spec 4: "Changing it clears nothing and interrupts nothing,
         # but the chat area shows a one-line notice that the conversation
@@ -580,7 +614,14 @@ def _ws_context(
 
     return {
         "request": request,
-        "dir": _direction(request),
+        # S2's own screen shows ONE workspace's detail (`selected`), which
+        # can differ from the shell's `active` (UX spec 4 lets the file
+        # table browse a workspace without switching the chat context) --
+        # so mirroring follows what is actually ON the screen, not the
+        # shell selector, unlike S1/S3 below where they are the same
+        # workspace by construction.
+        "dir": _direction(request, selected_id),
+        "lang": _lang(selected_id),
         "current_screen": "workspaces",
         # base.html's <noscript> refresh (UX spec 6.3's no-JS path) is keyed
         # on this same name for S1; a Sync in flight is the same kind of
@@ -623,13 +664,20 @@ def _ws_context(
 def _reports_context(runtime: Runtime, request: Request) -> dict:
     """Everything one render of the read-only S3 Reports screen needs."""
     reports = reports_screen.list_reports(db_path=runtime.db_path)
+    active = _active(runtime)
+    # S3's list spans every workspace at once (UX spec 8.1), so there is
+    # no single content workspace to detect a script from the way S1's
+    # active conversation or S2's selected detail have one -- the shell's
+    # active workspace is the documented fallback (DECISIONS row).
+    active_id = active.id if active else None
     return {
         "request": request,
-        "dir": _direction(request),
+        "dir": _direction(request, active_id),
+        "lang": _lang(active_id),
         "current_screen": "reports",
         "busy": any(report.is_running for report in reports),
         "workspaces": screen.workspace_options(db_path=runtime.db_path),
-        "active": _active(runtime),
+        "active": active,
         "state": reports_screen.screen_state(report_count=len(reports)),
         "ReportsScreenState": reports_screen.ReportsScreenState,
         "reports": reports,
@@ -805,6 +853,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     app.openapi = lambda: contract
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     templates = Jinja2Templates(directory=str(TEMPLATES))
+    # F-14: lets a template ask, per element, "is this piece of text
+    # Arabic?" so a `dir="auto"` message bubble or search-query line can
+    # also carry `lang="ar"` when it truly is one (see `ui.rtl.text_is_arabic`
+    # docstring for why this is decided at render time, not stored).
+    templates.env.globals["is_arabic"] = rtl.text_is_arabic
 
     def render(request: Request, name: str = "chat.html") -> HTMLResponse:
         return templates.TemplateResponse(request, name, _context(runtime, request))

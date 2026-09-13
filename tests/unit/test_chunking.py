@@ -793,3 +793,102 @@ def test_a_marker_broken_across_a_line_is_normalised_in_the_label():
     doc = _chunk(f"# Titre\n\nArticle\n42 :{body}")
 
     assert doc.parents[0].section_label == "Article 42"
+
+
+# --- F-14: Arabic citation marker ("المادة N") ------------------------------
+
+
+def _legal_document_arabic(first: int, last: int, body_chars: int = 900) -> str:
+    """The Arabic twin of `_legal_document`: one heading, many numbered
+    articles, each opened by "المادة N" -- Moroccan legal Arabic's own
+    citable unit, the same shape "Article N" is for the French edition."""
+    parts = ["# الباب الثاني : تعاريف\n"]
+    for n in range(first, last + 1):
+        parts.append(f"\nالمادة {n} :{_body(body_chars, filler='أ')}\n")
+    return "".join(parts)
+
+
+def test_an_arabic_split_parent_is_labelled_by_the_articles_it_contains():
+    """F-14: the same rule `test_a_split_parent_is_labelled_by_the_articles_
+    it_contains` pins for "Article N" applies unchanged to "المادة N" --
+    config.py's default pattern now matches both, and nothing about
+    `_citation_label`/`_merged_label` is script-specific."""
+    doc = _chunk(_legal_document_arabic(1, 40))
+
+    labels = [p.section_label for p in doc.parents]
+
+    assert len(doc.parents) > 1, "fixture too small to split"
+    assert len(set(labels)) > 1, "every parent carried the same label"
+    assert all("المادة" in (lbl or "") for lbl in labels)
+
+
+def test_an_arabic_parent_spanning_several_articles_is_labelled_as_a_range():
+    doc = _chunk(_legal_document_arabic(1, 40))
+
+    ranged = [p.section_label for p in doc.parents if " ... " in (p.section_label or "")]
+
+    assert ranged, "no parent was labelled with a range"
+    first, last = ranged[0].split(" ... ")
+    assert first.startswith("المادة ")
+    assert last.startswith("المادة ")
+    assert int(first.split()[1]) < int(last.split()[1])
+
+
+def test_an_arabic_child_is_labelled_by_the_article_it_actually_sits_in():
+    doc = _chunk(_legal_document_arabic(1, 40))
+
+    marker = "المادة 30"
+    labelled = [c for c in doc.children if c.section_label == marker]
+
+    assert labelled, "no child was cited by its own article"
+    assert all(marker in c.text for c in labelled)
+
+
+def test_an_arabic_marker_with_eastern_arabic_indic_digits_is_matched():
+    r"""config.py's own comment claims `\d` already matches Eastern
+    Arabic-Indic digits (١٢...) under Python's default Unicode
+    string matching -- checked directly here rather than only in the
+    config.py comment, so a future Python or a `re.ASCII` flag added
+    nearby cannot silently break it without a red test."""
+    body = _body(2500, filler="أ")
+    doc = _chunk(
+        "# الباب\n\n"
+        f"المادة ١٢ :{body}"
+    )
+
+    assert doc.parents[0].section_label == "المادة ١٢"
+
+
+def test_an_arabic_marker_with_no_space_ocr_shaped_is_matched_and_labelled_spaced():
+    """Real Arabic OCR output, not a hypothetical: F-16's tessdata_fast
+    `ara` model read a real scanned page as "المادة12:للأجير الحق ..." --
+    no space between the word and the number at all. `\\s*` (config.py)
+    is what lets the marker match it; `_normalise_marker`
+    (chunking.py) is what keeps the LABEL a source card shows reading
+    "المادة 12" either way, matching every "Article 12"/"Slide 12" label
+    already produced from cleanly-spaced input."""
+    body = _body(2500, filler="أ")
+    doc = _chunk(f"# الباب\n\nالمادة12:{body}")
+
+    assert doc.parents[0].section_label == "المادة 12"
+
+
+def test_an_arabic_marker_that_already_has_a_space_is_labelled_unchanged():
+    """The companion to the no-space case above: normal PDF/DOCX
+    conversion (not OCR) already puts a space there, and the new `\\s*`
+    pattern plus the new normaliser must not touch what already worked."""
+    body = _body(2500, filler="أ")
+    doc = _chunk(f"# الباب\n\nالمادة 12:{body}")
+
+    assert doc.parents[0].section_label == "المادة 12"
+
+
+def test_article_and_slide_markers_are_unaffected_by_the_arabic_zero_space_change():
+    """`Article`/`Slide` keep their own `\\s+` (config.py's own comment:
+    "kept exactly as they are") -- a glued "Article42" must NOT start
+    matching just because the Arabic alternative learned to tolerate one,
+    since the two patterns are independent alternatives in one regex."""
+    body = _body(2500)
+    doc = _chunk(f"# Titre\n\nArticle42 :{body}")
+
+    assert doc.parents[0].section_label == "Titre"

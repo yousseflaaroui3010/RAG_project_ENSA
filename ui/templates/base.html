@@ -5,8 +5,13 @@
   the skip link is "the first focusable element on the page" (UX spec 4),
   and the theme toggle is revealed by script rather than rendered dead.
   A button that does nothing without JavaScript is worse than no button.
+
+  F-14: `lang` and `dir` are now DATA-DRIVEN (app.py's `_lang`/`_direction`),
+  not hardcoded English/LTR -- the PRD acceptance criterion is "the
+  surrounding screen mirrors" when the active content is Arabic. See
+  app.py's `_workspace_is_arabic` for the trigger and DECISIONS.md for why.
 #}<!doctype html>
-<html lang="en" dir="{{ dir | default('ltr') }}">
+<html lang="{{ lang | default('en') }}" dir="{{ dir | default('ltr') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -45,7 +50,15 @@
               </option>
             {% endif %}
             {% for option in workspaces %}
-              <option value="{{ option.id }}" {% if active and option.id == active.id %}selected{% endif %}>
+              {#
+                F-14: a workspace name is document-controlled text (F-01
+                lets any name be typed, Arabic included) sitting inside an
+                otherwise-English option label, so it gets its own `dir`
+                rather than inheriting the page's -- an Arabic name on an
+                LTR page (or an English name on a mirrored one) must read
+                in its own direction either way.
+              #}
+              <option value="{{ option.id }}" dir="auto"{% if is_arabic(option.name) %} lang="ar"{% endif %} {% if active and option.id == active.id %}selected{% endif %}>
                 {{ option.name }}{% if option.legal_flag %} — legal{% endif %}
               </option>
             {% endfor %}
