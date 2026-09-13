@@ -52,6 +52,31 @@ def test_a_workspace_of_arabic_parents_is_detected_as_arabic(tmp_path):
     assert rtl.workspace_is_arabic("ws-1", base_path=tmp_path) is True
 
 
+def test_the_verdict_is_read_once_per_folder_state_not_once_per_render(tmp_path, monkeypatch):
+    """Every render asks twice, and the chat poll renders about once a
+    second, so the sample must not be re-read while the folder is unchanged.
+    Adding parents (what a Sync does) must still change the verdict."""
+    directory = tmp_path / "ws-1"
+    _write_parent(directory, "p1", ARABIC_SENTENCE * 5)
+    assert rtl.workspace_is_arabic("ws-1", base_path=tmp_path) is True
+
+    reads: list[str] = []
+    real_read_text = rtl.Path.read_text
+    monkeypatch.setattr(
+        rtl.Path,
+        "read_text",
+        lambda self, *a, **k: reads.append(self.name) or real_read_text(self, *a, **k),
+    )
+    for _ in range(3):
+        assert rtl.workspace_is_arabic("ws-1", base_path=tmp_path) is True
+    assert reads == [], "an unchanged folder must not be re-read"
+
+    for index in range(2, 6):
+        _write_parent(directory, f"p{index}", FRENCH_SENTENCE * 5)
+    assert rtl.workspace_is_arabic("ws-1", base_path=tmp_path) is False
+    assert len(reads) == 5, "a changed folder is sampled again, once"
+
+
 def test_a_workspace_of_french_parents_is_not_detected_as_arabic(tmp_path):
     directory = tmp_path / "ws-1"
     _write_parent(directory, "p1", FRENCH_SENTENCE * 5)

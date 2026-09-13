@@ -98,6 +98,34 @@ def workspace_is_arabic(workspace_id: str, *, base_path: str | Path | None = Non
     if not directory.is_dir():
         return False
 
+    # Every render calls this twice (`_direction` and `_lang`), including
+    # the chat poll while an answer is running, so the sample is read once
+    # per state of the folder, not once per call. The folder's own mtime
+    # moves whenever a parent file is added or removed, which is what a
+    # Sync that changes the workspace's content does. A parent rewritten in
+    # place under the same name keeps the old verdict until the next add or
+    # removal; a workspace changing script that way is not a real case.
+    try:
+        key = (str(directory), directory.stat().st_mtime_ns)
+    except OSError:
+        return False
+    cached = _VERDICTS.get(key)
+    if cached is not None:
+        return cached
+    verdict = _sample_is_arabic(directory)
+    if len(_VERDICTS) >= _MAX_CACHED_VERDICTS:
+        _VERDICTS.clear()
+    _VERDICTS[key] = verdict
+    return verdict
+
+
+# (folder path, folder mtime_ns) -> verdict. Bounded so a long-running
+# server that saw many workspaces and many Syncs never grows it forever.
+_VERDICTS: dict[tuple[str, int], bool] = {}
+_MAX_CACHED_VERDICTS = 256
+
+
+def _sample_is_arabic(directory: Path) -> bool:
     arabic_chars = 0
     letter_chars = 0
     for path in sorted(directory.glob("*.json"))[:_MAX_PARENTS_SAMPLED]:
