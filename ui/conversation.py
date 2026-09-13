@@ -25,6 +25,7 @@ the product exists to demonstrate." The refusal variant is bordered in
 from __future__ import annotations
 
 import threading
+import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -152,6 +153,19 @@ class Message:
     # first and empty means no workspace had any hit at all.
     route_question: str = ""
     route_candidates: tuple[RouteCandidate, ...] = ()
+    # F-15. The stable id `ui/feedback.py` keys a stored verdict on:
+    # `db.repo.upsert_answer_feedback`'s ON CONFLICT target is this value,
+    # not a message's position in `Conversation.messages`, because a
+    # position shifts (a new conversation empties the list; a restored
+    # session could reorder it) while this does not. A `uuid4` minted once
+    # per message HERE, at construction, rather than looked up from
+    # anywhere persistent -- there is nothing persistent to look it up
+    # from, since `Conversation` lives only in process memory (PRD section
+    # 6, single user on one machine). Every message gets one, not only
+    # ANSWER/REFUSAL, so the dataclass has one id field and not a second,
+    # optional one; `ui/feedback.py` is what restricts feedback to the two
+    # kinds a citable claim can attach to.
+    id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
 def merge_spans(spans: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:

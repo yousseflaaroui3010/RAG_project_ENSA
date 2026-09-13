@@ -13,6 +13,7 @@ export routes."""
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -374,3 +375,124 @@ def test_export_of_an_unknown_id_is_a_404_not_an_empty_file(tmp_path):
     response = client.get("/reports/does-not-exist/export")
 
     assert response.status_code == 404
+
+
+# --- F-15 answer feedback (V2, Low) -----------------------------------------
+#
+# The S3 half of the brief: a "reviewable" list, independent of the eval-run
+# section above (ui/reports_screen.py's module note). Rows are written
+# directly through db.repo.upsert_answer_feedback rather than via
+# POST /chat/feedback -- the write path itself is exercised end to end in
+# test_s1_chat_screen.py; this file is only about what S3 RENDERS from
+# whatever is already stored, matching how _seed_incomplete_report above
+# seeds eval_run/eval_result directly rather than running a real evaluation.
+
+
+def _seed_feedback(
+    db_path,
+    *,
+    workspace_name: str = "ws-feedback",
+    verdict: str = "down",
+    question: str = IN_QUESTION,
+    comment: str | None = "Cited the wrong article.",
+    created_at: str | None = None,
+) -> None:
+    with repo.session(db_path) as conn:
+        ws_id = repo.create_workspace(conn, name=workspace_name, folder_path=str(db_path.parent))
+        repo.upsert_answer_feedback(
+            conn,
+            workspace_id=ws_id,
+            answer_key=repo.new_id(),
+            question=question,
+            answer_text=ANSWER_TEXT,
+            verdict=verdict,
+            comment=comment,
+        )
+        if created_at is not None:
+            conn.execute(
+                "UPDATE answer_feedback SET created_at = ? WHERE workspace_id = ?",
+                (created_at, ws_id),
+            )
+
+
+def test_no_feedback_shows_the_empty_state(tmp_path):
+    client, _db_path = _app(tmp_path)
+
+    page = client.get("/reports")
+
+    assert page.status_code == 200
+    assert "No feedback yet" in page.text
+
+
+def test_a_stored_feedback_row_shows_workspace_verdict_question_and_comment(tmp_path):
+    client, db_path = _app(tmp_path)
+    _seed_feedback(
+        db_path,
+        workspace_name="ws-feedback-visible",
+        verdict="down",
+        question=IN_QUESTION,
+        comment="Cited the wrong article.",
+    )
+
+    page = client.get("/reports")
+    visible = html.unescape(page.text)
+
+    assert page.status_code == 200
+    assert "No feedback yet" not in page.text
+    assert "ws-feedback-visible" in page.text
+    assert "Not helpful" in page.text
+    assert IN_QUESTION in visible
+    assert "Cited the wrong article." in page.text
+
+
+def test_feedback_rows_are_listed_newest_first(tmp_path):
+    """`page.index()` on the whole page is not enough here: the shell's own
+    workspace selector (app.py's `_active`/`screen.workspace_options`)
+    ALSO lists both workspace names, alphabetically, on every screen --
+    "ws-a-newest" would sort before "ws-b-oldest" there regardless of
+    feedback order, and a first version of this test compared indices on
+    the whole page and passed even with `ORDER BY ... ASC` mutated in.
+    Isolating the feedback section (everything after its own heading) is
+    what makes this test about the FEEDBACK table's order, not the shell's."""
+    client, db_path = _app(tmp_path)
+    _seed_feedback(
+        db_path, workspace_name="ws-oldest", created_at="2020-01-01T00:00:00+00:00"
+    )
+    _seed_feedback(
+        db_path, workspace_name="ws-newest", created_at="2030-01-01T00:00:00+00:00"
+    )
+
+    page = client.get("/reports").text
+    feedback_section = page.split(">Answer feedback<")[1]
+
+    assert feedback_section.index("ws-newest") < feedback_section.index("ws-oldest")
+
+
+def test_feedback_comment_containing_script_is_escaped_on_reports(tmp_path):
+    """The same hostile-markup discipline test_s1_chat_screen.py's trace
+    disclosure test applies to a comment a user typed: it must render as
+    text, never as markup, wherever Reports shows it."""
+    client, db_path = _app(tmp_path)
+    hostile = "<script>alert('x')</script> not helpful"
+    _seed_feedback(db_path, comment=hostile)
+
+    page = client.get("/reports").text
+
+    assert "<script>alert" not in page
+    assert "&lt;script&gt;" in page
+
+
+def test_a_missing_comment_shows_a_dash_not_a_blank_cell(tmp_path):
+    """Isolated to the feedback section, not the whole page: the page
+    `<title>` itself carries an unrelated em dash ("Reports — Sanad",
+    base.html), so a whole-page check would pass even if the comment cell
+    rendered Python's `None` literally instead -- the first version of
+    this test did exactly that and missed it."""
+    client, db_path = _app(tmp_path)
+    _seed_feedback(db_path, verdict="up", comment=None)
+
+    page = client.get("/reports").text
+    feedback_section = page.split(">Answer feedback<")[1]
+
+    assert "—" in feedback_section
+    assert "None" not in feedback_section
