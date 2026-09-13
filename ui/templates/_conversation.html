@@ -11,6 +11,47 @@
   "stage changes during loading are announced".
 #}
 {% import "_sources.html" as cards %}
+
+{#
+  F-10: "for each answer, the user can open a trace that lists the
+  searches run, the files consulted, and the retries used." One macro,
+  called once per message below regardless of variant (answer, refusal,
+  clarification all get it) -- `message.has_trace` is what decides
+  whether it renders at all, so a message with no trace (a user bubble,
+  an error panel, or a future restored message that was never given one)
+  shows nothing here rather than an empty disclosure.
+
+  A native <details>/<summary> rather than a script-driven toggle: it is
+  keyboard reachable and has a focus state for free, and the composer
+  above already leans on plain HTML controls working with scripting off.
+#}
+{% macro trace_disclosure(message) %}
+  <details class="trace">
+    <summary class="trace__summary">How this answer was found</summary>
+    <div class="trace__body">
+      <p class="trace__label">Searches run</p>
+      {% if message.searched %}
+        <ul class="trace__list mono">
+          {% for search in message.searched %}<li>{{ search }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">None.</p>
+      {% endif %}
+      <p class="trace__label">Files consulted</p>
+      {% if message.files_consulted %}
+        <ul class="trace__list mono">
+          {% for name in message.files_consulted %}<li>{{ name }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        <p class="muted">None.</p>
+      {% endif %}
+      <p class="trace__label">
+        Retries: {{ message.retries if message.retries else "none" }}
+      </p>
+    </div>
+  </details>
+{% endmacro %}
+
 <section class="conversation" aria-label="Conversation" data-conversation>
 
   {% if moved %}
@@ -177,6 +218,14 @@
 
         {% if message.sources %}
           {{ cards.source_panel(message, m, active.id) }}
+        {% endif %}
+
+        {#
+          F-10's trace goes last, after the source cards, so the F-09
+          disclaimer stays directly under the answer it qualifies.
+        #}
+        {% if message.has_trace %}
+          {{ trace_disclosure(message) }}
         {% endif %}
 
       </li>

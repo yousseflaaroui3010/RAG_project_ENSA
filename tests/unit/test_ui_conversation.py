@@ -178,6 +178,42 @@ def test_the_retry_marker_shows_the_count_the_loop_actually_ran():
     assert message.retries == 2
 
 
+# --- F-10: the trace disclosure ----------------------------------------
+
+
+def test_message_for_carries_the_files_the_trace_actually_consulted():
+    """F-10: "the files consulted", de-duplicated and in first-seen order
+    -- straight off `Trace.files_consulted` (agent/trace.py), not
+    recomputed here. Two searches, the second repeating the first file and
+    adding a second, so de-dup and order both have something to fail."""
+    answer = _answer(
+        AnswerKind.ANSWER,
+        "Trois mois.",
+        (Source(FILE, LABEL),),
+        (
+            TraceStep(StepKind.SEARCH, "essai cadre", (FILE,)),
+            TraceStep(StepKind.REWORD, "again"),
+            TraceStep(
+                StepKind.SEARCH,
+                "essai cadre renouvellement",
+                (FILE, "reglement-interieur.pdf"),
+            ),
+        ),
+    )
+    message = message_for(answer, [_hit(SECTION[:40])], {PARENT: SECTION})
+    assert message.has_trace is True
+    assert message.searched == ("essai cadre", "essai cadre renouvellement")
+    assert message.files_consulted == (FILE, "reglement-interieur.pdf")
+    assert message.retries == 1
+
+
+def test_a_message_built_by_hand_has_no_trace():
+    """USER, ERROR and INTERRUPTED messages never go through `message_for`
+    and so never got a real `Answer.trace` behind them -- `has_trace`
+    defaults False rather than a real message ever forging one."""
+    assert error_message(RuntimeError("boom"), "Q?").has_trace is False
+
+
 # --- F-09, criteria 2 and 3 -------------------------------------------
 
 

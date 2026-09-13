@@ -311,6 +311,24 @@ input[type="text"]:disabled, select:disabled, button:disabled {
   cursor: help;
 }
 
+/* F-10: the trace disclosure, one per answer/refusal/clarification.
+   Colour carries nothing here (criterion 10 applies just as much to a new
+   component as to an old one) -- the summary's affordance is the native
+   <details> marker plus the accent colour already used for every other
+   disclosure trigger on this screen (.ws-list__new, .ws-detail__settings
+   summary). */
+.trace {
+  grid-column: 1;
+  margin-top: var(--space-8);
+  max-width: var(--prose-max);
+  font-size: var(--size-meta);
+}
+.trace__summary { cursor: pointer; color: var(--accent); }
+.trace__body { margin-top: var(--space-8); }
+.trace__label { margin: var(--space-8) 0 var(--space-4); font-weight: 600; }
+.trace__label:first-child { margin-top: 0; }
+.trace__list { margin: 0; padding-inline-start: var(--space-24); }
+
 /* F-09, between the answer body and the source cards (6.2). */
 .disclaimer {
   grid-column: 1;
