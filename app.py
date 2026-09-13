@@ -480,9 +480,7 @@ def _context(runtime: Runtime, request: Request) -> dict:
     )
     run = conversation.run if conversation else None
     busy = bool(conversation and conversation.busy)
-    # Read ONCE, so the label and the step rail below can never disagree
-    # about which stage the agent is in (the worker moves it between reads).
-    stage = (run.stage or Stage.PREPARING) if (run and busy) else None
+    stage = run.shown_stage if (run and busy) else None
     active_id = active.id if active else None
     return {
         "request": request,
