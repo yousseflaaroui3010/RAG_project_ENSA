@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl
 
+import jinja2
 import uvicorn
 import yaml
 from fastapi import FastAPI, HTTPException, Request
@@ -58,7 +59,7 @@ from api.service import ApiService
 from config import get_settings
 from db import repo
 from ui import feedback as feedback_module
-from ui import reports_screen, routing, rtl, screen, workspaces_screen
+from ui import i18n, reports_screen, routing, rtl, screen, workspaces_screen
 from ui.access_gate import AccessGate
 from ui.conversation import (
     Conversation,
@@ -67,6 +68,7 @@ from ui.conversation import (
     error_message,
     route_proposal_message,
 )
+from ui.i18n.request import LanguageMiddleware, context_language, language_links
 from ui.ports import build_default_ports
 from ui.runs import Run
 
@@ -829,6 +831,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     # middleware passes every request straight through, so ADR-13's
     # local-first behaviour is unchanged.
     app.add_middleware(AccessGate, password=get_settings().access_password)
+    # Added after the gate, so it wraps it: a 401 page is in the visitor's
+    # language too, and a valid ?lang= still sets its cookie.
+    app.add_middleware(LanguageMiddleware)
 
     api_service = ApiService(runtime)
     app.include_router(build_router(api_service, version=APP_VERSION))
@@ -860,7 +865,39 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     templates.env.globals["is_arabic"] = rtl.text_is_arabic
     # Stored ISO timestamps rendered for people (S2 sync times, S3 report
     # dates, feedback dates); see ui.screen.format_when.
-    templates.env.filters["when"] = screen.format_when
+    # S6 interface language. Every template reads the request's language
+    # through these, so no context builder has to pass it along.
+    @jinja2.pass_context
+    def _t(ctx, key, **params):
+        return i18n.translate(context_language(ctx["request"]), key, **params)
+
+    @jinja2.pass_context
+    def _th(ctx, key, **params):
+        return i18n.translate_markup(context_language(ctx["request"]), key, **params)
+
+    @jinja2.pass_context
+    def _tx(ctx, text):
+        return i18n.translate_text(context_language(ctx["request"]), text)
+
+    @jinja2.pass_context
+    def _ui_lang(ctx):
+        return context_language(ctx["request"])
+
+    @jinja2.pass_context
+    def _language_links(ctx):
+        return language_links(ctx["request"])
+
+    @jinja2.pass_context
+    def _when(ctx, value):
+        return screen.format_when(value, context_language(ctx["request"]))
+
+    @jinja2.pass_context
+    def _js_strings(ctx):
+        return i18n.js_strings(context_language(ctx["request"]))
+
+    templates.env.globals.update(t=_t, th=_th, tx=_tx, ui_lang=_ui_lang,
+                                 language_links=_language_links, js_strings=_js_strings)
+    templates.env.filters["when"] = _when
 
     def render(request: Request, name: str = "chat.html") -> HTMLResponse:
         return templates.TemplateResponse(request, name, _context(runtime, request))

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Reports — Sanad{% endblock %}
+{% block title %}{{ t('title.reports') }}{% endblock %}
 
 {#
   S3, Reports (UX spec 8, PRD F-08). Read-only over evaluation runs.
@@ -14,48 +14,47 @@
     docstring.
   #}
   <section class="panel panel--empty">
-    <h1>No evaluation reports yet</h1>
-    <p>Reports appear here once the golden-set evaluation has run at
-       least once. Run it from a terminal:</p>
+    <h1>{{ t('rep.empty.title') }}</h1>
+    <p>{{ t('rep.empty.body') }}</p>
     <p class="mono">uv run python scripts/run_evaluation.py --workspace-id &lt;id&gt;</p>
   </section>
 {% else %}
-  <section aria-label="Evaluation reports"
+  <section aria-label="{{ t('rep.aria') }}"
            {% if busy %}data-report-refresh="true"{% endif %}>
     <div class="page-head">
-      <h1>Reports</h1>
-      <p class="page-head__lead">Golden-set evaluation runs and the release gates each one met.</p>
+      <h1>{{ t('rep.title') }}</h1>
+      <p class="page-head__lead">{{ t('rep.lead') }}</p>
     </div>
     <div class="table-card">
     <table class="file-table">
-      <caption class="sources__title">Evaluation runs</caption>
+      <caption class="sources__title">{{ t('rep.caption') }}</caption>
       <thead>
         <tr>
-          <th scope="col">Date</th>
-          <th scope="col">Workspace</th>
-          <th scope="col">Groundedness</th>
-          <th scope="col">Refusals</th>
-          <th scope="col">Sources</th>
-          <th scope="col">Outcome</th>
+          <th scope="col">{{ t('rep.col.date') }}</th>
+          <th scope="col">{{ t('rep.col.workspace') }}</th>
+          <th scope="col">{{ t('rep.col.groundedness') }}</th>
+          <th scope="col">{{ t('rep.col.refusals') }}</th>
+          <th scope="col">{{ t('rep.col.sources') }}</th>
+          <th scope="col">{{ t('rep.col.outcome') }}</th>
         </tr>
       </thead>
       <tbody>
         {% for r in reports %}
           <tr>
-            <td class="mono">
+            <td class="num">
               <a href="/reports/{{ r.id }}"
                  data-report-focus="run-{{ r.id }}"
-                 aria-label="Open the {{ r.run_at | when }} report for {{ r.workspace_name }}">{{ r.run_at | when }}</a>
+                 aria-label="{{ t('rep.open_aria', when=(r.run_at | when), name=r.workspace_name) }}">{{ r.run_at | when }}</a>
             </td>
             <td><bdi{% if is_arabic(r.workspace_name) %} lang="ar"{% endif %}>{{ r.workspace_name }}</bdi></td>
-            <td class="mono" data-report-value="{{ r.id }}-grounded">{{ r.groundedness_label }}</td>
+            <td class="mono" data-report-value="{{ r.id }}-grounded">{{ tx(r.groundedness_label) }}</td>
             <td class="mono" data-report-value="{{ r.id }}-refusals">{{ r.refusal_pass }}/{{ r.refusal_total }}</td>
             <td class="mono" data-report-value="{{ r.id }}-sources">{{ r.sources_label }}</td>
             <td>
               <span class="status-pill" data-eval-status="{{ r.id }}"
                     {% if r.is_running %}role="status" aria-live="polite"{% endif %}>
                 <span class="status-dot status-dot--{{ r.status_tone }} status-dot--{{ r.status_shape }}" aria-hidden="true"></span>
-                <span data-status-label>{{ r.status_label }}</span>
+                <span data-status-label>{{ tx(r.status_label) }}</span>
               </span>
             </td>
           </tr>
@@ -71,28 +70,28 @@
   ui/reports_screen.py's module note -- so this renders in every state,
   including NO_REPORTS, rather than being folded into that branch.
 #}
-<section aria-label="Answer feedback">
-  <h2 class="section-title">Answer feedback</h2>
+<section aria-label="{{ t('fb.aria') }}">
+  <h2 class="section-title">{{ t('fb.title') }}</h2>
   {% if feedback %}
     <div class="table-card">
     <table class="file-table">
-      <caption class="sources__title">Feedback on answers</caption>
+      <caption class="sources__title">{{ t('fb.caption') }}</caption>
       <thead>
         <tr>
-          <th scope="col">Date</th>
-          <th scope="col">Workspace</th>
-          <th scope="col">Verdict</th>
-          <th scope="col">Question</th>
-          <th scope="col">Comment</th>
+          <th scope="col">{{ t('fb.col.date') }}</th>
+          <th scope="col">{{ t('fb.col.workspace') }}</th>
+          <th scope="col">{{ t('fb.col.verdict') }}</th>
+          <th scope="col">{{ t('fb.col.question') }}</th>
+          <th scope="col">{{ t('fb.col.comment') }}</th>
         </tr>
       </thead>
       <tbody>
         {% for f in feedback %}
           <tr>
-            <td class="mono">{{ f.created_at | when }}</td>
+            <td class="num">{{ f.created_at | when }}</td>
             {# F-14: user-typed text in any script reads in its own direction. #}
             <td dir="auto">{{ f.workspace_name }}</td>
-            <td>{{ f.verdict_label }}</td>
+            <td>{{ tx(f.verdict_label) }}</td>
             <td dir="auto">{{ f.question }}</td>
             <td dir="auto">{{ f.comment_label }}</td>
           </tr>
@@ -101,7 +100,7 @@
     </table>
     </div>
   {% else %}
-    <p class="muted">No feedback yet.</p>
+    <p class="muted">{{ t('fb.none') }}</p>
   {% endif %}
 </section>
 {% endblock %}

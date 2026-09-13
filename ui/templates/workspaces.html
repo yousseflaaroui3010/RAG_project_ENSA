@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Workspaces — Sanad{% endblock %}
+{% block title %}{{ t('title.workspaces') }}{% endblock %}
 
 {#
   S2, Workspaces and Sync (UX spec 7, PRD F-01/F-02).
@@ -17,22 +17,21 @@
     empty (app.py's `chat()` redirects `/` -> `/workspaces`).
   #}
   <section class="panel panel--empty">
-    <h1>Create your first workspace</h1>
-    <p>Sanad answers from documents grouped into a workspace. There is
-       nothing to sync or ask about until one exists.</p>
+    <h1>{{ t('ws.first.title') }}</h1>
+    <p>{{ t('ws.first.body') }}</p>
     {% include "_workspace_create_form.html" %}
   </section>
 {% else %}
   <div class="workspaces">
-    <aside class="ws-list" aria-label="Workspaces">
-      <h1 class="ws-list__title">Workspaces</h1>
+    <aside class="ws-list" aria-label="{{ t('ws.list.aria') }}">
+      <h1 class="ws-list__title">{{ t('ws.list.title') }}</h1>
       {#
         F-13, minimal by design: a read-only line naming the running
         process's own setting, not a control -- there is no route here to
         flip it (config-file setting, and no new /api/v1 route is
         allowed for this story).
       #}
-      <p class="ws-list__watch-status">Watching for new files: {{ "on" if watch_enabled else "off" }}</p>
+      <p class="ws-list__watch-status">{{ t('ws.watch.on') if watch_enabled else t('ws.watch.off') }}</p>
       <ul class="ws-list__items">
         {% for option in workspaces %}
           <li>
@@ -41,13 +40,13 @@
                {% if selected_id == option.id %}aria-current="true"{% endif %}>
               <span class="ws-list__glyph" aria-hidden="true">{{ option.name[:1] | upper }}</span>
               <bdi{% if is_arabic(option.name) %} lang="ar"{% endif %}>{{ option.name }}</bdi>
-              {% if option.legal_flag %}<span class="marker">Legal</span>{% endif %}
+              {% if option.legal_flag %}<span class="marker">{{ t('shell.legal_marker') }}</span>{% endif %}
             </a>
           </li>
         {% endfor %}
       </ul>
       <details class="ws-list__new">
-        <summary>New workspace</summary>
+        <summary>{{ t('ws.list.new') }}</summary>
         {% include "_workspace_create_form.html" %}
       </details>
     </aside>

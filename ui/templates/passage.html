@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% import "_passage.html" as viewer %}
-{% block title %}Passage — Sanad{% endblock %}
+{% import "_passage.html" as viewer with context %}
+{% block title %}{{ t('title.passage') }}{% endblock %}
 
 {#
   The passage viewer with scripting off (UX spec 5).
@@ -19,7 +19,7 @@
         {% endif %}
       </h1>
       {{ viewer.passage_body(card) }}
-      <p><a class="btn btn--quiet" href="/">Back to the conversation</a></p>
+      <p><a class="btn btn--quiet" href="/">{{ t('passage.back') }}</a></p>
     </article>
   {% else %}
     {#
@@ -28,11 +28,10 @@
       followed after a new conversation cleared the transcript.
     #}
     <section class="panel panel--error" role="alert">
-      <h1>That passage is no longer on screen</h1>
-      <p>The conversation it belonged to has been replaced or cleared, so
-         the section behind that citation is not loaded any more.</p>
-      <p class="error__hint">Ask the question again to get a fresh citation.</p>
-      <p><a class="btn btn--quiet" href="/">Back to the conversation</a></p>
+      <h1>{{ t('passage.gone.title') }}</h1>
+      <p>{{ t('passage.gone.body') }}</p>
+      <p class="error__hint">{{ t('passage.gone.hint') }}</p>
+      <p><a class="btn btn--quiet" href="/">{{ t('passage.back') }}</a></p>
     </section>
   {% endif %}
 {% endblock %}

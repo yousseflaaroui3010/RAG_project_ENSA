@@ -333,11 +333,36 @@ a:hover { text-decoration-thickness: 2px; }
   white-space: nowrap;
 }
 
-.theme-toggle { display: inline-flex; align-items: center; gap: var(--space-8); }
+.theme-toggle { display: inline-flex; align-items: center; gap: var(--space-8); padding: var(--space-8); }
 .theme-toggle .icon--sun { display: none; }
 /* On: the accent border and fill AND aria-pressed (never colour alone --
    the pressed state is also exposed to assistive tech). */
 .theme-toggle[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+
+/* Language switcher: three self-named languages, the current one raised. */
+.lang-switch {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.lang-switch__link {
+  min-width: 32px;
+  text-align: center;
+  padding: 0 var(--space-8);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: var(--size-meta);
+  font-weight: 500;
+  line-height: 2;
+  text-decoration: none;
+  transition: background-color var(--motion) var(--ease), color var(--motion) var(--ease);
+}
+.lang-switch__link:hover { color: var(--text); background: var(--surface); }
+/* Current language: weight, a raised chip AND aria-current (never colour alone). */
+.lang-switch__link.is-current { color: var(--text); font-weight: 700; background: var(--surface); box-shadow: var(--shadow-1); }
 
 /* ---- Controls ------------------------------------------------------ */
 
@@ -1171,7 +1196,10 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 .file-table tbody tr { transition: background-color var(--motion) var(--ease); }
 .file-table tbody tr:hover { background: var(--surface-raised); }
 .file-table tbody tr:last-child td { border-bottom: 0; }
+/* .num: dates and counts written as words and digits. Unlike .mono it does
+   not force left-to-right, so an Arabic date keeps its own word order. */
 .file-table td.mono, .file-table .num { font-variant-numeric: tabular-nums; }
+.file-table .num { white-space: nowrap; }
 .file-table__sort {
   display: inline-flex;
   align-items: center;

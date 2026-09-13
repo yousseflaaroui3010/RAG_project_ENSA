@@ -5,9 +5,9 @@
   _conversation.html gives: a report cannot look different depending on
   how it arrived.
 #}
-<section class="ws-detail" aria-label="Workspace detail">
+<section class="ws-detail" aria-label="{{ t('ws.detail.aria') }}">
   {% if not selected %}
-    <p class="muted">Pick a workspace from the list to see its detail.</p>
+    <p class="muted">{{ t('ws.detail.pick') }}</p>
   {% else %}
     <div class="ws-detail__head">
       {#
@@ -17,24 +17,24 @@
       #}
       <h2 dir="auto"{% if is_arabic(selected.name) %} lang="ar"{% endif %}>{{ selected.name }}</h2>
       {% if selected.legal_flag %}
-        <span class="marker" title="This workspace is flagged as legal content">Legal</span>
+        <span class="marker" title="{{ t('shell.legal_marker_title') }}">{{ t('shell.legal_marker') }}</span>
       {% endif %}
     </div>
     <p class="mono ws-detail__path">{{ selected.folder_path }}</p>
     {% if capacity_warning %}
-      <p class="notice" role="status">{{ capacity_warning }}</p>
+      <p class="notice" role="status">{{ tx(capacity_warning) }}</p>
     {% endif %}
 
     <details class="ws-detail__settings">
-      <summary>Rename, legal flag, delete</summary>
+      <summary>{{ t('ws.detail.settings') }}</summary>
 
       <form class="ws-form" method="post" action="/workspaces/{{ selected.id }}/rename">
-        <label class="ws-form__label" for="rename-name">Workspace name</label>
+        <label class="ws-form__label" for="rename-name">{{ t('ws.form.name') }}</label>
         <div class="ws-form__row">
           <input class="ws-form__input" id="rename-name" name="name" type="text" required dir="auto"
                  minlength="{{ name_min_length }}" maxlength="{{ name_max_length }}"
                  value="{{ selected.name }}">
-          <button class="btn btn--quiet" type="submit">Rename</button>
+          <button class="btn btn--quiet" type="submit">{{ t('ws.detail.rename') }}</button>
         </div>
       </form>
 
@@ -42,15 +42,14 @@
         <div class="ws-form__row ws-form__row--check">
           <input id="legal-{{ selected.id }}" name="legal_flag" type="checkbox"
                  {% if selected.legal_flag %}checked{% endif %}>
-          <label for="legal-{{ selected.id }}">This workspace holds legal content</label>
+          <label for="legal-{{ selected.id }}">{{ t('ws.form.legal') }}</label>
         </div>
         {#
           UX spec 7.2, verbatim requirement: the toggle's own label must
           not imply it does more than it does.
         #}
-        <p class="muted">Adds a disclaimer line to every answer from this
-          workspace. It does not restrict access or block deletion.</p>
-        <button class="btn btn--quiet" type="submit">Save</button>
+        <p class="muted">{{ t('ws.form.legal_help') }}</p>
+        <button class="btn btn--quiet" type="submit">{{ t('ws.detail.save') }}</button>
       </form>
 
       {#
@@ -61,7 +60,7 @@
         scripting on or off.
       #}
       <a class="btn btn--quiet" href="/workspaces/{{ selected.id }}/delete"
-         data-delete-trigger>Delete workspace…</a>
+         data-delete-trigger>{{ t('ws.detail.delete') }}</a>
     </details>
 
     <div class="ws-sync">
@@ -69,8 +68,7 @@
         {# F-02 / UX spec 7.3: "blocked with a message stating the first
            run continues." #}
         <p class="notice" role="status">
-          A Sync is already running for this workspace; it keeps going, and
-          this new request was not started.
+          {{ t('ws.sync.blocked') }}
         </p>
       {% endif %}
 
@@ -87,21 +85,21 @@
           <span class="stage__dot" aria-hidden="true"></span>
           <span class="stage__label">
             {% if running_count %}
-              {{ running_count }} file{{ '' if running_count == 1 else 's' }} processed so far
+              {{ t('ws.sync.processed', count=running_count) }}
             {% else %}
-              Scanning the workspace folder…
+              {{ t('ws.sync.scanning') }}
             {% endif %}
           </span>
         </div>
-        <p class="muted">Started {{ running.started_at | when }}.</p>
+        <p class="muted">{{ t('ws.sync.started', when=(running.started_at | when)) }}</p>
         {% if sync_can_cancel %}
           <form method="post" action="/workspaces/{{ selected.id }}/sync/cancel">
-            <button class="btn btn--quiet" type="submit">Cancel after current file</button>
+            <button class="btn btn--quiet" type="submit">{{ t('ws.sync.cancel') }}</button>
           </form>
         {% endif %}
       {% else %}
         <form method="post" action="/workspaces/{{ selected.id }}/sync">
-          <button class="btn btn--primary" type="submit">Run Sync</button>
+          <button class="btn btn--primary" type="submit">{{ t('ws.sync.run') }}</button>
         </form>
       {% endif %}
 
@@ -112,19 +110,19 @@
           (change_detection.py) already carries both, printed as-is.
         #}
         <div class="panel panel--error" role="alert">
-          <p class="error__sentence">Sync could not run.</p>
-          <p class="error__value mono">{{ sync_error }}</p>
+          <p class="error__sentence">{{ t('ws.sync.error') }}</p>
+          <p class="error__value mono">{{ tx(sync_error) }}</p>
         </div>
       {% endif %}
     </div>
 
     {% if running %}
-      <p class="muted">The last sync report will appear here once this run finishes.</p>
+      <p class="muted">{{ t('ws.sync.pending_report') }}</p>
     {% elif file_rows %}
-      <p class="muted">Last Sync finished {{ report_finished_at | when }}.</p>
+      <p class="muted">{{ t('ws.sync.finished', when=(report_finished_at | when)) }}</p>
       {% include "_file_table.html" %}
     {% elif not sync_error %}
-      <p class="muted">This workspace has not been synced yet.</p>
+      <p class="muted">{{ t('ws.sync.never') }}</p>
     {% endif %}
   {% endif %}
 </section>

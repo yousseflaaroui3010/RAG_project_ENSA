@@ -274,6 +274,22 @@ class Settings(BaseSettings):
     # this release is gated on (docs/evals/ST-36-triage.md).
     evidence_only: bool = False
 
+    # --- Interface language (S6, human ruling 2026-09-13) ---
+    # The platform is French by default with a switch to Arabic; English is
+    # kept as a third catalog. A visitor's `?lang=` choice is remembered in a
+    # cookie and wins over this. Must be one of ui.i18n.SUPPORTED.
+    default_ui_language: str = "fr"
+
+    @field_validator("default_ui_language")
+    @classmethod
+    def _ui_language_must_be_supported(cls, value: str) -> str:
+        # Literal here rather than imported, so config never imports ui/.
+        # tests/unit/test_i18n.py asserts it equals ui.i18n.SUPPORTED.
+        supported = ("fr", "ar", "en")
+        if value not in supported:
+            raise ValueError(f"default_ui_language must be one of {supported}, got {value!r}")
+        return value
+
     # --- Workspace validation (ST-11) ---
     # Mirrors docs/phase2/openapi.yaml WorkspaceCreate/WorkspaceUpdate
     # `name` constraints (minLength/maxLength). Read from here in
