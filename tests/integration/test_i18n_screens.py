@@ -101,12 +101,17 @@ def test_reports_list_detail_and_feedback_are_localised(tmp_path, lang):
     empty = client.get(f"/reports?lang={lang}").text
     _assert_localised(empty, lang)
 
-    run_id = _seed_report(tmp_path, db_path)
+    run_id, _report_path = _seed_report(tmp_path, db_path)
     _seed_feedback(db_path)
     listing = client.get("/reports").text
+    assert f"/reports/{run_id}" in listing, "the seeded run must be listed"
     _assert_localised(listing, lang)
-    detail = client.get(f"/reports/{run_id}").text
-    _assert_localised(detail, lang)
+    response = client.get(f"/reports/{run_id}")
+    # A real report, not the "no such report" page: that page is localised
+    # too, and an earlier version of this test passed on it by mistake.
+    assert response.status_code == 200
+    assert "data-report-scores" in response.text
+    _assert_localised(response.text, lang)
 
 
 def test_choosing_arabic_is_remembered_and_mirrors_the_screen(tmp_path):
