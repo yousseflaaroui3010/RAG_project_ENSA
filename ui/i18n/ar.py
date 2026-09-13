@@ -100,6 +100,8 @@ MESSAGES: dict[str, str] = {
     "conv.clarify.head": "توضيح واحد أولًا",
     "conv.route.yes_html": "نعم، استخدم <bdi>{name}</bdi>",
     "conv.incomplete": "غير مكتملة — ليست إجابة",
+    "conv.partial.note": "أوقفت الكتابة. النص أعلاه غير مكتمل ولا يستند إلى أي مصدر.",
+    "conv.streaming.head": "جارٍ الكتابة",
     "conv.disclaimer": "معلومات للاستئناس فقط، ولا تُعدّ استشارة قانونية. استشر مختصًا مؤهلًا.",
     "conv.cancel": "إلغاء",
     # ---- المصادر والمقتطفات ----

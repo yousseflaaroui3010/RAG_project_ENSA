@@ -77,6 +77,7 @@ import logging
 import re
 from collections.abc import Callable, Mapping
 
+from agent import streaming
 from agent.chat import ChatModel
 from agent.ports import AnswerNotCoveredError
 from agent.prompts import load_prompt
@@ -229,6 +230,68 @@ def _is_decline(reply: str) -> bool:
     return bool(_DECLINE_SHOUTED.match(first) or _DECLINE_PROSE.match(first))
 
 
+# S6 streaming. A reply is shown to a listener only once it can no longer
+# turn out to be a decline, because a reader who watches "NOT_COVERED" type
+# itself out and then gets an honest refusal has been shown the machinery.
+# Held until the reply has this many characters or a second line: long
+# enough that a leading "Reponse :" label and the whole decline spelling
+# have both arrived.
+STREAM_HOLD_CHARS = 40
+# Any first line that STARTS like a decline -- token, shouted or prose -- is
+# never streamed at all; the finished reply decides, exactly as before. An
+# answer that opens "Not covered: overtime. Article 13 ..." therefore
+# appears whole instead of word by word, which is the cheap side of the
+# trade. "Notamment" does not match: the spelling must reach "covered".
+_DECLINE_OPENING = re.compile(r"^not[\s_\-]*covered", re.IGNORECASE)
+
+
+def _safe_to_show(reply: str) -> bool:
+    """May this partial reply be shown while the model is still writing?"""
+    stripped = reply.strip()
+    raw_lines = stripped.splitlines()
+    if len(stripped) < STREAM_HOLD_CHARS and len(raw_lines) < 2:
+        return False
+    lines = [
+        _LEADING_MARKUP.sub("", _DECORATION.sub("", line)).strip()
+        for line in raw_lines
+    ]
+    lines = [line for line in lines if line]
+    if not lines:
+        return False
+    first = _LABEL.sub("", lines[0])
+    return not _DECLINE_OPENING.match(first)
+
+
+def _reply_from(model: ChatModel, system: str, user: str) -> str:
+    """The model's whole reply, streamed to a listener when there is one.
+
+    Nobody listening (a direct `agent.graph.ask` with no `Run`, most unit
+    tests): one `complete` call, exactly the path every earlier release
+    took. A model with no `stream` method: the same, listener or not.
+    Either way
+    the RETURNED string is the whole reply and is judged below by the same
+    rules, so streaming changes what the reader sees sooner, never what
+    Sanad decides."""
+    stream = getattr(model, "stream", None)
+    if stream is None or not streaming.listening():
+        return model.complete(system, user)
+    pieces: list[str] = []
+    chunks = stream(system, user)
+    try:
+        for piece in chunks:
+            pieces.append(piece)
+            so_far = "".join(pieces)
+            if _safe_to_show(so_far):
+                # A listener may raise (Cancel). The `finally` closes the
+                # provider stream so the rest of the reply is not fetched.
+                streaming.publish(so_far.strip())
+    finally:
+        close = getattr(chunks, "close", None)
+        if close is not None:
+            close()
+    return "".join(pieces)
+
+
 def section_blocks(
     passages: tuple[SearchHit, ...], parent_texts: Mapping[str, str]
 ) -> tuple[str, ...]:
@@ -310,7 +373,7 @@ def build_write_answer(
         user = prompt.render(
             question=question, sections=_section_block(passages, parent_texts)
         )
-        reply = model.complete(prompt.system, user)
+        reply = _reply_from(model, prompt.system, user)
         if not reply or not reply.strip():
             # AN EMPTY COMPLETION IS A FACT ABOUT THE MODEL, not a claim
             # about the user's documents, and the two must not share an

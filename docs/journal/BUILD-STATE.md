@@ -5,7 +5,9 @@
 **On main since v2.0.0:** #116 v2.1 visual refresh; #117 French interface by
 default with Arabic and English switches (live on Railway).
 
-**Branch `feat/S6-answer-formatting` (not merged):** answers render their
+**Branch `feat/S6-streamed-answers`:** the answer streams while it is written (held until it cannot be a decline), Cancel keeps the partial text marked unfinished, and static asset URLs carry a content fingerprint.
+
+**Merged #118 (c3dd87e), Railway deploy SUCCESS, health 200 v2.0.0, / 401 without password:** answers render their
 own bold, lists, tables and headings (`ui/answer_format.py`, markdown-it-py,
 raw HTML, images and links off -- DECISIONS row); the waiting block shows the
 four real agent stages as a rail driven by the server's stage key, never a
