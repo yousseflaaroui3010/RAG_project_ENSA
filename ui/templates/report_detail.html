@@ -19,7 +19,14 @@
   <section aria-label="Report detail"
            {% if detail.summary.is_running %}data-report-refresh="true"{% else %}data-report-final-status="Evaluation {{ 'stopped with partial results' if detail.summary.is_partial else 'completed' }}."{% endif %}>
     <p><a href="/reports" data-report-focus="back">All reports</a></p>
-    <h1>{{ detail.summary.workspace_name }} <span class="mono">{{ detail.summary.run_at }}</span></h1>
+    {#
+      F-14: `workspace_name` is user-typed (F-01) sitting beside a
+      timestamp -- `<bdi>` isolates it the same way base.html's workspace
+      selector does, so an Arabic name cannot drag the mono timestamp span
+      out of its own left-to-right order (UX spec 8.5: "numbers and
+      thresholds stay left-to-right").
+    #}
+    <h1><bdi{% if is_arabic(detail.summary.workspace_name) %} lang="ar"{% endif %}>{{ detail.summary.workspace_name }}</bdi> <span class="mono">{{ detail.summary.run_at }}</span></h1>
 
     {% if detail.summary.is_running %}
       <div class="stage" role="status" aria-live="polite"

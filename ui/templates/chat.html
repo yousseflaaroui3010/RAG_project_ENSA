@@ -34,7 +34,12 @@
     <div class="chat__header">
       <h1 class="chat__title">Chat</h1>
       <p class="chat__grounding">
-        Answering from <strong>{{ active.name }}</strong>
+        {#
+          F-14: `<bdi>` for the same reason as base.html's selector -- a
+          user-typed workspace name (F-01, Arabic included) inline in an
+          otherwise-English sentence.
+        #}
+        Answering from <strong><bdi{% if is_arabic(active.name) %} lang="ar"{% endif %}>{{ active.name }}</bdi></strong>
       </p>
       <form method="post" action="/chat/new">
         <button class="btn btn--quiet" type="submit">New conversation</button>
@@ -50,8 +55,14 @@
     <form class="composer" method="post" action="/chat/ask" data-composer>
       <label class="composer__label" for="question">Your question</label>
       <div class="composer__row">
+        {#
+          F-14: `dir="auto"` so a question typed in Arabic reads RTL as it
+          is typed, whether or not the surrounding page itself is mirrored
+          (a French-workspace page can still take an Arabic-quoted
+          question).
+        #}
         <input class="composer__input" id="question" name="question" type="text"
-               autocomplete="off" required
+               autocomplete="off" required dir="auto"
                maxlength="{{ question_max_length }}"
                {% if input_reason %}disabled aria-describedby="composer-reason"{% endif %}
                placeholder="Ask a question about this workspace">

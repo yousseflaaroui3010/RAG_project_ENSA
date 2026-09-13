@@ -11,7 +11,12 @@
 {% block main %}
 <dialog class="panel panel--error" open data-confirm-dialog
         data-return-url="/workspaces?ws={{ target.id }}&amp;focus=delete">
-  <h1>Delete "{{ target.name }}"?</h1>
+  {#
+    F-14: `target.name` is user-typed (F-01, Arabic included) sitting
+    inside English prose in three places on this page -- `<bdi>` each one,
+    the same treatment as every other inline workspace name.
+  #}
+  <h1>Delete "<bdi{% if is_arabic(target.name) %} lang="ar"{% endif %}>{{ target.name }}</bdi>"?</h1>
   {% if delete_error %}
     <div role="alert">
       <p class="error__sentence">{{ delete_error }}</p>
@@ -22,14 +27,14 @@
     source files on disk stay, because that is F-01's third criterion and
     users will not believe it unless the dialog says so."
   #}
-  <p>This removes {{ target.name }}'s synced index -- every passage Sanad
+  <p>This removes <bdi{% if is_arabic(target.name) %} lang="ar"{% endif %}>{{ target.name }}</bdi>'s synced index -- every passage Sanad
      can currently answer from -- and its sync history. It does
      <strong>not</strong> touch the files in</p>
   <p class="mono error__value">{{ target.folder_path }}</p>
   <p>They stay on disk exactly as they are; only Sanad's copy of what it
      read from them is removed.</p>
   <form method="post" action="/workspaces/{{ target.id }}/delete">
-    <button class="btn btn--primary" type="submit">Yes, delete {{ target.name }}</button>
+    <button class="btn btn--primary" type="submit">Yes, delete <bdi{% if is_arabic(target.name) %} lang="ar"{% endif %}>{{ target.name }}</bdi></button>
   </form>
   <p><a href="/workspaces?ws={{ target.id }}&amp;focus=delete" autofocus>Cancel, keep this workspace</a></p>
 </dialog>

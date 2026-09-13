@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import re
 import zipfile
+from pathlib import Path
 
 import pymupdf
 import pytest
@@ -48,6 +49,31 @@ def _pdf_with_headings(path, pages=2):
         page = doc.new_page()
         page.insert_text((72, 100), f"Chapitre {number}", fontsize=24)
         page.insert_text((72, 140), f"Corps du texte de la page {number}.", fontsize=11)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+_TAHOMA = Path("C:/Windows/Fonts/tahoma.ttf")
+
+
+def _pdf_arabic(path, paragraphs: list[str], *, font_size: int = 14):
+    """F-14: a REAL Arabic PDF -- shaped, joined glyphs, not the reversed
+    codepoint mess `insert_text` alone would produce for RTL script.
+    `insert_htmlbox` runs the page through PyMuPDF's own (HarfBuzz-backed)
+    text shaper, per the task brief's own recommended method, using a
+    real system font with Arabic coverage (Tahoma ships with Windows)
+    rather than a new font dependency."""
+    doc = pymupdf.open()
+    page = doc.new_page()
+    body = "".join(f"<p>{text}</p>" for text in paragraphs)
+    html = (
+        f'<div style="font-family: Tahoma; font-size: {font_size}px; '
+        f'direction: rtl; text-align: right;">{body}</div>'
+    )
+    css = "@font-face {font-family: Tahoma; src: url(tahoma.ttf);}"
+    archive = pymupdf.Archive(str(_TAHOMA), "tahoma.ttf")
+    page.insert_htmlbox(pymupdf.Rect(36, 36, 560, 760), html, css=css, archive=archive)
     doc.save(path)
     doc.close()
     return path
@@ -185,6 +211,128 @@ def test_pdf_reports_its_real_page_count(tmp_path):
         counts[pages] = result.page_count
 
     assert counts == {1: 1, 2: 2, 5: 5}
+
+
+# --- F-14: Arabic survives the ladder in logical order -----------------
+#
+# THE ISOLATION, done by testing pure Arabic against Arabic with an
+# embedded digit across several font sizes and box widths (recorded in
+# DECISIONS.md, 2026-09-13): PURE Arabic-script text -- no Western or
+# Eastern-Arabic-Indic digit anywhere in it -- extracts through
+# `conversion._read_pdf` (pymupdf4llm) in exactly its source logical
+# order, in EVERY layout configuration tried. The moment the text carries
+# an embedded digit run near its start -- exactly the shape of a Moroccan
+# legal marker "المادة 12" -- the digit-bearing segment is unpredictably
+# displaced elsewhere in the extracted text in most (not all) tested
+# configurations, and no single parameter (paragraph count, font size,
+# box width) was found to reliably predict which layouts are safe.
+# PRACTICAL IMPACT: a real Moroccan legal PDF, where every article opens
+# with its own number, is at real risk of this on the PDF rung
+# specifically -- not a corner case. Left OPEN per the task brief's own
+# rule ("fix only if the fix is small and proven"): no reliable trigger
+# condition means no small, proven fix is possible from this session.
+
+_ARABIC_PURE = (
+    "مدة التجربة ثلاثة أشهر للأطر وللأجير الحق في المغادرة بدون إخطار."
+)  # "The trial period is three months for executives, and the employee
+#     has the right to leave without notice." -- no digit anywhere.
+_ARABIC_WITH_MARKER = (
+    "المادة 13: مدة التجربة ثلاثة أشهر للأطر."
+)  # "Article 13: the trial period is three months for executives."
+
+
+@pytest.mark.skipif(not _TAHOMA.exists(), reason="needs a Windows Arabic-capable font")
+def test_pdf_preserves_pure_arabic_text_in_logical_order(tmp_path):
+    """F-14 item 6, the reliable half: a real Arabic PDF (shaped via
+    `insert_htmlbox`, not the reversed-codepoint mess plain `insert_text`
+    would give RTL script) with NO embedded digit converts through the
+    same rung as the French fixtures above and comes back as exactly the
+    same words in exactly the same logical order, across every font size
+    tried (12/14/16/18px, checked while isolating the defect below) --
+    only the digit-bearing case is unreliable."""
+    for font_size in (12, 14, 16, 18):
+        path = _pdf_arabic(
+            tmp_path / f"pure_{font_size}.pdf", [_ARABIC_PURE], font_size=font_size
+        )
+
+        result = conversion.convert_file(path)
+
+        assert result.outcome is ConversionOutcome.CONVERTED
+        assert _ARABIC_PURE in result.markdown, (
+            f"font_size={font_size}: pure Arabic (no digit) should always "
+            f"survive in logical order, got {result.markdown!r}"
+        )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "found, not fixed (DECISIONS.md 2026-09-13): pymupdf4llm "
+        "unpredictably displaces the digit-bearing 'المادة N' segment of "
+        "an Arabic sentence elsewhere in the extracted text -- reproduced "
+        "at this exact font size/width, though not at every one tried. "
+        "If this ever starts passing (an upstream pymupdf/pymupdf4llm "
+        "fix), remove the xfail rather than leaving a stale strict-xfail "
+        "failing the suite -- that is what strict=True is for."
+    ),
+)
+@pytest.mark.skipif(not _TAHOMA.exists(), reason="needs a Windows Arabic-capable font")
+def test_pdf_scrambles_arabic_text_with_an_embedded_citation_digit(tmp_path):
+    """Pins the exact defect found while proving item 6: the same
+    sentence as the pure-Arabic test above, with its citation number
+    reinstated, at a font size/width combination that reproduces the
+    displacement (14px, the default `_pdf_arabic` width) -- one of
+    several combinations found to trigger it during isolation."""
+    path = _pdf_arabic(tmp_path / "article13.pdf", [_ARABIC_WITH_MARKER])
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert _ARABIC_WITH_MARKER in result.markdown
+
+
+_ARABIC_ARTICLE_13 = "المادة 13: مدة التجربة ثلاثة أشهر للأطر."
+_ARABIC_ARTICLE_43 = "المادة 43: مدة الإخطار شهر واحد للأجراء."
+
+
+def test_docx_preserves_arabic_paragraphs_in_logical_order(tmp_path):
+    """DOCX reads OOXML text runs directly (markitdown), never a visual
+    glyph position -- so it is not exposed to the PDF rung's defect
+    above. Built with the same hand-rolled `_docx` helper the French
+    fixtures use, Arabic `<w:t>` runs included, to prove that rather than
+    assume it from the mechanism. Two DIFFERENT article numbers, so a
+    passing assertion actually checks paragraph ORDER and not just that
+    both strings appear somewhere."""
+    document_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+        "<w:body>\n"
+        '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>'
+        f"<w:r><w:t>{_ARABIC_ARTICLE_13}</w:t></w:r></w:p>\n"
+        f"<w:p><w:r><w:t>{_ARABIC_ARTICLE_43}</w:t></w:r></w:p>\n"
+        "</w:body>\n"
+        "</w:document>"
+    )
+
+    result = conversion.convert_file(_docx(tmp_path / "ar.docx", document_xml=document_xml))
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert _ARABIC_ARTICLE_13 in result.markdown
+    assert _ARABIC_ARTICLE_43 in result.markdown
+    assert result.markdown.index(_ARABIC_ARTICLE_13) < result.markdown.index(_ARABIC_ARTICLE_43)
+
+
+def test_txt_preserves_arabic_text_byte_for_byte(tmp_path):
+    """TXT/MD is a straight passthrough (`_read_text`) -- no extraction
+    step exists to get direction wrong."""
+    source = f"{_ARABIC_ARTICLE_13}\n\n{_ARABIC_ARTICLE_43}\n"
+    path = tmp_path / "arabic_notes.txt"
+    path.write_text(source, encoding="utf-8")
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert result.markdown == source
 
 
 def test_docx_converts_and_preserves_headings(tmp_path):

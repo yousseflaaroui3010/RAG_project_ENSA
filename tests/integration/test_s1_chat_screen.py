@@ -987,6 +987,114 @@ def test_the_rtl_preview_flips_the_document_direction(sanad):
     assert 'dir="ltr"' in client.get('/?dir="><script>').text
 
 
+def test_an_arabic_workspace_auto_mirrors_the_whole_screen(sanad, monkeypatch, tmp_path):
+    """F-14's real trigger (not the `?dir=` preview above): PRD acceptance
+    criterion "the surrounding screen mirrors" needs to happen with NO
+    query parameter, purely because the active workspace's own stored
+    text is Arabic (DECISIONS.md, 2026-09-13).
+
+    Builds real parent JSON files (`parent_store.save_parents`, the exact
+    shape ST-16's Sync writes) holding majority-Arabic text, and points
+    `ui.rtl`'s settings read at them -- the same `get_settings.cache_
+    clear()` pattern `tests/unit/test_workspaces.py` uses to override a
+    setting for one test."""
+    import ui.rtl as rtl_module
+    from chunking import Parent
+    from config import get_settings
+
+    build, workspace, db_path = sanad
+    client, runtime = build()
+
+    arabic_dir = tmp_path / "arabic-parents"
+    parent_store.save_parents(
+        parents=[
+            Parent(
+                id="p1",
+                text=(
+                    "المادة 13: مدة التجربة ثلاثة أشهر للأطر وللأجير الحق "
+                    "في المغادرة بدون إخطار مسبق في جميع الأحوال."
+                ),
+                source_file=SOURCE_FILE,
+                section_label="المادة 13",
+            )
+        ],
+        workspace_id=workspace.id,
+        base_path=arabic_dir,
+    )
+    fake_settings = get_settings().model_copy(update={"parent_store_path": str(arabic_dir)})
+    monkeypatch.setattr(rtl_module, "get_settings", lambda: fake_settings)
+
+    page = client.get("/").text
+
+    assert 'dir="rtl"' in page
+    assert 'lang="ar"' in page
+    # And it is the CONTENT, not a side effect of the fixture's db/config --
+    # the same client, workspace and settings override with an EMPTY
+    # arabic_dir (nothing written to it) must stay LTR/English, or this
+    # test would pass for any reason at all.
+    empty_dir = tmp_path / "empty-parents"
+    empty_settings = get_settings().model_copy(update={"parent_store_path": str(empty_dir)})
+    monkeypatch.setattr(rtl_module, "get_settings", lambda: empty_settings)
+    control_page = client.get("/").text
+    assert 'dir="ltr"' in control_page
+    assert 'lang="en"' in control_page
+
+
+def test_a_french_workspace_does_not_auto_mirror(sanad):
+    """The companion negative: the `sanad` fixture's own HR_DOCUMENT is
+    French, stored under its own tmp `parents_dir` (not the settings
+    default `ui.rtl.workspace_is_arabic` reads with no override), so this
+    also doubles as proof that a workspace `ui.rtl` cannot see at all
+    reads as the honest "not Arabic" rather than erroring."""
+    build, _workspace, _ = sanad
+    client, _runtime = build()
+
+    page = client.get("/").text
+
+    assert 'dir="ltr"' in page
+    assert 'lang="en"' in page
+
+
+def test_the_rtl_preview_override_does_not_force_lang_ar(sanad):
+    """`_lang` is deliberately NOT driven by the `?dir=` preview override
+    (app.py's `_lang` docstring): the preview carries no Arabic copy, so
+    forcing `lang="ar"` on English preview text would misinform a screen
+    reader rather than test anything. Only real detected Arabic content
+    sets `lang="ar"` -- proven together so a future change that makes
+    `_lang` reuse `_direction`'s post-override value cannot pass by
+    accident."""
+    build, _workspace, _ = sanad
+    client, _runtime = build()
+
+    page = client.get("/?dir=rtl").text
+
+    assert 'dir="rtl"' in page
+    assert 'lang="en"' in page
+
+
+def test_an_arabic_answer_gets_dir_auto_and_lang_ar_while_the_french_question_does_not(
+    sanad,
+):
+    """Per-element direction (task brief item 1), independent of whatever
+    the whole page's `dir`/`lang` end up being: the FRENCH question
+    bubble and the ARABIC answer bubble sit in the same transcript and
+    must read in their own scripts, not the page's."""
+    build, workspace, _ = sanad
+    arabic_answer = (
+        "مدة التجربة ثلاثة "
+        "أشهر للأطر."
+    )
+    client, runtime = build(model=ScriptedChat(QUERY_PLAN, "RELEVANT", arabic_answer))
+
+    _ask(client)
+    page = _settled(client, runtime, workspace.id)
+
+    assert 'class="bubble bubble--user" dir="auto">' in page, (
+        "the French user bubble must still carry dir=auto (item 1), just not lang=ar"
+    )
+    assert f'class="answer__text" dir="auto" lang="ar">{arabic_answer}' in _visible(page)
+
+
 def test_a_question_containing_markup_is_shown_as_text_not_run_as_markup(sanad):
     """The escaping `_visible` works around, asserted directly.
 

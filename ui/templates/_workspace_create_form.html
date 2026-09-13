@@ -11,7 +11,13 @@
   {% endif %}
   <div class="ws-form__row">
     <label class="ws-form__label" for="ws-name">Workspace name</label>
-    <input class="ws-form__input" id="ws-name" name="name" type="text" required
+    {#
+      F-14: a workspace name may be typed in Arabic (F-01 puts no script
+      restriction on it) -- `dir="auto"` lets the field read RTL as soon
+      as the operator types a first Arabic character, the same live
+      behaviour browsers already give a `dir="auto"` text field.
+    #}
+    <input class="ws-form__input" id="ws-name" name="name" type="text" required dir="auto"
            minlength="{{ name_min_length }}" maxlength="{{ name_max_length }}"
            value="{{ (form_values.name if form_values else '') }}"
            placeholder="e.g. HR policies">

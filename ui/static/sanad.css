@@ -69,7 +69,21 @@
   /* 3.3 Type scale. Body is 15px, not 16px, "because the file tables
      carry a lot of columns". Anything below 13px is banned, so 13px is
      the floor here and no smaller value appears in this file. */
-  --font-sans: "Segoe UI", "Noto Sans", "Lucida Grande", "Frutiger", sans-serif;
+  /*
+    F-14: Arabic fallbacks appended, not swapped in for the existing
+    stack -- "Segoe UI" etc. still lead for Latin/French text, and a
+    browser only reaches for "Tahoma" or "Noto Naskh/Sans Arabic" per
+    CHARACTER, when the leading fonts have no glyph for it (standard font
+    fallback, not a language switch). No new webfont: both are common
+    system fonts (Tahoma ships with Windows; Noto Naskh/Sans Arabic ship
+    with most Linux/Android/Chrome OS installs and are Google Fonts on
+    the rest, so on a machine without either the stack still ends in a
+    generic and the OS still substitutes something with Arabic coverage).
+    Loading either from Google Fonts was considered and rejected: the CSP
+    that already governs this app is not spent on a webfont when a system
+    stack meets the PRD criterion ("correct script") without one.
+  */
+  --font-sans: "Segoe UI", Tahoma, "Noto Naskh Arabic", "Noto Sans Arabic", "Noto Sans", "Lucida Grande", "Frutiger", sans-serif;
   --font-mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
   --size-display: 28px;
   --size-section: 20px;
@@ -151,6 +165,39 @@ h3 { font-size: var(--size-body); font-weight: 600; line-height: 1.6; }
 }
 
 .muted { color: var(--text-muted); font-size: var(--size-meta); line-height: 1.45; }
+
+/*
+  F-14: two Arabic-script requirements the task brief names directly.
+
+  NO LETTER-SPACING: Arabic is cursive -- each letter joins its neighbour
+  into a different glyph shape depending on position in the word, and
+  `letter-spacing` forces gaps that break that joining outright, not just
+  loosen it (unlike Latin, where it is merely wider). This app applies
+  letter-spacing in exactly two places today (`.sources__title`,
+  `.incomplete-mark`), both fixed English labels Sanad writes itself, so
+  neither would ever carry Arabic text -- but `:lang(ar)` resets it back
+  to `normal` wherever it inherits or is set, as a standing guarantee
+  rather than a fact that happens to hold today and could stop holding
+  the next time a `letter-spacing` rule is added near user-facing text.
+
+  LINE-HEIGHT: Arabic's stacked diacritics (tashkeel) and taller
+  ascenders/descenders want more vertical room than the Latin text this
+  stack was tuned for -- 1.6 (`body`) is workable but tight; 1.8 is the
+  commonly recommended floor for Arabic body copy and costs nothing for a
+  script that is never mixed mid-line with Latin at a different
+  line-height (line-height applies per block, and F-14's `dir="auto"`
+  targets are block-level elements: `<p>`, `<li>`).
+
+  `:lang(ar)` rather than `[dir="rtl"]`: direction and script are
+  different facts here (a citation's mono LTR-forced span can still be
+  Arabic script, UX spec 6.5) and `:lang()` also matches the individual
+  `dir="auto"` elements once F-14's per-message `lang` is set on them --
+  not only the whole mirrored document.
+*/
+:lang(ar) {
+  letter-spacing: normal;
+  line-height: 1.8;
+}
 
 /* UX spec 6.4: "Visible focus ring at 3:1 against its background, never
    removed." Two rings, because one colour cannot clear 3:1 against both a
