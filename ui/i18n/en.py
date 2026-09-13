@@ -101,6 +101,10 @@ MESSAGES: dict[str, str] = {
     "conv.clarify.head": "One detail first",
     "conv.route.yes_html": "Yes, use <bdi>{name}</bdi>",
     "conv.incomplete": "Incomplete — not an answer",
+    "conv.partial.note": (
+        "You stopped the writing. The text above is unfinished and is not tied to any source."
+    ),
+    "conv.streaming.head": "Writing",
     "conv.disclaimer": "Informational only, not legal advice. Consult a qualified professional.",
     "conv.cancel": "Cancel",
     # ---- Sources and passages ----

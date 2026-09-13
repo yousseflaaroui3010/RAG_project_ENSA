@@ -395,6 +395,9 @@
   }
 
   var POLL_MS = 700;
+  // S6: while the model is writing, check more often so the text arrives
+  // in small steps rather than in 700ms lumps.
+  var WRITING_POLL_MS = 300;
 
   /*
     WHY THE FINISHED ANSWER IS APPENDED RATHER THAN RELOADED, and it is an
@@ -428,8 +431,13 @@
       wireFeedback(node);
     });
 
-    // The run is over: drop the stage block, put the composer back.
+    // The run is over: drop the stage block and the draft answer (the
+    // finished one was just appended above), put the composer back.
     stageBlock.remove();
+    var draft = document.querySelector("[data-streaming]");
+    if (draft) {
+      draft.remove();
+    }
     var reason = document.getElementById("composer-reason");
     if (reason) {
       reason.remove();
@@ -460,6 +468,29 @@
       step.classList.toggle("is-done", index < current);
       step.classList.toggle("is-current", index === current);
     });
+  }
+
+  /*
+    S6: the answer as the model writes it. The server renders it (escaped,
+    formatted) exactly as it renders a finished answer; this only moves
+    that markup into the page. Inserted just above the stage block, and
+    kept out of the transcript's live region so words are not announced
+    one poll at a time.
+  */
+  function showDraft(freshDraft) {
+    if (!freshDraft) {
+      return;
+    }
+    var live = document.querySelector("[data-streaming]");
+    if (!live) {
+      stageBlock.parentNode.insertBefore(document.importNode(freshDraft, true), stageBlock);
+      return;
+    }
+    var liveText = live.querySelector("[data-streaming-text]");
+    var freshText = freshDraft.querySelector("[data-streaming-text]");
+    if (liveText && freshText && liveText.innerHTML !== freshText.innerHTML) {
+      liveText.replaceWith(document.importNode(freshText, true));
+    }
   }
 
   function tick() {
@@ -494,8 +525,10 @@
         // S6: move the step rail to the stage the server just reported.
         // Classes only, same as the label: the node is never replaced.
         var freshStage = fresh.querySelector("[data-stage]");
-        paintSteps(freshStage && freshStage.getAttribute("data-stage-key"));
-        window.setTimeout(tick, POLL_MS);
+        var stageKey = freshStage && freshStage.getAttribute("data-stage-key");
+        paintSteps(stageKey);
+        showDraft(fresh.querySelector("[data-streaming]"));
+        window.setTimeout(tick, stageKey === "writing" ? WRITING_POLL_MS : POLL_MS);
       })
       .catch(function () {
         /* A failed poll is not a failed answer: the run continues on the

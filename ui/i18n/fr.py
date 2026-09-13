@@ -103,6 +103,11 @@ MESSAGES: dict[str, str] = {
     "conv.clarify.head": "Une précision d’abord",
     "conv.route.yes_html": "Oui, utiliser <bdi>{name}</bdi>",
     "conv.incomplete": "Incomplet — ce n’est pas une réponse",
+    "conv.partial.note": (
+        "Vous avez arrêté la rédaction. Le texte ci-dessus est inachevé "
+        "et n’est rattaché à aucune source."
+    ),
+    "conv.streaming.head": "Rédaction en cours",
     "conv.disclaimer": (
         "Information à titre indicatif, ne constitue pas un avis juridique. "
         "Consultez un professionnel qualifié."

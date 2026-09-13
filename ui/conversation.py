@@ -166,6 +166,10 @@ class Message:
     # optional one; `ui/feedback.py` is what restricts feedback to the two
     # kinds a citable claim can attach to.
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    # S6, INTERRUPTED only: `text` is the model's own half-written answer
+    # (rendered like an answer, marked incomplete, no sources), not
+    # Sanad's fixed INTERRUPTED_TEXT sentence.
+    partial: bool = False
 
 
 def merge_spans(spans: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -379,11 +383,11 @@ def error_message(exc: BaseException, question: str) -> Message:
 
 
 # Section 11's "answer interrupted mid-generation" row asks for the partial
-# text to be kept and marked incomplete. THERE IS NO PARTIAL TEXT IN V1 and
-# this says so rather than rendering an empty bubble labelled incomplete:
-# `agent.answering.build_write_answer` calls the model once and returns a
-# whole string, so nothing streams and there is never a half-written answer
-# in memory to keep. When a story adds streaming, the text goes here.
+# text to be kept and marked incomplete. Since S6 the writer streams, so a
+# run cancelled while writing carries `Run.partial_text` and `settle` keeps
+# THAT. This sentence is for the other case -- cancelled before any text
+# was shown -- and says so rather than rendering an empty bubble labelled
+# incomplete.
 INTERRUPTED_TEXT = (
     "You stopped this answer. Nothing was written, so there is no partial "
     "text to show, and nothing here is a finished answer. Ask again to retry."
@@ -561,8 +565,11 @@ class Conversation:
                 self.pending_clarification = run.clarification_context
             error = run.error
             if isinstance(error, RunCancelled):
+                partial = run.partial_text
                 self.messages.append(
-                    Message(kind=MessageKind.INTERRUPTED, text=INTERRUPTED_TEXT)
+                    Message(kind=MessageKind.INTERRUPTED, text=partial, partial=True)
+                    if partial
+                    else Message(kind=MessageKind.INTERRUPTED, text=INTERRUPTED_TEXT)
                 )
                 return
             if error is not None:

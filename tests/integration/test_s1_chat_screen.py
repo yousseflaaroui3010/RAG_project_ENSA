@@ -1670,3 +1670,130 @@ def test_feedback_route_is_behind_the_access_gate_when_a_password_is_set(
 
     assert response.status_code == 401
     assert _feedback_rows(db_path) == []
+
+
+# --- S6: the answer streams while it is written ----------------------
+
+STREAMED_ANSWER = (
+    "**Article 13** : la periode d'essai est de trois mois pour les cadres.\n\n"
+    "- renouvelable une seule fois\n"
+    "- notifiee par ecrit avant le terme"
+)
+
+
+class PausingStreamChat(ScriptedChat):
+    """Scripted, and the answer call streams: the first `cut` characters,
+    then a pause the test controls, then the rest.
+
+    `stream` is only ever called by the answer writer, so it takes the
+    next scripted reply exactly like `complete` would."""
+
+    def __init__(self, *replies: str, cut: int):
+        super().__init__(*replies)
+        self.cut = cut
+        self.paused = threading.Event()
+        self.resume = threading.Event()
+        self.pieces_given = 0
+        self.closed = False
+
+    def stream(self, system: str, user: str):
+        reply = self.complete(system, user)
+        try:
+            for start in range(0, self.cut, 5):
+                self.pieces_given += 1
+                yield reply[start : min(start + 5, self.cut)]
+            self.paused.set()
+            self.resume.wait(timeout=WAIT)
+            for start in range(self.cut, len(reply), 5):
+                self.pieces_given += 1
+                yield reply[start : start + 5]
+        finally:
+            self.closed = True
+
+
+def test_the_answer_appears_while_it_is_written_then_lands_in_the_transcript(sanad):
+    build, workspace, _ = sanad
+    model = PausingStreamChat(QUERY_PLAN, "RELEVANT", STREAMED_ANSWER, cut=80)
+    client, runtime = build(model=model)
+
+    client.post("/chat/ask", data={"question": QUESTION}, follow_redirects=False)
+    assert model.paused.wait(WAIT), "the answer never started streaming"
+    mid = client.get("/chat/messages").text
+
+    assert "data-streaming" in mid
+    draft = mid.split("data-streaming-text>")[1].split("</div>")[0]
+    assert "<strong>Article 13</strong>" in draft, "the draft is formatted like an answer"
+    assert "notifiee par ecrit" not in _visible(draft), "text not written yet is not shown"
+    transcript = mid.split("data-transcript>")[1].split("</ol>")[0]
+    assert "msg--answer" not in transcript, "a draft is never a transcript message"
+
+    model.resume.set()
+    page = _settled(client, runtime, workspace.id)
+
+    assert "data-streaming" not in page
+    assert "notifiee par ecrit" in _visible(page)
+    assert "msg--answer" in page.split("data-transcript>")[1]
+
+
+def test_cancelling_while_writing_stops_the_stream_and_keeps_the_text_marked_unfinished(
+    sanad,
+):
+    build, workspace, _ = sanad
+    long_answer = STREAMED_ANSWER + "\n" + ("- une ligne de plus\n" * 40)
+    model = PausingStreamChat(QUERY_PLAN, "RELEVANT", long_answer, cut=80)
+    client, runtime = build(model=model)
+
+    client.post("/chat/ask", data={"question": QUESTION}, follow_redirects=False)
+    assert model.paused.wait(WAIT)
+    client.post("/chat/cancel", follow_redirects=False)
+    model.resume.set()
+    page = _settled(client, runtime, workspace.id)
+
+    assert model.closed
+    assert model.pieces_given < len(long_answer) // 5, "Cancel did not stop the stream"
+    # The interrupted message is the last one, so its bubble runs to the
+    # end of the conversation section.
+    bubble = page.split("bubble--interrupted")[1].split("</section>")[0]
+    assert "<strong>Article 13</strong>" in bubble
+    assert "You stopped the writing" in _visible(bubble)
+    assert "une ligne de plus" not in _visible(bubble), "text after Cancel was kept"
+    assert "/chat/passage/" not in bubble, "an unfinished answer carries no sources"
+    assert "data-feedback" not in bubble
+
+
+def test_a_streamed_decline_is_never_shown_before_the_honest_refusal(sanad):
+    build, workspace, _ = sanad
+    decline = NOT_COVERED + " - les sections parlent des conges et pas de la periode d'essai."
+    model = PausingStreamChat(QUERY_PLAN, "RELEVANT", decline, cut=60)
+    client, runtime = build(model=model)
+
+    client.post("/chat/ask", data={"question": QUESTION}, follow_redirects=False)
+    assert model.paused.wait(WAIT)
+    mid = client.get("/chat/messages").text
+
+    assert "data-streaming" not in mid
+    assert NOT_COVERED not in mid
+
+    model.resume.set()
+    page = _settled(client, runtime, workspace.id)
+    assert "msg--refusal" in page
+    assert NOT_COVERED not in page
+
+
+def test_script_and_stylesheet_links_carry_a_fingerprint_of_their_bytes(sanad):
+    """Found in a real browser: new templates ran against a sanad.js cached
+    from before the streaming code existed, and the draft froze. Every
+    deploy must change the asset URL exactly when the file changes."""
+    import hashlib
+
+    build, _, _ = sanad
+    client, _ = build()
+    page = client.get("/").text
+
+    for name in ("sanad.js", "sanad.css"):
+        digest = hashlib.sha256((app_module.STATIC / name).read_bytes()).hexdigest()[:12]
+        url = f"/static/{name}?v={digest}"
+        assert f'"{url}"' in page, f"{name} is not linked by its fingerprint"
+        served = client.get(url)
+        assert served.status_code == 200
+        assert served.content == (app_module.STATIC / name).read_bytes()
