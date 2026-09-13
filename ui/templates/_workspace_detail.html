@@ -93,7 +93,7 @@
             {% endif %}
           </span>
         </div>
-        <p class="muted">Started at {{ running.started_at }}.</p>
+        <p class="muted">Started {{ running.started_at | when }}.</p>
         {% if sync_can_cancel %}
           <form method="post" action="/workspaces/{{ selected.id }}/sync/cancel">
             <button class="btn btn--quiet" type="submit">Cancel after current file</button>
@@ -121,7 +121,7 @@
     {% if running %}
       <p class="muted">The last sync report will appear here once this run finishes.</p>
     {% elif file_rows %}
-      <p class="muted">Finished at {{ report_finished_at }}.</p>
+      <p class="muted">Last Sync finished {{ report_finished_at | when }}.</p>
       {% include "_file_table.html" %}
     {% elif not sync_error %}
       <p class="muted">This workspace has not been synced yet.</p>

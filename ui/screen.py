@@ -23,11 +23,32 @@ state a test can assert on is one value.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
 import workspaces
 from db import repo
+
+
+def format_when(value: str | None) -> str:
+    """A stored ISO-8601 timestamp as a person reads it: "12 Sep 2026, 14:12 UTC".
+
+    Every timestamp this app stores comes from `repo.utc_now()` and carries an
+    offset, so it is shown in UTC and says so, rather than silently shifted
+    into whatever zone the server happens to run in. A value that is not a
+    timestamp is shown as it is: a display filter must never hide data it
+    could not parse. Nothing at all becomes a dash."""
+    if not value:
+        return "\u2014"
+    try:
+        moment = datetime.fromisoformat(str(value))
+    except ValueError:
+        return str(value)
+    if moment.tzinfo is None:
+        return f"{moment.day} {moment:%b %Y, %H:%M}"
+    moment = moment.astimezone(UTC)
+    return f"{moment.day} {moment:%b %Y, %H:%M} UTC"
 
 # `document.status` values that mean the file is really in the index and
 # can be answered from. db/schema.sql allows four; the other three are

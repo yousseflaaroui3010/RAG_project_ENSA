@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 import html
 import json
+import re
 import threading
 
 import pytest
@@ -355,6 +356,21 @@ def test_the_empty_state_offers_sample_questions_and_promises_sources(sanad):
     assert "Every answer carries the sources it was written from." in page
     assert 'id="question"' in page
     assert "disabled" not in page.split('id="question"')[1].split(">")[0]
+
+
+def test_the_empty_state_shows_how_sanad_answers_in_three_steps(sanad):
+    """v2.1: before the first question, the promise is spelled out as the
+    three things the agent really does, in order -- search, check, answer or
+    refuse. The refusal half must be there: it is the honest path."""
+    build, _workspace, _ = sanad
+    client, _runtime = build()
+
+    page = client.get("/").text
+    steps = page.split('aria-label="How Sanad answers"')[1].split("</ol>")[0]
+
+    assert steps.count('class="steps__item"') == 3
+    assert steps.index("Searches") < steps.index("Checks") < steps.index("Answers")
+    assert "or says it cannot" in steps
 
 
 def test_a_workspace_with_no_documents_disables_the_input_and_says_why(sanad):
@@ -686,6 +702,28 @@ def test_cancelling_a_resumed_query_plan_discards_its_result(sanad):
 
 
 # --- F-09, criteria 2 and 3 ------------------------------------------
+
+
+def test_every_evidence_seal_links_to_a_real_source_card_in_order(sanad):
+    """v2.1 evidence strip: each seal under the answer must land on the card
+    it names. A seal pointing at an id no card carries is a citation that
+    goes nowhere, which is worse than no seal. Numbering starts at 1 and
+    matches the card's own seal, in the same order."""
+    build, workspace, _ = sanad
+    client, runtime = build()
+
+    _ask(client)
+    page = _settled(client, runtime, workspace.id)
+
+    strip = page.split('class="evidence"')[1].split("</ul>")[0]
+    targets = re.findall(r'href="#(source-\d+-\d+)"', strip)
+    assert targets, "the answer carries sources but no evidence seals"
+    for target in targets:
+        assert page.count(f'id="{target}"') == 1, f"seal #{target} has no card"
+    strip_numbers = re.findall(r'<span class="seal">(\d+)</span>', strip)
+    assert strip_numbers == [str(n) for n in range(1, len(targets) + 1)]
+    card_ids = re.findall(r'<li class="source" id="(source-\d+-\d+)"', page)
+    assert card_ids[: len(targets)] == targets
 
 
 def test_a_legal_workspace_shows_the_disclaimer_between_answer_and_sources(sanad):
