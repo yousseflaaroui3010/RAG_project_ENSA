@@ -86,6 +86,21 @@ _REASON_PDF_NO_TEXT_LAYER = (
     "this PDF has no text layer, so it is a scan or images only. Sanad "
     "cannot read text from pictures yet, so nothing was indexed"
 )
+# F-16: shown instead of the reason above when OCR is configured and was
+# actually attempted on this file, so a user who turned OCR on and still
+# gets nothing sees a distinct, honest reason rather than the V1 wording
+# that promises nothing was even tried.
+_REASON_PDF_OCR_NO_TEXT = (
+    "this PDF was scanned, and OCR could not find any readable text on "
+    "it. Check the pages are not blank or upside down, then sync again"
+)
+# F-16: a scanned PDF longer than `ocr_max_pages` is Skipped rather than
+# OCR'd, naming the limit so the reason is actionable (split the file)
+# rather than a mystery.
+_REASON_PDF_OCR_TOO_LONG = (
+    "this scanned PDF has {pages} pages, over the {limit}-page OCR limit, "
+    "so it was not processed. Split it into smaller files, then sync again"
+)
 _REASON_DOCX_DAMAGED = (
     "the DOCX is damaged or is not really a Word file. Open it in Word to "
     "check it, then sync again"
@@ -149,10 +164,20 @@ class ConversionResult:
 @dataclass(frozen=True)
 class _Extracted:
     """What one rung of the ladder pulled out of a file, before the shared
-    emptiness check that every format is held to."""
+    emptiness check that every format is held to.
+
+    `ocr_attempted` and `skip_reason` exist for F-16 only, and both stay at
+    their default for every rung except a PDF that went through OCR: the
+    first lets the shared emptiness gate pick the OCR-specific "found
+    nothing" wording instead of the plain "no text layer" one, the second
+    lets one rung (the page-cap case) override the gate's reason outright
+    without a second SKIPPED code path -- see `convert_file`. Neither
+    changes what CONVERTED or FAILED can carry."""
 
     text: str
     page_count: int | None = None
+    ocr_attempted: bool = False
+    skip_reason: str | None = None
 
 
 class ConversionError(Exception):
@@ -180,6 +205,40 @@ class DocumentFailedError(ConversionError):
     only because mutation testing cannot see a branch nothing reaches."""
 
 
+def _ocr_page(page: pymupdf.Page, *, language: str, dpi: int, tessdata: str) -> str:
+    """One page's OCR pass, via PyMuPDF's BUILT-IN Tesseract (pymupdf
+    1.28.0) -- no separate Tesseract program and no extra Python package,
+    only the tessdata language files (DECISIONS.md, human-approved
+    2026-09-13). Kept as its own module-level function, replaceable by a
+    test with `monkeypatch.setattr(conversion, "_ocr_page", fake)`, so the
+    OCR *plumbing* in `_read_pdf` (page mapping, the page cap, error
+    handling) is exercised without needing the real tessdata files
+    installed; the real-tessdata tests call this one for real."""
+    textpage = page.get_textpage_ocr(
+        language=language, dpi=dpi, full=True, tessdata=tessdata
+    )
+    return page.get_text(textpage=textpage)
+
+
+def _ocr_pdf(doc: pymupdf.Document, page_count: int) -> str:
+    """OCR every page of an already-open PDF and join the results in page
+    order. Page order is not incidental -- `doc[i]` for `i` in
+    `range(page_count)` visits every page exactly once, forwards, which is
+    what a 3-page fixture with different text on each page is built to
+    catch an off-by-one or a reversed order in."""
+    settings = get_settings()
+    pages_text = [
+        _ocr_page(
+            doc[index],
+            language=settings.ocr_languages,
+            dpi=settings.ocr_dpi,
+            tessdata=settings.ocr_tessdata_dir,
+        )
+        for index in range(page_count)
+    ]
+    return "\n\n".join(pages_text)
+
+
 def _read_pdf(path: Path) -> _Extracted:
     """PDF rung: pymupdf4llm, which preserves headings (ADR-07).
 
@@ -196,6 +255,19 @@ def _read_pdf(path: Path) -> _Extracted:
     2. The page count has to be read from the same open document that
        produced the text, not a second `open()` of a file that may have
        changed in between.
+
+    F-16 adds one more step, OFF unless `ocr_tessdata_dir` is set: if the
+    text pymupdf4llm found is empty (the same condition `convert_file`'s
+    shared emptiness gate would call "scanned"), and the document is not
+    longer than `ocr_max_pages`, every page is OCR'd and joined instead of
+    returning empty text for the gate to Skip. This is the ONLY trigger --
+    a document that already has SOME real text (even one page of many)
+    keeps its pymupdf4llm text unchanged and is never OCR'd, which is a
+    known limitation for a mixed scanned/typed PDF, recorded rather than
+    silently accepted: V1's existing "is this scanned" decision (the whole
+    file produced no text) is reused as-is, not replaced with a per-page
+    one, to avoid changing the heading/markdown output of every ordinary
+    PDF this ladder already handles correctly.
     """
     try:
         doc = pymupdf.open(path)
@@ -216,9 +288,26 @@ def _read_pdf(path: Path) -> _Extracted:
             raise DocumentFailedError(_REASON_PDF_LOCKED)
         page_count = doc.page_count
         text = pymupdf4llm.to_markdown(doc)
+        ocr_attempted = False
+        skip_reason = None
+        settings = get_settings()
+        no_text_layer = len(text.strip()) < settings.conversion_min_text_chars
+        if no_text_layer and settings.ocr_tessdata_dir:
+            if page_count > settings.ocr_max_pages:
+                skip_reason = _REASON_PDF_OCR_TOO_LONG.format(
+                    pages=page_count, limit=settings.ocr_max_pages
+                )
+            else:
+                text = _ocr_pdf(doc, page_count)
+                ocr_attempted = True
     finally:
         doc.close()
-    return _Extracted(text=text, page_count=page_count)
+    return _Extracted(
+        text=text,
+        page_count=page_count,
+        ocr_attempted=ocr_attempted,
+        skip_reason=skip_reason,
+    )
 
 
 def _read_docx(path: Path) -> _Extracted:
@@ -423,15 +512,22 @@ _CONVERTERS: dict[str, Callable[[Path], _Extracted]] = {
 }
 
 
-def _no_text_reason(extension: str) -> str:
+def _no_text_reason(extension: str, *, ocr_attempted: bool = False) -> str:
     """Why a file that converted cleanly still has nothing to index.
 
     PDF gets its own wording because for a PDF this is the expected,
     common case -- a scan -- and PRD F-16 binds V1 to reporting it as
     Skipped WITH THE REASON STATED. Telling someone who scanned a
     contract that "the file has no text in it" would read as a bug in
-    Sanad rather than a description of their file."""
-    return _REASON_PDF_NO_TEXT_LAYER if extension == _PDF else _REASON_EMPTY
+    Sanad rather than a description of their file.
+
+    `ocr_attempted` (F-16) picks a THIRD wording, distinct from both: OCR
+    ran and still found nothing, which is a different fact from "OCR was
+    never tried" (the plain no-text-layer case, OCR off or not
+    configured) and from "not a PDF" (the generic empty-file case)."""
+    if extension == _PDF:
+        return _REASON_PDF_OCR_NO_TEXT if ocr_attempted else _REASON_PDF_NO_TEXT_LAYER
+    return _REASON_EMPTY
 
 
 def convert_file(path: str | Path) -> ConversionResult:
@@ -489,11 +585,19 @@ def convert_file(path: str | Path) -> ConversionResult:
     # rather than per format: "the converter ran and produced nothing" is
     # one condition, and a scanned PDF is only its most common cause. An
     # empty .txt and a DOCX of blank paragraphs reach it the same way.
+    #
+    # `extracted.skip_reason` (F-16) is the one override: the page-cap
+    # case in `_read_pdf` already knows exactly why nothing is here (too
+    # long to OCR) and that reason beats guessing one from `extension`
+    # alone -- but it still only fires through THIS gate, so there is
+    # still exactly one place that decides SKIPPED, matching the
+    # "no matching DocumentSkippedError" design above.
     if len(text.strip()) < get_settings().conversion_min_text_chars:
         return ConversionResult(
             file_name=path.name,
             outcome=ConversionOutcome.SKIPPED,
-            reason=_no_text_reason(extension),
+            reason=extracted.skip_reason
+            or _no_text_reason(extension, ocr_attempted=extracted.ocr_attempted),
         )
     return ConversionResult(
         file_name=path.name,
