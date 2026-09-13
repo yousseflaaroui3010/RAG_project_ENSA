@@ -64,8 +64,15 @@
       now come from somewhere else.
     #}
     <p class="notice" role="status">
-      The conversation context has moved to {{ active.name }}. Earlier
-      answers on this screen came from a different workspace.
+      {% if active %}
+        The conversation context has moved to {{ active.name }}. Earlier
+        answers on this screen came from a different workspace.
+      {% else %}
+        {# F-12: switched TO "let Sanad choose" -- there is no single
+           workspace name to put in this sentence. #}
+        The conversation context has moved. Ask a question and Sanad will
+        propose a workspace before answering.
+      {% endif %}
     </p>
   {% endif %}
 
@@ -109,6 +116,19 @@
           {% endfor %}
         </ul>
       {% endif %}
+    </div>
+
+  {% elif state == ScreenState.ROUTING %}
+    {#
+      F-12: no workspace is selected. The composer above stays enabled
+      (there is no `input_reason` for this state); this panel just says
+      what happens next instead of naming a workspace nothing has picked
+      yet.
+    #}
+    <div class="panel panel--empty">
+      <h2>Ask a question, and Sanad will pick the workspace</h2>
+      <p>Sanad checks every workspace for the best match before
+         answering, and asks you to confirm before it writes anything.</p>
     </div>
   {% endif %}
 
@@ -174,6 +194,42 @@
                     <form method="post" action="/chat/ask">
                       <input type="hidden" name="question" value="{{ choice }}">
                       <button class="sample" type="submit">{{ choice }}</button>
+                    </form>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+
+        {% elif message.kind == MessageKind.ROUTE_PROPOSAL %}
+          {#
+            F-12: the confirmation-before-answer bubble. Styled exactly
+            like a clarifying question (design principle 2's "notice"
+            border, never "danger") because it is the same kind of pause:
+            Sanad has something to ask BEFORE it answers, not an outcome
+            yet. Shows workspace NAMES only -- never a passage, never a
+            file name from inside one -- so nothing about another
+            workspace's content leaks through this bubble.
+          #}
+          <div class="bubble bubble--clarification">
+            <p>{{ message.text }}</p>
+            {% if message.route_candidates %}
+              <ul class="choices">
+                {% for candidate in message.route_candidates %}
+                  <li>
+                    {#
+                      Plain forms, PRG like every other action on this
+                      screen: each button re-posts the SAME question
+                      (hidden, unedited) to /chat/ask with the candidate's
+                      workspace id, which both answers it and selects that
+                      workspace (see app.py::_start's `workspace_override`).
+                    #}
+                    <form method="post" action="/chat/ask">
+                      <input type="hidden" name="question" value="{{ message.route_question }}">
+                      <input type="hidden" name="workspace_id" value="{{ candidate.workspace_id }}">
+                      <button class="sample" type="submit">
+                        {% if loop.first %}Yes, use {{ candidate.name }}{% else %}{{ candidate.name }}{% endif %}
+                      </button>
                     </form>
                   </li>
                 {% endfor %}
