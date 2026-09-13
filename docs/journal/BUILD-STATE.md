@@ -1,6 +1,26 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-13, v2.0.0 (read this block first; older headers below are history)
+## STATE AT 2026-09-13, S6 v3 IN PROGRESS (read this block first; older headers below are history)
+
+**On main since v2.0.0:** #116 v2.1 visual refresh; #117 French interface by
+default with Arabic and English switches (live on Railway).
+
+**Branch `feat/S6-answer-formatting` (not merged):** answers render their
+own bold, lists, tables and headings (`ui/answer_format.py`, markdown-it-py,
+raw HTML, images and links off -- DECISIONS row); the waiting block shows the
+four real agent stages as a rail driven by the server's stage key, never a
+timer. Full suite 1049 passed, 2 skipped, 1 xfailed; 8 deliberate breaks
+checked. Seen in a real browser (FR and AR) against a scripted model: no
+model calls spent.
+
+**v3 still to do, in order:** speed (clarify and rewrite side by side;
+profiling needs a human OK for model calls), streamed answers, document
+upload and download, Reports dashboard, Keycloak login (needs human rulings
+on the router split, Railway hosting and the law 09-08 owner), v3.0.0 release.
+
+---
+
+## STATE AT 2026-09-13, v2.0.0 (history now)
 
 **V1.1 AND V2.0 FEATURES ARE ON MAIN AND LIVE ON RAILWAY.** Seven PRs,
 each reviewed, CI green, squash-merged one at a time with the Railway

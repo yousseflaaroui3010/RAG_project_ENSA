@@ -46,6 +46,11 @@ dependencies = [
     "uvicorn",
     # Loads the committed OpenAPI contract for the CI drift test (ADR-13).
     "pyyaml",
+    # Renders an answer's own formatting (bold, lists, tables) with raw
+    # HTML, links and images switched off (S6, 2026-09-13 human ruling).
+    # Already in uv.lock through rich; declared because ui/answer_format.py
+    # imports it directly.
+    "markdown-it-py>=4.2",
 ]
 
 [dependency-groups]
