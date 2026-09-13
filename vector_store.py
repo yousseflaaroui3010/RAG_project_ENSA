@@ -406,7 +406,45 @@ def search(
     a BM25 score are not comparable numbers.
 
     `limit` defaults to `config.retrieval_depth_k` (F-04 makes the depth
-    operator-tunable; never hardcode it at a call site)."""
+    operator-tunable; never hardcode it at a call site).
+
+    Embeds THIS ONE call's query text, then delegates to
+    `search_with_vectors`. A caller scoring the SAME question against
+    several workspaces should embed once and reuse the vectors instead of
+    calling this once per workspace -- see `search_with_vectors` (and, for
+    cross-workspace comparison specifically, `dense_top1_similarity`)."""
+    dense_query = embeddings.embed_query(query_text)
+    sparse_query = embeddings.embed_sparse_query(query_text)
+    return search_with_vectors(
+        client,
+        workspace_id=workspace_id,
+        dense_query=dense_query,
+        sparse_query=sparse_query,
+        limit=limit,
+    )
+
+
+def search_with_vectors(
+    client: Any,
+    *,
+    workspace_id: str,
+    dense_query: Sequence[float],
+    sparse_query: embeddings.SparseVector,
+    limit: int | None = None,
+) -> list[SearchHit]:
+    """Hybrid search within ONE workspace, from an ALREADY-ENCODED query.
+
+    This is `search`'s body, pulled out so a caller who needs to run the
+    SAME question against MORE THAN ONE workspace can embed once and reuse
+    both vectors, rather than paying for the E5 and BM25 encoders again
+    per workspace. `search` above is the ordinary one-workspace caller and
+    still embeds internally; nothing about its behaviour changes.
+
+    NOT what F-12 routing uses to RANK workspaces against each other --
+    see `dense_top1_similarity` for why RRF's fused score is the wrong
+    number for that. This function is still the right one for "search
+    these several workspaces the way chat retrieval would", should that
+    ever be needed."""
     from qdrant_client import models
 
     name = collection_name(workspace_id)
@@ -417,8 +455,6 @@ def search(
         )
 
     depth = get_settings().retrieval_depth_k if limit is None else limit
-    dense_query = embeddings.embed_query(query_text)
-    sparse_query = embeddings.embed_sparse_query(query_text)
 
     response = client.query_points(
         name,
@@ -446,6 +482,56 @@ def search(
         )
         for point in response.points
     ]
+
+
+def dense_top1_similarity(
+    client: Any, *, workspace_id: str, dense_query: Sequence[float]
+) -> float | None:
+    """The workspace's own best DENSE-only hit, as a plain cosine number.
+
+    BUILT FOR F-12 (workspace routing), which must compare a score ACROSS
+    several workspaces -- each held in its own isolated collection -- to
+    decide which one to propose. `search` / `search_with_vectors`'s fused
+    score is the WRONG number for that comparison, discovered by running
+    it rather than by reasoning about it: with three workspaces of
+    distinct, non-overlapping vocabulary, the fused Reciprocal-Rank-Fusion
+    score of an OFF-TOPIC workspace outranked the one that actually shared
+    words with the question. The reason is structural, not a tuning
+    accident. RRF turns a RANK POSITION into a score, and each workspace
+    here is searched in total isolation: its own top hit is, almost by
+    construction, close to rank 0 within that one workspace's own small
+    prefetch lists, regardless of how relevant that hit is to the question
+    -- so the fused score mostly measures "did this same point rank near
+    the top of BOTH its own dense and sparse lists", which is a fact about
+    the workspace's internal ranking, not a fact comparable to another
+    workspace's internal ranking.
+
+    Cosine similarity on the dense E5 vector alone has none of that
+    problem: `vector_store` stores E5 vectors normalised to unit length
+    (ADR-05), so cosine similarity is a bounded, absolute number that means
+    the same thing regardless of which collection it was computed in --
+    which is exactly what "top-1 similarity" needs to be comparable.
+    Sparse/BM25 is deliberately left out of this score for the same
+    reason: it has no such common, absolute scale to compare across
+    independently-sized vocabularies.
+
+    Returns None when the workspace's collection exists but holds no
+    points at all (nothing indexed yet) -- there is no "own best hit" to
+    report, which is different from zero similarity. Raises
+    `CollectionNotFoundError` when the workspace was never synced, same as
+    `search`."""
+    name = collection_name(workspace_id)
+    if not client.collection_exists(name):
+        raise CollectionNotFoundError(
+            f"workspace {workspace_id!r} has no collection {name!r}. It has "
+            f"never been synced; run a Sync before searching it."
+        )
+    response = client.query_points(
+        name, query=dense_query, using=_DENSE_VECTOR, limit=1, with_payload=False
+    )
+    if not response.points:
+        return None
+    return response.points[0].score
 
 
 def delete_document(

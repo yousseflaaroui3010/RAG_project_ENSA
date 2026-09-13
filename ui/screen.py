@@ -45,6 +45,25 @@ class ScreenState(StrEnum):
     NO_DOCUMENTS = "no_documents"
     EMPTY = "empty"
     CONVERSATION = "conversation"
+    # F-12: no workspace is selected (the shell's "Let Sanad choose" option)
+    # and nothing has been asked in this pseudo-conversation yet. Distinct
+    # from NO_DOCUMENTS -- there is no single active workspace whose
+    # documents could be missing -- and only reachable pre-first-question;
+    # once a question is asked `state_for` falls through to EMPTY/
+    # CONVERSATION exactly as the normal path does, because at that point
+    # there is a real transcript to show regardless of routing.
+    ROUTING = "routing"
+
+
+# F-12. The shell's workspace selector (base.html) offers this as an extra
+# `<option>`, ONLY when two or more workspaces exist ("let Sanad choose"
+# has nothing to choose between otherwise) -- `app.py::_active` treats it
+# as "no workspace selected" rather than as an unknown id to fall back
+# from. Mirrored as a literal in `ui/templates/base.html`'s `<option
+# value="...">`: one Python constant plus one template literal is the
+# second copy the core law allows without an abstraction; a third use
+# anywhere should read this constant instead of typing the string again.
+ROUTE_SENTINEL = "__route__"
 
 
 @dataclass(frozen=True)
@@ -110,14 +129,26 @@ def state_for(
     options: list[WorkspaceOption],
     documents: list[str],
     has_messages: bool,
+    routing: bool = False,
 ) -> ScreenState:
     """The one value the template branches on.
 
     Order matters and it is the spec's: no workspace outranks no
     documents, which outranks an empty transcript. A workspace that does
-    not exist cannot be missing documents."""
+    not exist cannot be missing documents.
+
+    `routing` (F-12) is true when the shell has no active workspace AND at
+    least one exists -- "let Sanad choose" is selected. It outranks
+    NO_DOCUMENTS for the same reason NO_WORKSPACE does: `documents` is
+    always `[]` in routing mode (there is no single workspace to read it
+    from), and that must not be read as "the workspace has nothing
+    synced". It does NOT outrank a real transcript: once a question has
+    been asked, routing mode is done deciding and the ordinary EMPTY/
+    CONVERSATION rule below is the truthful one to show."""
     if not options:
         return ScreenState.NO_WORKSPACE
+    if routing:
+        return ScreenState.CONVERSATION if has_messages else ScreenState.ROUTING
     if not documents:
         return ScreenState.NO_DOCUMENTS
     if not has_messages:

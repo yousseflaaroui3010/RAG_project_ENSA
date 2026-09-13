@@ -33,9 +33,16 @@
   <div class="chat">
     <div class="chat__header">
       <h1 class="chat__title">Chat</h1>
-      <p class="chat__grounding">
-        Answering from <strong>{{ active.name }}</strong>
-      </p>
+      {% if active %}
+        <p class="chat__grounding">
+          Answering from <strong>{{ active.name }}</strong>
+        </p>
+      {% else %}
+        {# F-12: "let Sanad choose" is selected -- no workspace to name yet. #}
+        <p class="chat__grounding">
+          Sanad will pick the workspace once you ask.
+        </p>
+      {% endif %}
       <form method="post" action="/chat/new">
         <button class="btn btn--quiet" type="submit">New conversation</button>
       </form>
