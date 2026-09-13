@@ -10,7 +10,7 @@
   collapsed by default, never smaller than body text, never grey-on-grey."
 #}
 
-{% import "_passage.html" as viewer %}
+{% import "_passage.html" as viewer with context %}
 
 {% macro source_panel(message, message_index, workspace_id) %}
   {#
@@ -20,8 +20,8 @@
     answer and fall underneath it when the grid collapses. The cards stay
     attached to THEIR answer either way, which is what 6.2 asks for.
   #}
-  <aside class="sources" aria-label="Sources for this answer">
-    <h3 class="sources__title">Sources ({{ message.sources | length }})</h3>
+  <aside class="sources" aria-label="{{ t('sources.aria') }}">
+    <h3 class="sources__title">{{ t('sources.title', count=message.sources | length) }}</h3>
     <ul class="sources__list">
       {% for card in message.sources %}
         <li class="source" id="source-{{ message_index }}-{{ card.index }}">
@@ -41,7 +41,7 @@
             {% if card.section_label %}
               <span class="source__section mono">{{ card.section_label }}</span>
             {% endif %}
-            <span class="source__action">Open passage<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
+            <span class="source__action">{{ t('sources.open') }}<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
           </a>
         </li>
       {% endfor %}
@@ -65,7 +65,7 @@
             — <span class="mono">{{ card.section_label }}</span>
           {% endif %}
         </h2>
-        <button class="btn btn--quiet" type="button" data-close-viewer>Close</button>
+        <button class="btn btn--quiet" type="button" data-close-viewer>{{ t('sources.close') }}</button>
       </div>
       {{ viewer.passage_body(card) }}
     </dialog>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Chat — Sanad{% endblock %}
+{% block title %}{{ t('title.chat') }}{% endblock %}
 
 {#
   S1, the chat screen (UX spec 6, PRD section 8).
@@ -22,17 +22,16 @@
     future path reaches S1 directly without going through `/` first.
   #}
   <section class="panel panel--empty">
-    <h1>No workspace yet</h1>
-    <p>Sanad answers from documents you have grouped into a workspace, so
-       there is nothing to ask about until one exists.</p>
+    <h1>{{ t('chat.no_workspace.title') }}</h1>
+    <p>{{ t('chat.no_workspace.body') }}</p>
     <p class="muted">
-      <a href="/workspaces">Create one on the Workspaces screen</a>.
+      <a href="/workspaces">{{ t('chat.no_workspace.link') }}</a>.
     </p>
   </section>
 {% else %}
   <div class="chat">
     <div class="chat__header">
-      <h1 class="chat__title">Chat</h1>
+      <h1 class="chat__title">{{ t('chat.title') }}</h1>
       {% if active %}
         <p class="chat__grounding">
           {#
@@ -40,16 +39,16 @@
             user-typed workspace name (F-01, Arabic included) inline in an
             otherwise-English sentence.
           #}
-          Answering from <strong><bdi{% if is_arabic(active.name) %} lang="ar"{% endif %}>{{ active.name }}</bdi></strong>
+          {{ t('chat.answering_from') }} <strong><bdi{% if is_arabic(active.name) %} lang="ar"{% endif %}>{{ active.name }}</bdi></strong>
         </p>
       {% else %}
         {# F-12: "let Sanad choose" is selected -- no workspace to name yet. #}
         <p class="chat__grounding">
-          Sanad will pick the workspace once you ask.
+          {{ t('chat.will_pick') }}
         </p>
       {% endif %}
       <form method="post" action="/chat/new">
-        <button class="btn btn--quiet" type="submit">New conversation</button>
+        <button class="btn btn--quiet" type="submit">{{ t('chat.new_conversation') }}</button>
       </form>
     </div>
 
@@ -60,7 +59,7 @@
       scripting off; sanad.js only stops the page jumping.
     #}
     <form class="composer" method="post" action="/chat/ask" data-composer>
-      <label class="composer__label" for="question">Your question</label>
+      <label class="composer__label" for="question">{{ t('chat.your_question') }}</label>
       <div class="composer__row">
         {#
           F-14: `dir="auto"` so a question typed in Arabic reads RTL as it
@@ -72,9 +71,9 @@
                autocomplete="off" required dir="auto"
                maxlength="{{ question_max_length }}"
                {% if input_reason %}disabled aria-describedby="composer-reason"{% endif %}
-               placeholder="Ask a question about this workspace">
+               placeholder="{{ t('chat.placeholder') }}">
         <button class="btn btn--primary" type="submit"
-                {% if input_reason %}disabled{% endif %}>Send</button>
+                {% if input_reason %}disabled{% endif %}>{{ t('chat.send') }}</button>
       </div>
       {#
         UX spec 6.3 and PRD section 8 both require the disabled input to
@@ -82,9 +81,9 @@
         have different next steps.
       #}
       {% if input_reason %}
-        <p class="composer__reason" id="composer-reason">{{ input_reason }}</p>
+        <p class="composer__reason" id="composer-reason">{{ tx(input_reason) }}</p>
       {% else %}
-        <p class="composer__hint">Press Enter to send. Every answer names the passages it rests on.</p>
+        <p class="composer__hint">{{ t('chat.hint') }}</p>
       {% endif %}
     </form>
   </div>

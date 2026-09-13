@@ -24,14 +24,14 @@
   </th>
 {% endmacro %}
 <table class="file-table">
-  <caption class="sources__title">Last sync report</caption>
+  <caption class="sources__title">{{ t('files.caption') }}</caption>
   <thead>
     <tr>
-      {{ _header('name', 'Name') }}
-      {{ _header('type', 'Type') }}
-      {{ _header('size', 'Size') }}
-      {{ _header('status', 'Status') }}
-      {{ _header('reason', 'Reason') }}
+      {{ _header('name', t('files.col.name')) }}
+      {{ _header('type', t('files.col.type')) }}
+      {{ _header('size', t('files.col.size')) }}
+      {{ _header('status', t('files.col.status')) }}
+      {{ _header('reason', t('files.col.reason')) }}
     </tr>
   </thead>
   <tbody>
@@ -43,10 +43,10 @@
         <td>
           <span class="status-pill">
             <span class="status-dot status-dot--{{ row.role }} status-dot--{{ row.shape }}" aria-hidden="true"></span>
-            {{ row.status_label }}
+            {{ tx(row.status_label) }}
           </span>
         </td>
-        <td>{{ row.reason }}</td>
+        <td>{{ tx(row.reason) }}</td>
       </tr>
     {% endfor %}
   </tbody>

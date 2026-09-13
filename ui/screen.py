@@ -30,9 +30,17 @@ from pathlib import Path
 import workspaces
 from db import repo
 
+FRENCH_MONTHS = ("janv.", "févr.", "mars", "avr.", "mai", "juin",
+                 "juil.", "août", "sept.", "oct.", "nov.", "déc.")
+# Moroccan month names, as used in Moroccan administrative Arabic.
+ARABIC_MONTHS = ("يناير", "فبراير", "مارس", "أبريل", "ماي", "يونيو",
+                 "يوليوز", "غشت", "شتنبر", "أكتوبر", "نونبر", "دجنبر")
 
-def format_when(value: str | None) -> str:
-    """A stored ISO-8601 timestamp as a person reads it: "12 Sep 2026, 14:12 UTC".
+
+def format_when(value: str | None, lang: str = "en") -> str:
+    """A stored ISO-8601 timestamp as a person reads it: "12 Sep 2026, 14:12 UTC"
+    in English, "12 sept. 2026, 14:12 UTC" in French, Moroccan month names in
+    Arabic (Western digits, which Moroccan administration uses).
 
     Every timestamp this app stores comes from `repo.utc_now()` and carries an
     offset, so it is shown in UTC and says so, rather than silently shifted
@@ -45,10 +53,15 @@ def format_when(value: str | None) -> str:
         moment = datetime.fromisoformat(str(value))
     except ValueError:
         return str(value)
-    if moment.tzinfo is None:
-        return f"{moment.day} {moment:%b %Y, %H:%M}"
-    moment = moment.astimezone(UTC)
-    return f"{moment.day} {moment:%b %Y, %H:%M} UTC"
+    suffix = ""
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(UTC)
+        suffix = " UTC"
+    if lang == "fr":
+        return f"{moment.day} {FRENCH_MONTHS[moment.month - 1]} {moment:%Y, %H:%M}{suffix}"
+    if lang == "ar":
+        return f"{moment.day} {ARABIC_MONTHS[moment.month - 1]} {moment:%Y}، {moment:%H:%M}{suffix}"
+    return f"{moment.day} {moment:%b %Y, %H:%M}{suffix}"
 
 # `document.status` values that mean the file is really in the index and
 # can be answered from. db/schema.sql allows four; the other three are
