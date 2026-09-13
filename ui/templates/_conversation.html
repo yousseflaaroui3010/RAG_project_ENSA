@@ -250,7 +250,7 @@
         {% elif message.kind == MessageKind.ANSWER %}
           <div class="bubble bubble--answer">
             <p class="bubble__head"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7Z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>{{ t('conv.answer.head') }}{% if message.sources %} · {{ t('conv.answer.sources', count=message.sources | length) }}{% endif %}</p>
-            <p class="answer__text" dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text }}</p>
+            <div class="answer__text prose" dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text | answer_html }}</div>
             {% if message.sources %}
               {#
                 The evidence strip: every source this answer rests on, as a
@@ -439,12 +439,33 @@
       the ports as they are entered (ui/runs.py). Design principle 3 bans
       the alternative: "A spinner with no stage is banned."
     #}
-    <div class="stage" role="status" aria-live="polite" data-stage>
+    {#
+      S6: the four stages as a rail under the label. A step is marked done
+      or current from `stage_key`, the port the agent is really inside --
+      the same fact the label comes from -- never from a clock. Hidden from
+      assistive technology because the live label already says it in words;
+      announcing the rail too would read every stage twice.
+
+      A reword retry sends the agent back to Preparing, and the rail goes
+      back with it. That is the truth, so it is shown.
+    #}
+    {% set current_step = stage_steps.index(stage_key) if stage_key in stage_steps else 0 %}
+    <div class="stage stage--steps" role="status" aria-live="polite" data-stage
+         data-stage-key="{{ stage_key }}">
       <span class="stage__dot" aria-hidden="true"></span>
       <span class="stage__label">{{ tx(stage_label) }}</span>
       <form method="post" action="/chat/cancel">
         <button class="btn btn--quiet" type="submit">{{ t('conv.cancel') }}</button>
       </form>
+      <ol class="stepper" aria-hidden="true" data-stepper>
+        {% for step in stage_steps %}
+          <li class="stepper__step{% if loop.index0 < current_step %} is-done{% elif loop.index0 == current_step %} is-current{% endif %}"
+              data-step="{{ step }}">
+            <span class="stepper__bar"></span>
+            <span class="stepper__name">{{ t('phr.stage.' ~ step) }}</span>
+          </li>
+        {% endfor %}
+      </ol>
     </div>
   {% endif %}
 

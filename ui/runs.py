@@ -174,13 +174,13 @@ class Run:
             return self._stage
 
     @property
-    def stage_label(self) -> str:
-        """What the screen shows. Never blank while a run is in flight:
-        before the first port is entered the honest answer is the first
-        stage, because `ask` has been called and preparation is what it
-        does first."""
-        stage = self.stage or Stage.PREPARING
-        return STAGE_LABELS[stage]
+    def shown_stage(self) -> Stage:
+        """The stage the screen shows. Never blank while a run is in
+        flight: before the first port is entered the honest answer is the
+        first stage, because `ask` has been called and preparation is what
+        it does first. ONE read, so the label and the S6 step rail built
+        from it can never disagree."""
+        return self.stage or Stage.PREPARING
 
     @property
     def done(self) -> bool:
