@@ -479,3 +479,46 @@ def export_markdown(detail: ReportDetail) -> str:
     if detail.file_error:
         lines += ["", f"> {detail.file_error}"]
     return "\n".join(lines) + "\n"
+
+
+# --- F-15 answer feedback (V2, Low) --------------------------------------
+#
+# Independent of the eval-run list above: a fresh install can carry real
+# feedback with zero evaluation runs, or the reverse, so this never
+# touches `screen_state`/`ReportsScreenState` -- those stay the eval
+# list's own gate (UX spec 8.3's "No reports yet" empty state), unrelated
+# to whether any feedback exists.
+
+
+@dataclass(frozen=True)
+class FeedbackRow:
+    """One row of S3's feedback table: date, workspace, verdict, question,
+    comment (task brief). `verdict_label` and `comment_label` are decided
+    here, not in the template, for the same reason ReportSummary's labels
+    are."""
+
+    id: str
+    workspace_name: str
+    created_at: str
+    verdict: str
+    verdict_label: str
+    question: str
+    comment_label: str
+
+
+def _feedback_row(row: Any) -> FeedbackRow:
+    return FeedbackRow(
+        id=row["id"],
+        workspace_name=row["workspace_name"],
+        created_at=row["created_at"],
+        verdict=row["verdict"],
+        verdict_label="Helpful" if row["verdict"] == "up" else "Not helpful",
+        question=row["question"],
+        comment_label=row["comment"] or "—",
+    )
+
+
+def list_feedback(*, db_path: str | Path | None = None) -> list[FeedbackRow]:
+    """Every stored answer-feedback row, newest first (task brief)."""
+    with repo.session(db_path) as conn:
+        return [_feedback_row(r) for r in repo.list_answer_feedback(conn)]
