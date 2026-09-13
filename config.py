@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -247,6 +248,30 @@ class Settings(BaseSettings):
     # paths are rejected too (openapi's raw minLength alone would not
     # catch "   ").
     workspace_folder_path_min_length: int = 1
+
+    # --- Live folder watching (F-13, V2 Low) ---
+    # Architecture p.97/387: "the watcher wraps ingestion.sync" (today's
+    # sync.py -- the module was flattened out of an `ingestion` package
+    # since that line was written; same seam, `Runtime.start_sync`) and
+    # `watchdog` is EXCLUDED ON PURPOSE ("F-13 is V2"), so watcher.py polls
+    # with os.stat snapshots instead of a new dependency. Off by default:
+    # F-02's manual Sync stays the only V1 behaviour until an operator
+    # opts in. Never started when `evidence_only` is on, even if this is
+    # true -- see watcher.start_if_enabled.
+    watch_folders: bool = False
+    # Seconds between two folder polls. watcher.py treats a file as fully
+    # written only once its (size, mtime) is identical across two
+    # consecutive polls, so this is also roughly the minimum extra delay
+    # before a dropped file starts a Sync on its own. Must be > 0 -- see
+    # the validator below.
+    watch_interval_seconds: float = 5.0
+
+    @field_validator("watch_interval_seconds")
+    @classmethod
+    def _watch_interval_must_be_positive(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("watch_interval_seconds must be greater than 0")
+        return value
 
 
 @lru_cache
