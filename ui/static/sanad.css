@@ -414,6 +414,31 @@ input[type="text"]:disabled, select:disabled, button:disabled {
 }
 .samples { flex-direction: column; }
 
+/*
+  F-15 answer feedback. Both buttons stay on screen always (never swapped
+  for plain text after a click) so aria-pressed always has both a true and
+  a false state to carry the saved verdict -- see the macro's own comment
+  in _conversation.html. `.btn--primary` marks the chosen one; no new
+  colour token, and the button's own text plus the status line beneath say
+  the same thing in words (criterion 10: never colour alone).
+*/
+.feedback { grid-column: 1; margin-top: var(--space-8); max-width: var(--prose-max); }
+.feedback__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-12); }
+.feedback__form { display: flex; flex-direction: column; gap: var(--space-4); }
+.feedback__form--down { flex: 1 1 260px; }
+.feedback__label { font-size: var(--size-meta); color: var(--text-muted); }
+.feedback__textarea {
+  font: inherit;
+  min-height: 2.5em;
+  padding: var(--space-8);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+}
+.feedback__status { margin: var(--space-8) 0 0; font-size: var(--size-meta); color: var(--text-muted); }
+
 /* Section 11 + criterion 8: marked incomplete, and no control anywhere on
    it presents it as a finished answer. */
 .bubble--interrupted { border: 2px dashed var(--border-strong); background: var(--surface-raised); }

@@ -57,9 +57,16 @@ from api.routes import build_router
 from api.service import ApiService
 from config import get_settings
 from db import repo
-from ui import reports_screen, rtl, screen, workspaces_screen
+from ui import feedback as feedback_module
+from ui import reports_screen, routing, rtl, screen, workspaces_screen
 from ui.access_gate import AccessGate
-from ui.conversation import Conversation, MessageKind
+from ui.conversation import (
+    Conversation,
+    Message,
+    MessageKind,
+    error_message,
+    route_proposal_message,
+)
 from ui.ports import build_default_ports
 from ui.runs import Run
 
@@ -149,6 +156,13 @@ class Runtime:
     sync_errors: dict[str, str] = field(default_factory=dict)
     last_sync_run_id: dict[str, str] = field(default_factory=dict)
     sync_cancel_events: dict[str, threading.Event] = field(default_factory=dict)
+    # F-15. Mirrors `sync_errors` above: the last feedback POST for this
+    # workspace failed validation, keyed so a stale error from a different
+    # workspace never shows on this one. Cleared on the next successful
+    # submit for that workspace (see `feedback_route`), never on a plain
+    # render -- a render can happen many times (the poll) before the
+    # operator retries.
+    feedback_errors: dict[str, str] = field(default_factory=dict)
 
     @contextlib.contextmanager
     def ports(self) -> Iterator[AgentPorts]:
@@ -169,6 +183,25 @@ class Runtime:
             return
         with self.store() as client:
             yield build_default_ports(client)
+
+    @contextlib.contextmanager
+    def routing_client(self) -> Iterator[Any]:
+        """F-12: the raw store client for proposing a workspace.
+
+        Routing needs the EMBEDDING model, never the chat model -- it
+        makes no LLM call (see `ui/routing.py`) -- so this does not go
+        through `ports()` / `build_default_ports`, which would build a
+        chat model routing never calls and could fail for a reason that
+        has nothing to do with routing (a missing cloud key, say).
+
+        Checks the SAME `evidence_only` guard `ports()` does, raising the
+        IDENTICAL exception with the IDENTICAL message: one refusal
+        sentence for every seam that needs the embedding model, not a
+        second way to say no."""
+        if get_settings().evidence_only:
+            raise ChatUnavailableError(EVIDENCE_ONLY_MESSAGE)
+        with self.store() as client:
+            yield client
 
     @contextlib.contextmanager
     def store(self) -> Iterator[Any]:
@@ -326,14 +359,38 @@ def _active(runtime: Runtime) -> screen.WorkspaceOption | None:
 
     Falls back to the first one so that a fresh process lands somewhere
     real; UX spec 4 keeps the selector visible at all times, and a
-    selector showing nothing while workspaces exist is a broken shell."""
+    selector showing nothing while workspaces exist is a broken shell.
+
+    F-12: returns None ALSO when `active_workspace_id` is the routing
+    sentinel ("let Sanad choose") and at least two workspaces exist --
+    that is "no workspace selected", not "unknown id, fall back to the
+    first one". Guarded on `len(options) >= 2` so a workspace count that
+    has shrunk to one under a stale sentinel (e.g. the other workspace was
+    deleted while routing was selected) self-heals to the ordinary
+    fallback below rather than stranding the shell in routing mode with
+    nothing left to route between."""
     options = screen.workspace_options(db_path=runtime.db_path)
     if not options:
+        return None
+    if runtime.active_workspace_id == screen.ROUTE_SENTINEL and len(options) >= 2:
         return None
     chosen = next(
         (opt for opt in options if opt.id == runtime.active_workspace_id), None
     )
     return chosen or options[0]
+
+
+def _conversation_key(runtime: Runtime) -> str | None:
+    """Which `Runtime.conversations` entry the shell is showing right now:
+    the active workspace's id, or F-12's routing sentinel when no
+    workspace is selected and there is something to route between. None
+    only when no workspace exists at all -- there is nothing to show."""
+    active = _active(runtime)
+    if active is not None:
+        return active.id
+    if screen.workspace_options(db_path=runtime.db_path):
+        return screen.ROUTE_SENTINEL
+    return None
 
 
 def _workspace_is_arabic(workspace_id: str | None) -> bool:
@@ -401,14 +458,22 @@ def _context(runtime: Runtime, request: Request) -> dict:
     active = _active(runtime)
     documents: list[str] = []
     conversation = None
+    # F-12: no active workspace while at least one exists is routing mode
+    # ("let Sanad choose"), not the no-workspace-at-all case `state_for`
+    # already handles from an empty `options`.
+    is_routing = active is None and bool(options)
     if active is not None:
         documents = screen.answerable_documents(active.id, db_path=runtime.db_path)
         conversation = runtime.conversation(active.id)
+        conversation.settle()
+    elif is_routing:
+        conversation = runtime.conversation(screen.ROUTE_SENTINEL)
         conversation.settle()
     state = screen.state_for(
         options=options,
         documents=documents,
         has_messages=bool(conversation and conversation.messages),
+        routing=is_routing,
     )
     run = conversation.run if conversation else None
     busy = bool(conversation and conversation.busy)
@@ -422,6 +487,21 @@ def _context(runtime: Runtime, request: Request) -> dict:
         # but the chat area shows a one-line notice that the conversation
         # context has moved."
         "moved": request.query_params.get("moved") == "1",
+        # F-15. `feedback_verdicts` is `{message.id: "up"|"down"}` for every
+        # ANSWER/REFUSAL already given feedback in THIS conversation, read
+        # fresh on every render so a redirect after POST /chat/feedback
+        # shows the saved state immediately. `feedback_error` is the last
+        # rejected attempt for the active workspace, if any (see
+        # `Runtime.feedback_errors`).
+        "feedback_verdicts": (
+            feedback_module.verdicts_for(conversation.messages, db_path=runtime.db_path)
+            if conversation
+            else {}
+        ),
+        "feedback_error": (
+            runtime.feedback_errors.get(active.id) if active else None
+        ),
+        "feedback_comment_max_chars": get_settings().feedback_comment_max_chars,
         # openapi AskRequest bounds the question, and config.py is where
         # that bound lives (docs/phase2/CLAUDE.md: no magic literals in
         # module code). `ask` enforces it server-side too -- this only
@@ -601,6 +681,12 @@ def _reports_context(runtime: Runtime, request: Request) -> dict:
         "state": reports_screen.screen_state(report_count=len(reports)),
         "ReportsScreenState": reports_screen.ReportsScreenState,
         "reports": reports,
+        # F-15. Independent of `reports`/`state` above -- see
+        # ui/reports_screen.py's module note on why feedback is never
+        # gated by the eval-run empty state. Pure SQLite reads, same as
+        # `reports` itself, so this never loads the embedding model and
+        # renders fine in evidence-only mode (ST-05).
+        "feedback": reports_screen.list_feedback(db_path=runtime.db_path),
     }
 
 
@@ -781,8 +867,14 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         """S1. UX spec 4 / acceptance criterion 1: with no workspace at
         all, S2 is the landing screen -- so this redirects there rather
         than rendering a local stand-in, now that ST-28 gives S2 somewhere
-        real to send the operator."""
-        if _active(runtime) is None:
+        real to send the operator.
+
+        Checks `workspace_options` directly rather than `_active(runtime)
+        is None`: F-12's routing mode also makes `_active` return None
+        while workspaces exist, and that case renders S1 (asking a
+        question and getting proposed a workspace), it does not redirect
+        away from it."""
+        if not screen.workspace_options(db_path=runtime.db_path):
             return RedirectResponse("/workspaces", status_code=SEE_OTHER)
         return render(request)
 
@@ -800,22 +892,86 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         # `_form`, not FastAPI's `Form(...)` and not Starlette's
         # `request.form()`: both require `python-multipart`. See `_form`.
         form = await _form(request)
-        return _start(runtime, form.get("question", ""))
+        # F-12: the confirmation bubble's buttons post the SAME action with
+        # an extra `workspace_id` field, naming which candidate to answer
+        # from. Ordinary asks never carry this field, so `form.get`
+        # returns None and nothing here changes for them.
+        return _start(runtime, form.get("question", ""), form.get("workspace_id") or None)
 
     @app.post("/chat/cancel")
     def cancel(request: Request) -> Response:
-        active = _active(runtime)
-        if active is not None:
-            run = runtime.conversation(active.id).run
+        key = _conversation_key(runtime)
+        if key is not None:
+            run = runtime.conversation(key).run
             if run is not None:
                 run.cancel()
         return RedirectResponse("/", status_code=SEE_OTHER)
 
     @app.post("/chat/new")
     def new_conversation(request: Request) -> Response:
-        active = _active(runtime)
-        if active is not None:
-            runtime.conversation(active.id).reset()
+        key = _conversation_key(runtime)
+        if key is not None:
+            runtime.conversation(key).reset()
+        return RedirectResponse("/", status_code=SEE_OTHER)
+
+    @app.post("/chat/feedback")
+    async def feedback_route(request: Request) -> Response:
+        """F-15: thumbs up/down plus an optional comment on one answer or
+        refusal. Plain POST-redirect-GET, exactly like `/chat/ask` above
+        (CR-02) -- a real `<form>` per button in `_conversation.html`, no
+        script required.
+
+        NOT an /api/v1 route on purpose: docs/phase2/openapi.yaml is
+        signed and F-15 is V2, and `tests/integration/test_api.py`'s
+        route-inventory test only enumerates `/api/v1/*`, so this needs no
+        contract change (recorded in DECISIONS.md).
+
+        EVIDENCE-ONLY MODE (ST-05): refused here, explicitly, rather than
+        relying on the fact that no ANSWER/REFUSAL message can exist in
+        that mode today (`Runtime.ports` already raises before a question
+        is ever asked). Harmless either way -- no row is written -- but an
+        explicit check does not depend on that coincidence surviving a
+        later change, the same reasoning `watcher.start_if_enabled`
+        gives for re-checking the flag itself. No error is surfaced: the
+        controls this posts from never render in evidence-only mode (no
+        answer ever exists to attach them to), so a rejection reaching a
+        real user here would mean something forged the request, not that
+        it made a normal mistake.
+        """
+        form = await _form(request)
+        workspace_id = form.get("workspace_id", "")
+        if get_settings().evidence_only:
+            return RedirectResponse("/", status_code=SEE_OTHER)
+        message_id = form.get("message_id", "")
+        verdict = form.get("verdict", "")
+        comment = form.get("comment") or None
+        conversation = runtime.conversations.get(workspace_id)
+        messages = conversation.messages if conversation is not None else []
+        try:
+            feedback_module.submit_feedback(
+                messages=messages,
+                workspace_id=workspace_id,
+                message_id=message_id,
+                verdict=verdict,
+                comment=comment,
+                db_path=runtime.db_path,
+            )
+        except feedback_module.UnknownAnswerError:
+            runtime.feedback_errors[workspace_id] = (
+                "This answer is no longer on screen, so feedback could "
+                "not be saved."
+            )
+        except feedback_module.CommentTooLongError as exc:
+            runtime.feedback_errors[workspace_id] = (
+                "Feedback could not be saved: the comment is longer than "
+                f"{exc.max_chars} characters."
+            )
+        except feedback_module.InvalidVerdictError:
+            runtime.feedback_errors[workspace_id] = (
+                "Feedback could not be saved: invalid response."
+            )
+        else:
+            runtime.feedback_errors.pop(workspace_id, None)
         return RedirectResponse("/", status_code=SEE_OTHER)
 
     @app.post("/workspace")
@@ -832,6 +988,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         later, announcing a move that happened long ago."""
         form = await _form(request)
         chosen = form.get("workspace_id", "") or None
+        # F-12: the sentinel is only a real choice with something to route
+        # between (base.html only offers the option then). A posted
+        # sentinel below that count -- a stale page, or a hand-crafted
+        # form -- is treated as "not chosen" rather than trusted at face
+        # value, so the shell cannot be stranded in routing mode with
+        # nothing left to route between.
+        if chosen == screen.ROUTE_SENTINEL and len(
+            screen.workspace_options(db_path=runtime.db_path)
+        ) < 2:
+            chosen = None
         moved = chosen is not None and chosen != (
             _active(runtime).id if _active(runtime) else None
         )
@@ -1111,14 +1277,30 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     return app
 
 
-def _start(runtime: Runtime, question: str) -> Response:
+def _start(
+    runtime: Runtime, question: str, workspace_override: str | None = None
+) -> Response:
     """Put one question in flight (or say why it cannot be).
 
     The user's message is appended HERE rather than by the worker, so the
     transcript shows what was asked the instant the page comes back --
-    before any stage hint, and even if the run fails on its first call."""
+    before any stage hint, and even if the run fails on its first call.
+
+    `workspace_override` (F-12) is a confirmation button's chosen
+    workspace id. Applied BEFORE `_active` is read, and only when it names
+    a real workspace, so confirming a proposal both answers from that
+    workspace AND makes it the selected one (the F-12 card's own words) in
+    one step -- a stale or hand-crafted id is silently ignored rather than
+    switching the shell to nothing, and the request then falls through to
+    ordinary routing-mode handling exactly as if nothing had been chosen."""
+    options = screen.workspace_options(db_path=runtime.db_path)
+    if workspace_override and any(opt.id == workspace_override for opt in options):
+        runtime.active_workspace_id = workspace_override
+
     active = _active(runtime)
     if active is None:
+        if options:
+            return _start_routing(runtime, question, options)
         return RedirectResponse("/", status_code=SEE_OTHER)
     conversation = runtime.conversation(active.id)
     asked = question.strip()
@@ -1146,6 +1328,61 @@ def _start(runtime: Runtime, question: str) -> Response:
     # through every split query and closes only after the answer settles.
     # Opening errors reach the same visible ErrorPanel as model-call errors.
     run.start_with(runtime.ports())
+    return RedirectResponse("/", status_code=SEE_OTHER)
+
+
+def _start_routing(
+    runtime: Runtime, question: str, options: list[screen.WorkspaceOption]
+) -> Response:
+    """F-12: propose a workspace instead of answering, when none is
+    selected.
+
+    Runs synchronously in the request thread, unlike `_start`'s worker
+    thread -- routing is one embedding call plus one vector search per
+    workspace (`ui.routing.propose_workspace`), never a model call, so
+    there is no long operation to move off the request path and no stage
+    to show while it runs.
+
+    Evidence-only mode refuses through `Runtime.routing_client`, the same
+    exception (`agent.chat.ChatUnavailableError`) and the same sentence
+    `Runtime.ports()` uses for chat -- one refusal path, not a second one
+    invented for routing."""
+    asked = question.strip()
+    if not asked:
+        return RedirectResponse("/", status_code=SEE_OTHER)
+    conversation = runtime.conversation(screen.ROUTE_SENTINEL)
+    # The length bound is normally enforced by the graph when a run starts
+    # (agent/graph.py). Routing never starts a run, so without this an
+    # over-long question would be proposed a workspace and only fail after
+    # the operator confirmed. Same sentence as the graph's.
+    max_length = get_settings().question_max_length
+    if len(asked) > max_length:
+        too_long = ValueError(
+            f"a question may be at most {max_length} characters "
+            f"(openapi AskRequest.question); this one is {len(asked)}."
+        )
+        conversation.append_system(error_message(too_long, asked))
+        return RedirectResponse("/", status_code=SEE_OTHER)
+
+    def propose() -> Message:
+        with runtime.routing_client() as client:
+            candidates = routing.propose_workspace(
+                client, options=options, question=asked
+            )
+        return route_proposal_message(asked, candidates)
+
+    try:
+        # The return value (False means a run is already in flight for this
+        # conversation, see `Conversation.begin_route`) needs no separate
+        # branch: every outcome here, including that race, redirects to "/"
+        # the same way `_start` redirects on its own equivalent race.
+        conversation.begin_route(asked, propose)
+    except ChatUnavailableError as exc:
+        # `begin_route` already appended the user's question before
+        # `propose` raised (see there); this is the same ErrorPanel a
+        # failed real answer gets, just appended directly rather than
+        # through a `Run` that never existed for routing.
+        conversation.append_system(error_message(exc, asked))
     return RedirectResponse("/", status_code=SEE_OTHER)
 
 

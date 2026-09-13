@@ -1266,3 +1266,286 @@ def test_a_message_with_no_trace_renders_no_disclosure(sanad):
     assert "Restored without a trace." in page
     assert "How this answer was found" not in page
     assert "trace__body" not in page
+
+
+# --- F-15 answer feedback (V2, Low) -----------------------------------------
+#
+# PRD F-15 / UX spec S1+S3: thumbs up/down plus an optional comment on one
+# answer or refusal, idempotent per answer, reviewable on Reports. These
+# tests exercise the real POST /chat/feedback route and read the real
+# `answer_feedback` table back -- the same shape test_evidence_only_mode.py
+# uses to prove a claim by what is IN THE DATABASE, not only by the page.
+
+
+def _feedback_rows(db_path):
+    with repo.session(db_path) as conn:
+        return conn.execute(
+            "SELECT * FROM answer_feedback ORDER BY created_at"
+        ).fetchall()
+
+
+def _answer_id(runtime, workspace_id: str, index: int = -1) -> str:
+    return runtime.conversation(workspace_id).messages[index].id
+
+
+def test_thumbs_down_with_a_comment_is_saved_and_shown_as_the_current_verdict(sanad):
+    """The acceptance criterion itself: mark an answer down, add a
+    comment, and the pair is stored -- plus the S1 half of "reviewable",
+    which is the saved state re-rendering as the CURRENT verdict rather
+    than a fresh, unanswered form."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    message_id = _answer_id(runtime, workspace.id)
+
+    response = client.post(
+        "/chat/feedback",
+        data={
+            "workspace_id": workspace.id,
+            "message_id": message_id,
+            "verdict": "down",
+            "comment": "Cited the wrong article.",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    rows = _feedback_rows(db_path)
+    assert len(rows) == 1
+    assert rows[0]["workspace_id"] == workspace.id
+    assert rows[0]["answer_key"] == message_id
+    assert rows[0]["verdict"] == "down"
+    assert rows[0]["comment"] == "Cited the wrong article."
+    assert rows[0]["question"] == QUESTION
+    assert rows[0]["answer_text"] == WRITTEN_ANSWER
+
+    page = client.get("/").text
+    assert "Thanks" in page and "feedback saved" in page
+    assert "Helpful" in page and "Not helpful" in page
+    # The CHOSEN button, specifically, carries aria-pressed="true" -- not
+    # merely a true SOMEWHERE on the page, which a copy-paste of the wrong
+    # attribute onto the Helpful button would still satisfy.
+    down_button = page.split('name="verdict" value="down">')[1].split("</form>")[0]
+    assert 'aria-pressed="true"' in down_button
+    up_button = page.split('name="verdict" value="up">')[1].split("</form>")[0]
+    assert 'aria-pressed="false"' in up_button
+
+
+def test_giving_feedback_on_the_same_answer_twice_keeps_one_row_with_the_latest_verdict(
+    sanad,
+):
+    """Idempotency (task brief): thumbs up then thumbs down on the SAME
+    answer must settle on one row, carrying the second verdict, never
+    two rows and never the first verdict surviving."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    message_id = _answer_id(runtime, workspace.id)
+
+    client.post(
+        "/chat/feedback",
+        data={"workspace_id": workspace.id, "message_id": message_id, "verdict": "up"},
+        follow_redirects=False,
+    )
+    client.post(
+        "/chat/feedback",
+        data={
+            "workspace_id": workspace.id,
+            "message_id": message_id,
+            "verdict": "down",
+            "comment": "Changed my mind.",
+        },
+        follow_redirects=False,
+    )
+
+    rows = _feedback_rows(db_path)
+    assert len(rows) == 1, "one click after another must update, never duplicate"
+    assert rows[0]["verdict"] == "down"
+    assert rows[0]["comment"] == "Changed my mind."
+
+
+def test_feedback_lands_on_the_right_answer_not_a_neighboring_one(sanad):
+    """With two real answers in one conversation, feedback posted against
+    the SECOND must attach to the second, not silently fall back onto the
+    first -- the failure a single-answer fixture cannot expose, and the
+    one a lookup that ignored the posted id and always returned the
+    first eligible message would still pass if this test targeted the
+    first answer instead."""
+    build, workspace, db_path = sanad
+    renewal_answer = "La periode d'essai peut etre renouvelee une seule fois."
+    model = ScriptedChat(
+        QUERY_PLAN,
+        "RELEVANT",
+        WRITTEN_ANSWER,
+        "resume de la conversation",
+        '{"clarification":null,"queries":["renouvellement periode essai"]}',
+        "RELEVANT",
+        renewal_answer,
+    )
+    client, runtime = build(model)
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    _ask(client, "Et combien de renouvellements ?")
+    _settled(client, runtime, workspace.id)
+
+    messages = runtime.conversation(workspace.id).messages
+    assert [m.kind for m in messages] == [
+        MessageKind.USER,
+        MessageKind.ANSWER,
+        MessageKind.USER,
+        MessageKind.ANSWER,
+    ]
+    first_id, second_id = messages[1].id, messages[3].id
+    assert first_id != second_id
+
+    client.post(
+        "/chat/feedback",
+        data={
+            "workspace_id": workspace.id,
+            "message_id": second_id,
+            "verdict": "down",
+            "comment": "Only the second answer was wrong.",
+        },
+        follow_redirects=False,
+    )
+
+    rows = _feedback_rows(db_path)
+    assert len(rows) == 1
+    assert rows[0]["answer_key"] == second_id
+    assert rows[0]["answer_text"] == renewal_answer
+    assert rows[0]["question"] == "Et combien de renouvellements ?"
+
+    page = client.get("/").text
+    # The first answer's own button must still read unset -- only one
+    # aria-pressed="true" on the whole page, on the SECOND answer's
+    # button, never a state that leaked onto its neighbor.
+    assert page.count('aria-pressed="true"') == 1
+
+
+def test_a_bad_verdict_is_rejected_with_no_row_written(sanad):
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    message_id = _answer_id(runtime, workspace.id)
+
+    response = client.post(
+        "/chat/feedback",
+        data={
+            "workspace_id": workspace.id,
+            "message_id": message_id,
+            "verdict": "sideways",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303, "refused cleanly, never a 500"
+    assert _feedback_rows(db_path) == []
+    page = client.get("/").text
+    assert "could not be saved" in page
+
+
+def test_an_over_long_comment_is_rejected_with_no_row_written(sanad):
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    message_id = _answer_id(runtime, workspace.id)
+    too_long = "x" * (get_settings().feedback_comment_max_chars + 1)
+
+    response = client.post(
+        "/chat/feedback",
+        data={
+            "workspace_id": workspace.id,
+            "message_id": message_id,
+            "verdict": "down",
+            "comment": too_long,
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303, "refused cleanly, never a 500"
+    assert _feedback_rows(db_path) == []
+    page = client.get("/").text
+    assert "could not be saved" in page
+
+
+def test_an_unknown_answer_id_is_a_clear_error_not_a_500(sanad):
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+
+    response = client.post(
+        "/chat/feedback",
+        data={
+            "workspace_id": workspace.id,
+            "message_id": "no-such-message-id",
+            "verdict": "up",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303, "refused cleanly, never a 500"
+    assert _feedback_rows(db_path) == []
+    page = client.get("/").text
+    assert "no longer on screen" in page
+
+
+def test_feedback_is_declined_harmlessly_in_evidence_only_mode(tmp_path, monkeypatch):
+    """ST-05: no ANSWER/REFUSAL can exist in evidence-only mode (Chat
+    itself refuses before a question is ever asked), so the controls this
+    posts from never render there -- but the route itself must still
+    refuse cleanly rather than trust that coincidence, per the task
+    brief's explicit decide-and-test instruction."""
+    install_fake_encoders(monkeypatch)
+    db_path = tmp_path / "sanad.db"
+    repo.ensure_schema(db_path)
+    workspace = workspaces.create_workspace(
+        name="HR", folder_path=str(tmp_path / "corpus"), db_path=db_path
+    )
+    runtime = Runtime(db_path=db_path)
+    client = TestClient(create_app(runtime))
+    settings = get_settings().model_copy(update={"evidence_only": True})
+    monkeypatch.setattr(app_module, "get_settings", lambda: settings)
+
+    response = client.post(
+        "/chat/feedback",
+        data={
+            "workspace_id": workspace.id,
+            "message_id": "whatever",
+            "verdict": "up",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert _feedback_rows(db_path) == []
+
+
+def test_feedback_route_is_behind_the_access_gate_when_a_password_is_set(
+    sanad, monkeypatch
+):
+    """`AccessGate` is installed app-wide (app.py::create_app); this pins
+    that `/chat/feedback` was never added to its narrow exemption list
+    (only GET /api/v1/health and /static/* are open)."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    message_id = _answer_id(runtime, workspace.id)
+
+    settings = get_settings().model_copy(update={"access_password": "secret"})
+    monkeypatch.setattr(app_module, "get_settings", lambda: settings)
+    gated_client = TestClient(create_app(runtime))
+
+    response = gated_client.post(
+        "/chat/feedback",
+        data={"workspace_id": workspace.id, "message_id": message_id, "verdict": "up"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 401
+    assert _feedback_rows(db_path) == []

@@ -39,6 +39,56 @@
   `<li>` here gets `dir="auto"` instead so an Arabic reworded query reads
   RTL and a French one stays LTR, independently per line.
 #}
+{#
+  F-15. One block per ANSWER/REFUSAL message: two real buttons, always
+  both present (never swapped out for plain text) so `aria-pressed`
+  always has both a true and a false state to carry the current verdict,
+  per the task brief. Re-clicking either after feedback was already given
+  changes it -- `ui/feedback.py::submit_feedback` upserts, never
+  duplicates -- which is also what lets a saved verdict be corrected.
+
+  `.btn--primary` (not a new colour) marks the chosen verdict, so no new
+  token is introduced for this; the "Thanks" line and the button's own
+  text both say the same thing in words, never colour alone (criterion
+  10).
+#}
+{% macro feedback_controls(message, index) %}
+  {% set verdict = feedback_verdicts.get(message.id) %}
+  <div class="feedback" data-feedback>
+    <div class="feedback__row">
+      <form method="post" action="/chat/feedback" class="feedback__form">
+        <input type="hidden" name="workspace_id" value="{{ active.id }}">
+        <input type="hidden" name="message_id" value="{{ message.id }}">
+        <input type="hidden" name="verdict" value="up">
+        <button type="submit"
+                class="btn {{ 'btn--primary' if verdict == 'up' else 'btn--quiet' }}"
+                aria-pressed="{{ 'true' if verdict == 'up' else 'false' }}">
+          Helpful
+        </button>
+      </form>
+      <form method="post" action="/chat/feedback" class="feedback__form feedback__form--down">
+        <input type="hidden" name="workspace_id" value="{{ active.id }}">
+        <input type="hidden" name="message_id" value="{{ message.id }}">
+        <input type="hidden" name="verdict" value="down">
+        <label class="feedback__label" for="feedback-comment-{{ index }}">
+          What went wrong? (optional)
+        </label>
+        <textarea id="feedback-comment-{{ index }}" name="comment" dir="auto"
+                  class="feedback__textarea" rows="2"
+                  maxlength="{{ feedback_comment_max_chars }}"></textarea>
+        <button type="submit"
+                class="btn {{ 'btn--primary' if verdict == 'down' else 'btn--quiet' }}"
+                aria-pressed="{{ 'true' if verdict == 'down' else 'false' }}">
+          Not helpful
+        </button>
+      </form>
+    </div>
+    {% if verdict %}
+      <p class="feedback__status" role="status">Thanks — feedback saved.</p>
+    {% endif %}
+  </div>
+{% endmacro %}
+
 {% macro trace_disclosure(message) %}
   <details class="trace">
     <summary class="trace__summary">How this answer was found</summary>
@@ -78,21 +128,32 @@
       now come from somewhere else.
     #}
     <p class="notice" role="status">
-      {#
-        F-14: `active.name` is a workspace name (F-01: user-typed, Arabic
-        included) sitting inside an English sentence. `<bdi>` -- "bidi
-        isolate" -- rather than `dir="auto"` on the whole `<p>`: this is
-        the case the task brief names directly, one inline foreign-
-        direction fragment inside a paragraph whose OWN direction (this
-        notice's English prose) must not flip because the name happens to
-        be Arabic. `<bdi>` isolates the name so it reads in its own
-        direction and cannot drag the surrounding sentence's punctuation
-        (the trailing ". Earlier") out of place with it.
-      #}
-      The conversation context has moved to
-      <bdi{% if is_arabic(active.name) %} lang="ar"{% endif %}>{{ active.name }}</bdi>.
-      Earlier answers on this screen came from a different workspace.
+      {% if active %}
+        {#
+          F-14: `active.name` is a workspace name (F-01: user-typed, Arabic
+          included) sitting inside an English sentence. `<bdi>` -- "bidi
+          isolate" -- rather than `dir="auto"` on the whole `<p>`: the
+          notice's own English direction must not flip because the name
+          happens to be Arabic, and the name cannot drag the trailing
+          punctuation out of place.
+        #}
+        The conversation context has moved to
+        <bdi{% if is_arabic(active.name) %} lang="ar"{% endif %}>{{ active.name }}</bdi>.
+        Earlier answers on this screen came from a different workspace.
+      {% else %}
+        {# F-12: switched TO "let Sanad choose" -- there is no single
+           workspace name to put in this sentence. #}
+        The conversation context has moved. Ask a question and Sanad will
+        propose a workspace before answering.
+      {% endif %}
     </p>
+  {% endif %}
+
+  {% if feedback_error %}
+    {# F-15: the last POST /chat/feedback for this workspace was rejected
+       (an unknown answer id, an invalid verdict, or an over-long comment
+       -- see app.py::feedback_route). No row was written. #}
+    <p class="notice" role="status">{{ feedback_error }}</p>
   {% endif %}
 
   {% if state == ScreenState.NO_DOCUMENTS %}
@@ -135,6 +196,19 @@
           {% endfor %}
         </ul>
       {% endif %}
+    </div>
+
+  {% elif state == ScreenState.ROUTING %}
+    {#
+      F-12: no workspace is selected. The composer above stays enabled
+      (there is no `input_reason` for this state); this panel just says
+      what happens next instead of naming a workspace nothing has picked
+      yet.
+    #}
+    <div class="panel panel--empty">
+      <h2>Ask a question, and Sanad will pick the workspace</h2>
+      <p>Sanad checks every workspace for the best match before
+         answering, and asks you to confirm before it writes anything.</p>
     </div>
   {% endif %}
 
@@ -226,6 +300,43 @@
             {% endif %}
           </div>
 
+        {% elif message.kind == MessageKind.ROUTE_PROPOSAL %}
+          {#
+            F-12: the confirmation-before-answer bubble. Styled exactly
+            like a clarifying question (design principle 2's "notice"
+            border, never "danger") because it is the same kind of pause:
+            Sanad has something to ask BEFORE it answers, not an outcome
+            yet. Shows workspace NAMES only -- never a passage, never a
+            file name from inside one -- so nothing about another
+            workspace's content leaks through this bubble.
+          #}
+          <div class="bubble bubble--clarification">
+            <p>{{ message.text }}</p>
+            {% if message.route_candidates %}
+              <ul class="choices">
+                {% for candidate in message.route_candidates %}
+                  <li>
+                    {#
+                      Plain forms, PRG like every other action on this
+                      screen: each button re-posts the SAME question
+                      (hidden, unedited) to /chat/ask with the candidate's
+                      workspace id, which both answers it and selects that
+                      workspace (see app.py::_start's `workspace_override`).
+                    #}
+                    <form method="post" action="/chat/ask">
+                      <input type="hidden" name="question" value="{{ message.route_question }}">
+                      <input type="hidden" name="workspace_id" value="{{ candidate.workspace_id }}">
+                      <button class="sample" type="submit">
+                        {# F-14: a workspace name may be Arabic inside an English label. #}
+                        {% if loop.first %}Yes, use <bdi>{{ candidate.name }}</bdi>{% else %}<bdi>{{ candidate.name }}</bdi>{% endif %}
+                      </button>
+                    </form>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+
         {% elif message.kind == MessageKind.INTERRUPTED %}
           {#
             Section 11's "answer interrupted mid-generation" and criterion
@@ -273,6 +384,18 @@
 
         {% if message.sources %}
           {{ cards.source_panel(message, m, active.id) }}
+        {% endif %}
+
+        {#
+          F-15. Answer and refusal only (ui/feedback.py's
+          FEEDBACK_ELIGIBLE_KINDS is the one place that rule lives; this
+          check must agree with it or a button could post a message id the
+          route then rejects as unknown). Placed after the source cards
+          and before F-10's trace, so F-10's own "goes last" placement
+          below is still true.
+        #}
+        {% if message.kind == MessageKind.ANSWER or message.kind == MessageKind.REFUSAL %}
+          {{ feedback_controls(message, m) }}
         {% endif %}
 
         {#

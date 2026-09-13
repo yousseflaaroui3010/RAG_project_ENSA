@@ -60,4 +60,41 @@
     </table>
   </section>
 {% endif %}
+
+{#
+  F-15 (V2, Low). Independent of the eval-run list above -- see
+  ui/reports_screen.py's module note -- so this renders in every state,
+  including NO_REPORTS, rather than being folded into that branch.
+#}
+<section aria-label="Answer feedback">
+  <h2>Answer feedback</h2>
+  {% if feedback %}
+    <table class="file-table">
+      <caption class="sources__title">Feedback on answers</caption>
+      <thead>
+        <tr>
+          <th scope="col">Date</th>
+          <th scope="col">Workspace</th>
+          <th scope="col">Verdict</th>
+          <th scope="col">Question</th>
+          <th scope="col">Comment</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in feedback %}
+          <tr>
+            <td class="mono">{{ f.created_at }}</td>
+            {# F-14: user-typed text in any script reads in its own direction. #}
+            <td dir="auto">{{ f.workspace_name }}</td>
+            <td>{{ f.verdict_label }}</td>
+            <td dir="auto">{{ f.question }}</td>
+            <td dir="auto">{{ f.comment_label }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">No feedback yet.</p>
+  {% endif %}
+</section>
 {% endblock %}

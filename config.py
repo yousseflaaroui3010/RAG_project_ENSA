@@ -11,8 +11,9 @@ Reads from a .env file via pydantic-settings (architecture §8, §12.1).
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -311,6 +312,99 @@ class Settings(BaseSettings):
         if value <= 0:
             raise ValueError("watch_interval_seconds must be greater than 0")
         return value
+
+    # --- Answer feedback (F-15, V2 Low) ---
+    # Mirrors question_max_length's role for AskRequest: the one bound both
+    # `ui/feedback.py` (validating a POST /chat/feedback) and the S1
+    # textarea's `maxlength` attribute read from. A comment is free text
+    # typed by the operator, not a document, so this is a generous UI
+    # guard rail rather than a security boundary -- LD-07/ADR-13 apply here
+    # exactly as they do to a question.
+    feedback_comment_max_chars: int = 2000
+
+    # --- OCR (F-16, V2 Lowest: scanned PDFs gain a text layer) ---
+    # PyMuPDF's BUILT-IN Tesseract (pymupdf 1.28.0, human-approved
+    # 2026-09-13, see DECISIONS.md): no new Python package and no separate
+    # Tesseract install, only the tessdata LANGUAGE FILES, which are an
+    # external asset the operator downloads once (README) and are NOT
+    # committed to the repo.
+    #
+    # Empty = OCR off = the V1 binding behaviour (PRD F-16, LD-03) is
+    # exactly unchanged: a scanned PDF is Skipped with the existing "no
+    # text layer" reason. Railway/Docker ship no tessdata by default, so a
+    # published container never runs OCR unless an operator deliberately
+    # mounts the files and sets this -- never touch the Dockerfile for it.
+    ocr_tessdata_dir: str = ""
+    # "+"-joined Tesseract language codes (tesseract's own multi-language
+    # syntax), tried together in one OCR pass. Checked below against the
+    # files actually present in `ocr_tessdata_dir`.
+    ocr_languages: str = "fra+ara+eng"
+    # Render resolution for the OCR pass. 300 is tesseract's own documented
+    # floor for reliable recognition; the range guards against a value so
+    # low that OCR silently returns garbage (misread as "no text layer")
+    # and one so high it burns minutes per page for no better a result.
+    ocr_dpi: int = 300
+    # A scanned PDF longer than this is Skipped with a reason naming the
+    # limit, rather than OCR'd: measured at roughly 0.5-1 s/page on this
+    # machine (see DECISIONS.md), so an unbounded document would stall the
+    # whole Sync batch behind one file.
+    ocr_max_pages: int = 200
+
+    @field_validator("ocr_dpi")
+    @classmethod
+    def _ocr_dpi_must_be_reasonable(cls, value: int) -> int:
+        if not 72 <= value <= 600:
+            raise ValueError("ocr_dpi must be between 72 and 600")
+        return value
+
+    @field_validator("ocr_max_pages")
+    @classmethod
+    def _ocr_max_pages_must_be_positive(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("ocr_max_pages must be greater than 0")
+        return value
+
+    @model_validator(mode="after")
+    def _ocr_tessdata_must_be_usable(self) -> Settings:
+        """Fail loud at startup rather than silently at Sync time.
+
+        OCR being on with a missing directory or a missing language file
+        is a CONFIGURATION mistake, not a per-file surprise -- every
+        scanned PDF in every workspace would hit the identical wall, so
+        reporting it once here, in plain language, beats reporting it once
+        per file forever. Skipped entirely when OCR is off (the default),
+        so nothing about this runs on a machine that never set the dir.
+        """
+        if not self.ocr_tessdata_dir:
+            return self
+        tessdata_dir = Path(self.ocr_tessdata_dir)
+        if not tessdata_dir.is_dir():
+            raise ValueError(
+                f"ocr_tessdata_dir '{self.ocr_tessdata_dir}' does not exist "
+                "or is not a directory. Point it at the folder holding your "
+                "tessdata_fast *.traineddata files, or clear it to turn OCR "
+                "off."
+            )
+        languages = [code for code in self.ocr_languages.split("+") if code]
+        if not languages:
+            raise ValueError(
+                "ocr_languages must name at least one Tesseract language "
+                "code when ocr_tessdata_dir is set"
+            )
+        missing = [
+            code
+            for code in languages
+            if not (tessdata_dir / f"{code}.traineddata").is_file()
+        ]
+        if missing:
+            names = ", ".join(f"{code}.traineddata" for code in missing)
+            raise ValueError(
+                f"ocr_tessdata_dir '{self.ocr_tessdata_dir}' is missing "
+                f"{names}. Download it from tessdata_fast "
+                "(https://github.com/tesseract-ocr/tessdata_fast) into that "
+                "folder, or remove the language from ocr_languages."
+            )
+        return self
 
 
 @lru_cache

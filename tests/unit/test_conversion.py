@@ -34,7 +34,7 @@ from pptx import Presentation
 
 import chunking
 import conversion
-from config import get_settings
+from config import Settings, get_settings
 from conversion import ConversionOutcome
 
 # --- fixture builders -------------------------------------------------
@@ -906,6 +906,327 @@ def test_min_text_chars_is_read_from_config_at_both_bounds(tmp_path, monkeypatch
 
     assert conversion.convert_file(below).outcome is ConversionOutcome.SKIPPED
     assert conversion.convert_file(above).outcome is ConversionOutcome.CONVERTED
+
+
+# --- OCR (F-16): the scanned-PDF rung, off by default -----------------
+#
+# `_ocr_page` is the one small function `_read_pdf` calls to OCR a page
+# (see conversion.py). Every test below except the "real" ones fakes it
+# with `monkeypatch.setattr(conversion, "_ocr_page", ...)`, so the OCR
+# PLUMBING (page mapping, the page cap, error handling, the reason wording)
+# is proven without needing the real tessdata files this machine happens
+# to have. The "real" tests at the end call the true PyMuPDF/Tesseract
+# path and are skipped where the tessdata folder is absent (CI).
+
+
+def _ocr_settings(**overrides):
+    """A Settings copy with OCR turned on. `model_copy` does not
+    re-validate (same trick `test_min_text_chars_is_read_from_config_at_
+    both_bounds` already relies on above), so the fake tessdata path below
+    never has to exist on disk for the plumbing tests."""
+    return get_settings().model_copy(
+        update={"ocr_tessdata_dir": "Z:/fake-tessdata-not-on-disk", **overrides}
+    )
+
+
+def _scanned_pdf_pages(path, count):
+    """A PDF with `count` pages, each an image and no text layer at all --
+    the multi-page twin of `_scanned_pdf` above, used where a single page
+    cannot distinguish a correct OCR page-mapping from a wrong one."""
+    doc = pymupdf.open()
+    for _ in range(count):
+        page = doc.new_page()
+        pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 50, 50))
+        pixmap.set_rect(pixmap.irect, (255, 240, 200))
+        page.insert_image(pymupdf.Rect(10, 10, 60, 60), pixmap=pixmap)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_ocr_off_by_default_scanned_pdf_is_skipped_exactly_as_before(
+    tmp_path, monkeypatch
+):
+    """The default (`ocr_tessdata_dir=""`) must leave V1's binding
+    behaviour exactly alone. Proven two ways at once: the outcome AND
+    wording are unchanged, and `_ocr_page` is never even called -- so a
+    future bug that starts OCR'ing on an unconfigured machine fails this
+    test even if it happened to still land on SKIPPED."""
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("_ocr_page must not run when OCR is off")
+
+    monkeypatch.setattr(conversion, "_ocr_page", must_not_run)
+
+    result = conversion.convert_file(_scanned_pdf(tmp_path / "scan.pdf"))
+
+    assert result.outcome is ConversionOutcome.SKIPPED
+    assert "no text layer" in result.reason
+
+
+def test_ocr_on_does_not_touch_a_pdf_that_already_has_a_text_layer(
+    tmp_path, monkeypatch
+):
+    """OCR being configured must never touch a PDF that already converted
+    fine: the trigger is "produced no text at all", not "OCR is on", so an
+    ordinary typed PDF keeps pymupdf4llm's heading-preserving markdown
+    untouched rather than being overwritten by an OCR pass over its
+    rendered pixels. This is also the documented mixed-PDF limitation:
+    a document with SOME real text stays on this path entirely."""
+    monkeypatch.setattr(conversion, "get_settings", lambda: _ocr_settings())
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("_ocr_page must not run on a PDF with a text layer")
+
+    monkeypatch.setattr(conversion, "_ocr_page", must_not_run)
+
+    result = conversion.convert_file(_pdf_with_headings(tmp_path / "typed.pdf"))
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert "Chapitre 1" in result.markdown
+
+
+def test_ocr_on_converts_a_scanned_pdf_and_the_text_becomes_citable(
+    tmp_path, monkeypatch
+):
+    """The acceptance criterion end to end: OCR text flows through the
+    SAME citation-marker regex every other PDF uses (config's
+    `parent_citation_marker_pattern`), with no PDF-specific change to
+    chunking.py at all."""
+    monkeypatch.setattr(conversion, "get_settings", lambda: _ocr_settings())
+    monkeypatch.setattr(
+        conversion,
+        "_ocr_page",
+        lambda page, **kwargs: (
+            "Article 12: Le salarie a droit a un conge annuel paye."
+        ),
+    )
+
+    result = conversion.convert_file(_scanned_pdf(tmp_path / "scan.pdf"))
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert result.reason is None
+    assert "Article 12" in result.markdown
+    assert result.page_count == 1
+
+    chunked = chunking.chunk_document(result.markdown, source_file="scan.pdf")
+    assert any(parent.section_label == "Article 12" for parent in chunked.parents)
+
+
+def test_ocr_page_mapping_is_correct_not_reversed_or_off_by_one(
+    tmp_path, monkeypatch
+):
+    """Each page gets DIFFERENT text keyed on `page.number`, so a reversed
+    order, a dropped first or last page, or a shifted index each produce a
+    different, catchable wrong order -- unlike identical text on every
+    page, which cannot tell any of those bugs apart from a correct one."""
+    monkeypatch.setattr(conversion, "get_settings", lambda: _ocr_settings())
+    monkeypatch.setattr(
+        conversion,
+        "_ocr_page",
+        lambda page, **kwargs: f"Article {page.number + 1}: texte de la page.",
+    )
+
+    result = conversion.convert_file(_scanned_pdf_pages(tmp_path / "scan3.pdf", 3))
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert result.page_count == 3
+    positions = [result.markdown.find(f"Article {n}") for n in (1, 2, 3)]
+    assert all(position != -1 for position in positions), positions
+    assert positions[0] < positions[1] < positions[2], positions
+
+
+def test_ocr_page_cap_exceeded_reports_skipped_with_the_limit_named(
+    tmp_path, monkeypatch
+):
+    """F-16's cost guard: a scan longer than `ocr_max_pages` is Skipped,
+    naming both the file's page count and the configured limit, and OCR is
+    never even attempted -- the expensive part is what the cap exists to
+    avoid."""
+    monkeypatch.setattr(conversion, "get_settings", lambda: _ocr_settings(ocr_max_pages=2))
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("_ocr_page must not run over the page cap")
+
+    monkeypatch.setattr(conversion, "_ocr_page", must_not_run)
+
+    result = conversion.convert_file(_scanned_pdf_pages(tmp_path / "scan3.pdf", 3))
+
+    assert result.outcome is ConversionOutcome.SKIPPED
+    assert result.outcome is not ConversionOutcome.FAILED
+    assert "3" in result.reason
+    assert "2" in result.reason
+
+
+def test_ocr_finding_nothing_reports_skipped_with_the_ocr_specific_reason(
+    tmp_path, monkeypatch
+):
+    """OCR being ATTEMPTED and finding nothing is a different fact from OCR
+    never having run (the plain V1 wording), so it gets its own reason --
+    asserted by presence of the new wording AND absence of the old one, so
+    a mutation that reuses the V1 string cannot pass by accident."""
+    monkeypatch.setattr(conversion, "get_settings", lambda: _ocr_settings())
+    monkeypatch.setattr(conversion, "_ocr_page", lambda page, **kwargs: "")
+
+    result = conversion.convert_file(_scanned_pdf(tmp_path / "scan.pdf"))
+
+    assert result.outcome is ConversionOutcome.SKIPPED
+    assert "OCR" in result.reason
+    assert "no text layer" not in result.reason
+
+
+def test_ocr_raising_reports_failed_and_never_stops_the_batch(
+    tmp_path, monkeypatch, caplog
+):
+    """F-02 criterion 3, applied to the new failure mode: OCR crashing on
+    one scanned file (a real risk -- it is third-party code fed rendered
+    pixels) costs that one file, exactly like a converter crash already
+    does, and never the rest of the sync."""
+    monkeypatch.setattr(conversion, "get_settings", lambda: _ocr_settings())
+
+    def explode(page, **kwargs):
+        raise RuntimeError("tesseract blew up")
+
+    monkeypatch.setattr(conversion, "_ocr_page", explode)
+
+    scanned = _scanned_pdf(tmp_path / "scan.pdf")
+    good = tmp_path / "fine.txt"
+    good.write_text("Un texte tout a fait normal.", encoding="utf-8")
+
+    with caplog.at_level(logging.ERROR, logger="conversion"):
+        results = conversion.convert_files([scanned, good])
+
+    by_name = {result.file_name: result for result in results}
+    assert by_name["scan.pdf"].outcome is ConversionOutcome.FAILED
+    assert "tesseract blew up" in by_name["scan.pdf"].reason
+    assert by_name["fine.txt"].outcome is ConversionOutcome.CONVERTED
+
+
+# --- OCR (F-16): real tessdata, skipped where it is absent (CI) --------
+#
+# This machine's tessdata_fast files are an external asset (DECISIONS.md),
+# not committed to the repo, at a fixed local path. CI has none, so these
+# skip there by design -- the plumbing above is what CI proves, and these
+# are what a human ran locally as the actual proof OCR reads real pixels.
+
+_TESSDATA_DIR = "C:/Users/lenovo/tessdata"
+_HAS_TESSDATA = Path(_TESSDATA_DIR).is_dir()
+_NO_TESSDATA_REASON = (
+    "real tessdata_fast language files not found at C:/Users/lenovo/tessdata "
+    "on this machine; they are an external asset, not part of the repo "
+    "(see README), so CI and any other machine skip these by design"
+)
+
+
+def _real_ocr_settings(languages):
+    return Settings(_env_file=None, ocr_tessdata_dir=_TESSDATA_DIR, ocr_languages=languages)
+
+
+def _rasterized_text_pdf(path, texts, *, fontsize=24, dpi=200):
+    """A PDF that genuinely has no text layer: each page is a bitmap of
+    rendered text, built by writing real text onto a throwaway page,
+    rendering it to a pixmap, and inserting that pixmap as a picture into
+    a fresh page -- the exact recipe used to prove the OCR call works
+    before this feature was implemented."""
+    doc = pymupdf.open()
+    for text in texts:
+        source = pymupdf.open()
+        source_page = source.new_page()
+        source_page.insert_text((30, 60), text, fontsize=fontsize)
+        pixmap = source_page.get_pixmap(dpi=dpi)
+        source.close()
+        page = doc.new_page()
+        page.insert_image(page.rect, pixmap=pixmap)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+_ARABIC_FONT_CSS = (
+    "@font-face {font-family: arf; src: url(arial.ttf);} "
+    "* {font-family: arf; direction: rtl; font-size: 24px;}"
+)
+
+
+def _rasterized_arabic_pdf(path, text, *, dpi=200):
+    """Same recipe as `_rasterized_text_pdf`, but the source text is drawn
+    with `insert_htmlbox` and a system font that actually has Arabic
+    glyphs (`arial.ttf` does not by default carry them via `insert_text`,
+    which is Latin-only)."""
+    styled = pymupdf.open()
+    styled_page = styled.new_page()
+    styled_page.insert_htmlbox(
+        pymupdf.Rect(30, 30, 500, 150),
+        text,
+        css=_ARABIC_FONT_CSS,
+        archive=pymupdf.Archive("C:/Windows/Fonts"),
+    )
+    pixmap = styled_page.get_pixmap(dpi=dpi)
+    styled.close()
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_image(page.rect, pixmap=pixmap)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+@pytest.mark.skipif(not _HAS_TESSDATA, reason=_NO_TESSDATA_REASON)
+def test_real_ocr_finds_french_text_in_a_rasterized_scan(tmp_path, monkeypatch):
+    settings = _real_ocr_settings("fra")
+    monkeypatch.setattr(conversion, "get_settings", lambda: settings)
+    path = _rasterized_text_pdf(
+        tmp_path / "scan.pdf",
+        ["Article 12: Le salarie a droit a un conge annuel paye."],
+    )
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert "Article 12" in result.markdown
+    assert result.page_count == 1
+
+
+@pytest.mark.skipif(not _HAS_TESSDATA, reason=_NO_TESSDATA_REASON)
+def test_real_ocr_maps_pages_in_order_not_off_by_one(tmp_path, monkeypatch):
+    settings = _real_ocr_settings("fra")
+    monkeypatch.setattr(conversion, "get_settings", lambda: settings)
+    texts = [
+        "Article 1: premier texte du document.",
+        "Article 2: deuxieme texte totalement different.",
+        "Article 3: troisieme et dernier texte.",
+    ]
+    path = _rasterized_text_pdf(tmp_path / "scan3.pdf", texts)
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert result.page_count == 3
+    positions = [result.markdown.find(f"Article {n}") for n in (1, 2, 3)]
+    assert all(position != -1 for position in positions), positions
+    assert positions[0] < positions[1] < positions[2], positions
+
+
+@pytest.mark.skipif(not _HAS_TESSDATA, reason=_NO_TESSDATA_REASON)
+def test_real_ocr_finds_arabic_words(tmp_path, monkeypatch):
+    """tessdata_fast's Arabic model is not perfect (recorded honestly in
+    DECISIONS.md): this asserts the words it actually returned when this
+    test was written, not a hoped-for exact transcription."""
+    settings = _real_ocr_settings("ara")
+    monkeypatch.setattr(conversion, "get_settings", lambda: settings)
+    path = _rasterized_arabic_pdf(
+        tmp_path / "scan_ar.pdf",
+        "\u0627\u0644\u0645\u0627\u062f\u0629 12: \u0644\u0644\u0623\u062c\u064a\u0631 "
+        "\u0627\u0644\u062d\u0642 \u0641\u064a \u0625\u062c\u0627\u0632\u0629 "
+        "\u0633\u0646\u0648\u064a\u0629 \u0645\u062f\u0641\u0648\u0639\u0629 "
+        "\u0627\u0644\u0623\u062c\u0631.",
+    )
+
+    result = conversion.convert_file(path)
+
+    assert result.outcome is ConversionOutcome.CONVERTED
+    assert "\u0627\u0644\u0645\u0627\u062f\u0629" in result.markdown  # "Article/clause"
+    assert "\u0627\u0644\u0623\u062c\u0631" in result.markdown  # "the pay"
 
 
 # --- batch behaviour: PRD F-02 criterion 3 ----------------------------

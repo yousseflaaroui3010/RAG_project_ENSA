@@ -39,6 +39,16 @@
         <label class="shell__label" for="workspace-select">Active workspace</label>
         {% if workspaces %}
           <select id="workspace-select" name="workspace_id" data-autosubmit>
+            {# F-12: "let Sanad choose" -- only offered with something to
+               route between; the value is `ui.screen.ROUTE_SENTINEL`
+               spelled out here (see that constant's docstring for why
+               this is the one place it is duplicated rather than
+               threaded through every screen's context). #}
+            {% if workspaces|length >= 2 %}
+              <option value="__route__" {% if not active %}selected{% endif %}>
+                Let Sanad choose
+              </option>
+            {% endif %}
             {% for option in workspaces %}
               {#
                 F-14: a workspace name is document-controlled text (F-01
