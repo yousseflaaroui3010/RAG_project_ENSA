@@ -23,6 +23,8 @@ to the person copying the template.
 import re
 from pathlib import Path
 
+import pytest
+
 from config import Settings, get_settings
 
 _ENV_EXAMPLE = Path(__file__).resolve().parents[2] / ".env.example"
@@ -101,6 +103,55 @@ def _documented_keys() -> set[str]:
         if match:
             keys.add(match.group(1).lower())
     return keys
+
+
+def test_ocr_off_by_default_no_validation_runs(tmp_path):
+    """The documented contract: empty `ocr_tessdata_dir` is OCR off, and
+    off must never fail loud over a directory or language file that was
+    never going to be used."""
+    settings = Settings(_env_file=None)
+    assert settings.ocr_tessdata_dir == ""
+    assert settings.ocr_languages == "fra+ara+eng"
+    assert settings.ocr_dpi == 300
+    assert settings.ocr_max_pages == 200
+
+
+def test_ocr_tessdata_dir_missing_fails_loud_at_construction(tmp_path):
+    """F-16: OCR on with a directory that does not exist is a config
+    mistake, and the whole point of failing at startup rather than per
+    file is that it never even gets there."""
+    missing = tmp_path / "does-not-exist"
+
+    with pytest.raises(ValueError, match="does not exist"):
+        Settings(_env_file=None, ocr_tessdata_dir=str(missing))
+
+
+def test_ocr_missing_language_file_fails_loud_and_names_it(tmp_path):
+    """A REAL directory that is missing just one of the requested language
+    files must still fail loud, and the message must name the missing
+    file -- proven by asserting both what is missing (`ara`) and what is
+    NOT (`fra` stays out of the message, so a two-language failure cannot
+    be satisfied by naming the wrong one)."""
+    tessdata = tmp_path / "tessdata"
+    tessdata.mkdir()
+    (tessdata / "fra.traineddata").write_bytes(b"not a real model, just a marker")
+
+    with pytest.raises(ValueError, match="ara.traineddata") as excinfo:
+        Settings(_env_file=None, ocr_tessdata_dir=str(tessdata), ocr_languages="fra+ara")
+
+    assert "fra.traineddata" not in str(excinfo.value)
+
+
+def test_ocr_dpi_out_of_range_fails_loud_at_both_bounds():
+    with pytest.raises(ValueError, match="ocr_dpi"):
+        Settings(_env_file=None, ocr_dpi=10)
+    with pytest.raises(ValueError, match="ocr_dpi"):
+        Settings(_env_file=None, ocr_dpi=1000)
+
+
+def test_ocr_max_pages_must_be_positive():
+    with pytest.raises(ValueError, match="ocr_max_pages"):
+        Settings(_env_file=None, ocr_max_pages=0)
 
 
 def test_every_setting_is_documented_in_env_example():

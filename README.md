@@ -117,8 +117,8 @@ answer; V1.1 renders it in the UI (F-10).
 | The source guard before rendering | An answer with no sources routes to the refusal path instead of rendering as final (gate G3). |
 | Retry ceiling from config | Never hardcoded, so the grader loop cannot spin (F-04). |
 
-Scanned PDFs are reported **Skipped with reason** rather than silently dropped —
-OCR is a deferred rung on the ladder (F-16).
+Scanned PDFs are reported **Skipped with reason** by default. F-16 adds an
+opt-in OCR rung to the same ladder — see "Enabling OCR for scanned PDFs" below.
 
 ---
 
@@ -140,6 +140,23 @@ The first Sync downloads the embedding model once, then it is cached locally.
 | End-to-end | `uv run pytest tests/integration -q` |
 
 New to the project? Start with [docs/START-HERE.md](docs/START-HERE.md).
+
+### Enabling OCR for scanned PDFs (F-16, off by default)
+
+A scanned PDF (no text layer) is Skipped with a reason unless OCR is turned
+on. OCR uses PyMuPDF's own built-in Tesseract, so there is nothing to
+install beyond the language data files:
+
+1. Download the three `.traineddata` files you need from
+   [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) (e.g.
+   `fra.traineddata`, `ara.traineddata`, `eng.traineddata`) into one folder.
+2. Set `OCR_TESSDATA_DIR` in `.env` to that folder's path.
+3. Optionally set `OCR_LANGUAGES` (default `fra+ara+eng`), `OCR_DPI`
+   (default `300`), and `OCR_MAX_PAGES` (default `200`).
+
+A missing folder or a missing language file fails loud at startup rather
+than silently at Sync time. Not set on Railway/Docker by default (no
+tessdata ships there).
 
 ## Documentation map
 
