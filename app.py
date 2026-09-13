@@ -49,6 +49,7 @@ import embeddings
 import recovery
 import sync
 import vector_store
+import watcher
 import workspaces
 from agent.chat import ChatUnavailableError
 from agent.ports import AgentPorts
@@ -528,6 +529,14 @@ def _ws_context(
         "form_values": None,
         "name_min_length": get_settings().workspace_name_min_length,
         "name_max_length": get_settings().workspace_name_max_length,
+        # F-13: a one-line status only, per the story's own scope -- there
+        # is no route to toggle it here (`watch_folders` is a config-file
+        # setting, not a per-request one, and no new /api/v1 route is
+        # allowed), so this is read-only display of the running process's
+        # own setting.
+        # Evidence-only mode never starts the watcher (watcher.start_if_enabled),
+        # so the line must not claim "on" there even if watch_folders is set.
+        "watch_enabled": get_settings().watch_folders and not get_settings().evidence_only,
     }
 
 
@@ -1106,9 +1115,21 @@ def main() -> None:
     # of because of it. `Runtime.ports()` already refuses every question
     # in this mode, so there is nothing for a warm model to serve.
     real_app = create_app(Runtime(warm_up=not settings.evidence_only))
-    # 127.0.0.1 only (ADR-13, LD-07): single user, no authentication, and
-    # nothing about this server is safe to expose on a network.
-    uvicorn.run(real_app, host=settings.server_host, port=settings.server_port)
+    runtime: Runtime = real_app.state.runtime
+    # F-13: the one seam that starts the folder-watching poller at all.
+    # `start_if_enabled` re-checks `evidence_only` itself (never started
+    # on a memory-capped container, `watch_folders` notwithstanding) and
+    # is a no-op unless `watch_folders` is also on -- see there.
+    watcher_thread = watcher.start_if_enabled(
+        settings, db_path=runtime.db_path, trigger=runtime.start_sync
+    )
+    try:
+        # 127.0.0.1 only (ADR-13, LD-07): single user, no authentication, and
+        # nothing about this server is safe to expose on a network.
+        uvicorn.run(real_app, host=settings.server_host, port=settings.server_port)
+    finally:
+        if watcher_thread is not None:
+            watcher_thread.stop()
 
 
 if __name__ == "__main__":
