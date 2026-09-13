@@ -161,7 +161,32 @@ class Settings(BaseSettings):
     # existing citation: zero of the 187 stored parents and zero of the
     # manuals contained a capital "Slide" plus a number (checked
     # 2026-09-13), and the match stays case-sensitive like "Article".
-    parent_citation_marker_pattern: str = r"Article\s+\d+|Slide\s+\d+"
+    #
+    # "المادة\s*\d+" is F-14's citable unit for Arabic legal text: Moroccan
+    # statutes number articles as "المادة 12" the way the French edition
+    # numbers "Article 12". `\d` under Python's default (Unicode) string
+    # matching already accepts EASTERN ARABIC-INDIC digits (١٢) as well as
+    # Western ones, verified empirically -- `re.findall(r"\d", "١٢3")`
+    # returns all three characters -- so no separate digit class is added.
+    # No case-folding question arises the way "Article" vs "l'article"
+    # did: Arabic has no letter case. Adding it changes no existing
+    # citation either: zero of the same 187 stored parents contain
+    # "المادة" plus a digit (checked 2026-09-13, this corpus has no
+    # Arabic-script text yet at all -- F-14 is the first story to add the
+    # pattern, not the first to need it matched).
+    #
+    # ZERO OR MORE spaces (`\s*`), not one-or-more like the other two
+    # alternatives -- deliberately different, because real Arabic OCR
+    # (F-16's tessdata_fast `ara` model, checked 2026-09-13 against a real
+    # scanned page) reads "المادة12:..." with NO space between the word and
+    # the number at all; `\s+` would silently miss every marker OCR
+    # produces. `_citation_label` (chunking.py) is what makes this safe to
+    # loosen: it re-inserts exactly one space between the word and the
+    # digits when the raw match glued them together, so the LABEL a source
+    # card shows is always "المادة 12", never the OCR'd "المادة12" -- see
+    # its docstring. "Article"/"Slide" keep `\s+` unchanged; nothing about
+    # this line affects a citation that already matched.
+    parent_citation_marker_pattern: str = r"Article\s+\d+|Slide\s+\d+|المادة\s*\d+"
 
     # --- Change detection (ST-12, PRD F-02, architecture §5.1) ---
     # File extensions Sync fingerprints and hands to the conversion ladder.

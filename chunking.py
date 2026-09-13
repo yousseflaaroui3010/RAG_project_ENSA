@@ -304,6 +304,32 @@ def _citation_marker(pattern: str) -> re.Pattern[str] | None:
     return re.compile(pattern) if pattern else None
 
 
+# F-14: real Arabic OCR (F-16's tessdata_fast `ara` model, checked
+# 2026-09-13 against a real scanned page) reads "المادة12:..." with NO
+# space between the word and the number, which is why
+# `parent_citation_marker_pattern`'s Arabic alternative uses `\s*` (zero
+# or more) rather than `\s+` like "Article"/"Slide". Matches the digit
+# boundary only when nothing already separates it -- a normal letter or
+# punctuation mark (never whitespace, never another digit) immediately
+# followed by a digit -- so it turns "المادة12" into "المادة 12" but
+# leaves "المادة 12" (already spaced) and "Article 42" (whitespace
+# required by its own pattern) alone.
+_GLUED_MARKER_DIGIT = re.compile(r"(?<=[^\s\d])(?=\d)")
+
+
+def _normalise_marker(raw_match: str) -> str:
+    """One regex match, turned into the label text a source card shows.
+
+    Two normalisations, applied in order: collapse any internal
+    whitespace run (a marker split across a converted PDF's line break,
+    ST-14's original case) to exactly one space, then insert a space at a
+    word-digit boundary that has none at all (OCR's case, above). Neither
+    step affects a marker that already reads "Word 12" -- both are
+    idempotent on already-clean input, which is what every existing
+    "Article N"/"Slide N" match is."""
+    return _GLUED_MARKER_DIGIT.sub(" ", " ".join(raw_match.split()))
+
+
 def _citation_label(text: str, pattern: str) -> str | None:
     """Label a piece of text by the citable units inside it, or None.
 
@@ -324,7 +350,7 @@ def _citation_label(text: str, pattern: str) -> str | None:
     marker = _citation_marker(pattern)
     if marker is None:
         return None
-    found = [" ".join(m.group(0).split()) for m in marker.finditer(text)]
+    found = [_normalise_marker(m.group(0)) for m in marker.finditer(text)]
     if not found:
         return None
     if found[0] == found[-1]:

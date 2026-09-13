@@ -482,6 +482,18 @@ def test_feedback_comment_containing_script_is_escaped_on_reports(tmp_path):
     assert "&lt;script&gt;" in page
 
 
+def test_an_arabic_feedback_comment_reads_in_its_own_direction(tmp_path):
+    """F-14 x F-15: the question and comment are typed by the user in any
+    script, so their cells carry dir="auto" like every other user text."""
+    client, db_path = _app(tmp_path)
+    arabic_comment = "الجواب لا يذكر المادة الصحيحة"
+    _seed_feedback(db_path, comment=arabic_comment)
+
+    feedback_section = client.get("/reports").text.split(">Answer feedback<")[1]
+
+    assert f'<td dir="auto">{arabic_comment}</td>' in feedback_section
+
+
 def test_a_missing_comment_shows_a_dash_not_a_blank_cell(tmp_path):
     """Isolated to the feedback section, not the whole page: the page
     `<title>` itself carries an unrelated em dash ("Reports — Sanad",

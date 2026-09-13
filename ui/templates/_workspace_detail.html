@@ -10,7 +10,12 @@
     <p class="muted">Pick a workspace from the list to see its detail.</p>
   {% else %}
     <div class="ws-detail__head">
-      <h2>{{ selected.name }}</h2>
+      {#
+        F-14: a workspace name is user-typed (F-01), so it gets `dir="auto"`
+        rather than inheriting the page's direction -- an Arabic name must
+        read RTL even on an otherwise-LTR page, and vice-versa.
+      #}
+      <h2 dir="auto"{% if is_arabic(selected.name) %} lang="ar"{% endif %}>{{ selected.name }}</h2>
       {% if selected.legal_flag %}
         <span class="marker" title="This workspace is flagged as legal content">Legal</span>
       {% endif %}
@@ -26,7 +31,7 @@
       <form class="ws-form" method="post" action="/workspaces/{{ selected.id }}/rename">
         <label class="ws-form__label" for="rename-name">Workspace name</label>
         <div class="ws-form__row">
-          <input class="ws-form__input" id="rename-name" name="name" type="text" required
+          <input class="ws-form__input" id="rename-name" name="name" type="text" required dir="auto"
                  minlength="{{ name_min_length }}" maxlength="{{ name_max_length }}"
                  value="{{ selected.name }}">
           <button class="btn btn--quiet" type="submit">Rename</button>

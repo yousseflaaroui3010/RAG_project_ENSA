@@ -39,7 +39,7 @@
             <a class="ws-list__item{{ ' is-current' if selected_id == option.id else '' }}"
                href="/workspaces?ws={{ option.id }}"
                {% if selected_id == option.id %}aria-current="true"{% endif %}>
-              {{ option.name }}
+              <bdi{% if is_arabic(option.name) %} lang="ar"{% endif %}>{{ option.name }}</bdi>
               {% if option.legal_flag %}<span class="marker">Legal</span>{% endif %}
             </a>
           </li>

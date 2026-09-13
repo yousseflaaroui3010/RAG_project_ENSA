@@ -224,6 +224,20 @@ def test_an_over_long_question_is_refused_before_any_proposal(three_workspaces, 
     assert embedded == [], "an over-long question must not be embedded for routing"
 
 
+def test_proposal_buttons_isolate_each_workspace_name(three_workspaces):
+    """F-14 x F-12: a workspace name may be Arabic inside an English button
+    label, so each one is wrapped in <bdi> to keep its own direction."""
+    build, _ws, _db = three_workspaces
+    client, _runtime = build()
+    _choose_routing(client)
+
+    page = client.post(
+        "/chat/ask", data={"question": QUESTION_PYTHON}, follow_redirects=True
+    ).text
+
+    assert "Yes, use <bdi>Manuals</bdi>" in page
+
+
 def test_confirming_answers_from_the_proposed_workspace_and_selects_it(three_workspaces):
     build, ws, _db = three_workspaces
     client, runtime = build()

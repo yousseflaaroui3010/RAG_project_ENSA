@@ -24,6 +24,20 @@
   A native <details>/<summary> rather than a script-driven toggle: it is
   keyboard reachable and has a focus state for free, and the composer
   above already leans on plain HTML controls working with scripting off.
+
+  F-14: the two lists here are NOT the same kind of text and do not get
+  the same treatment. `files_consulted` is file names -- the `.mono`
+  class's `direction: ltr` (sanad.css, UX spec 6.5/7.5/8.5: "file names
+  ... stay left-to-right") is exactly right for it, in any language. But
+  `searched` (`agent.trace.Trace.searches`) is the actual REWORDED QUERY
+  STRINGS -- natural-language sentences derived from the user's own
+  question (agent/trace.py: "the exact string that was searched") -- not
+  identifiers. Before F-14 both lists shared one `mono` class; forcing an
+  Arabic search string into a monospace font (none of `--font-mono`'s
+  fonts carry Arabic glyphs) and a fixed LTR direction is the same defect
+  UX spec 6.5 warns about for citations, aimed at the wrong content. Each
+  `<li>` here gets `dir="auto"` instead so an Arabic reworded query reads
+  RTL and a French one stays LTR, independently per line.
 #}
 {#
   F-15. One block per ANSWER/REFUSAL message: two real buttons, always
@@ -59,7 +73,7 @@
         <label class="feedback__label" for="feedback-comment-{{ index }}">
           What went wrong? (optional)
         </label>
-        <textarea id="feedback-comment-{{ index }}" name="comment"
+        <textarea id="feedback-comment-{{ index }}" name="comment" dir="auto"
                   class="feedback__textarea" rows="2"
                   maxlength="{{ feedback_comment_max_chars }}"></textarea>
         <button type="submit"
@@ -81,8 +95,8 @@
     <div class="trace__body">
       <p class="trace__label">Searches run</p>
       {% if message.searched %}
-        <ul class="trace__list mono">
-          {% for search in message.searched %}<li>{{ search }}</li>{% endfor %}
+        <ul class="trace__list">
+          {% for search in message.searched %}<li dir="auto"{% if is_arabic(search) %} lang="ar"{% endif %}>{{ search }}</li>{% endfor %}
         </ul>
       {% else %}
         <p class="muted">None.</p>
@@ -115,8 +129,17 @@
     #}
     <p class="notice" role="status">
       {% if active %}
-        The conversation context has moved to {{ active.name }}. Earlier
-        answers on this screen came from a different workspace.
+        {#
+          F-14: `active.name` is a workspace name (F-01: user-typed, Arabic
+          included) sitting inside an English sentence. `<bdi>` -- "bidi
+          isolate" -- rather than `dir="auto"` on the whole `<p>`: the
+          notice's own English direction must not flip because the name
+          happens to be Arabic, and the name cannot drag the trailing
+          punctuation out of place.
+        #}
+        The conversation context has moved to
+        <bdi{% if is_arabic(active.name) %} lang="ar"{% endif %}>{{ active.name }}</bdi>.
+        Earlier answers on this screen came from a different workspace.
       {% else %}
         {# F-12: switched TO "let Sanad choose" -- there is no single
            workspace name to put in this sentence. #}
@@ -141,8 +164,8 @@
     #}
     <div class="panel panel--empty">
       <h2>Nothing to answer from yet</h2>
-      <p>{{ active.name }} has no synced documents, so Sanad has nothing to
-         read. Point the workspace at a folder and run Sync.</p>
+      <p><bdi{% if is_arabic(active.name) %} lang="ar"{% endif %}>{{ active.name }}</bdi> has no synced documents, so Sanad has
+         nothing to read. Point the workspace at a folder and run Sync.</p>
       <p class="muted">
         <a href="/workspaces?ws={{ active.id }}">Run Sync on the Workspaces screen</a>.
       </p>
@@ -150,7 +173,7 @@
 
   {% elif state == ScreenState.EMPTY %}
     <div class="panel panel--empty">
-      <h2>Ask a question about {{ active.name }}</h2>
+      <h2>Ask a question about <bdi{% if is_arabic(active.name) %} lang="ar"{% endif %}>{{ active.name }}</bdi></h2>
       {# The line UX spec 6.3 requires beside the sample questions. #}
       <p>{{ sources_promise }}</p>
       {% if samples %}
@@ -202,12 +225,24 @@
       {% set m = loop.index0 %}
       <li class="msg msg--{{ message.kind }}">
 
+        {#
+          F-14: every one of these is USER- or DOCUMENT-controlled prose
+          (the question as typed, or an answer/refusal/clarification
+          written from Arabic source text) rather than Sanad's own fixed
+          English copy, so each gets `dir="auto"` -- the browser reads the
+          FIRST STRONG-DIRECTION CHARACTER of the element's own text and
+          sets that element's direction from it, independently of the
+          page's `dir` (base.html) and of its sibling messages. An Arabic
+          answer reads RTL inside an LTR-page conversation with a French
+          question above it staying LTR, and the reverse under a mirrored
+          Arabic-workspace page too.
+        #}
         {% if message.kind == MessageKind.USER %}
-          <p class="bubble bubble--user">{{ message.text }}</p>
+          <p class="bubble bubble--user" dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text }}</p>
 
         {% elif message.kind == MessageKind.ANSWER %}
           <div class="bubble bubble--answer">
-            <p class="answer__text">{{ message.text }}</p>
+            <p class="answer__text" dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text }}</p>
             {% if message.retries %}
               {#
                 UX spec 6.2's "subtle inline marker ... showing the count on
@@ -229,11 +264,18 @@
             (F-05) and suggests a next step.
           #}
           <div class="bubble bubble--refusal">
-            <p class="refusal__lead">{{ message.text }}</p>
+            <p class="refusal__lead" dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text }}</p>
             {% if message.searched %}
               <p class="refusal__label" id="searched-{{ m }}">What Sanad searched for:</p>
-              <ul class="searched mono" aria-labelledby="searched-{{ m }}">
-                {% for search in message.searched %}<li>{{ search }}</li>{% endfor %}
+              {#
+                F-14: NOT `.mono` here -- see `trace_disclosure`'s comment
+                above for why a reworded search query (natural-language,
+                possibly Arabic) is the wrong content for a monospace,
+                forced-LTR class, which is reserved for file names and
+                citation labels (UX spec 6.5).
+              #}
+              <ul class="searched" aria-labelledby="searched-{{ m }}">
+                {% for search in message.searched %}<li dir="auto"{% if is_arabic(search) %} lang="ar"{% endif %}>{{ search }}</li>{% endfor %}
               </ul>
             {% endif %}
             {% if message.retries %}
@@ -243,14 +285,14 @@
 
         {% elif message.kind == MessageKind.CLARIFICATION %}
           <div class="bubble bubble--clarification">
-            <p>{{ message.text }}</p>
+            <p dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text }}</p>
             {% if message.choices %}
               <ul class="choices">
                 {% for choice in message.choices %}
                   <li>
                     <form method="post" action="/chat/ask">
                       <input type="hidden" name="question" value="{{ choice }}">
-                      <button class="sample" type="submit">{{ choice }}</button>
+                      <button class="sample" type="submit" dir="auto"{% if is_arabic(choice) %} lang="ar"{% endif %}>{{ choice }}</button>
                     </form>
                   </li>
                 {% endfor %}
@@ -285,7 +327,8 @@
                       <input type="hidden" name="question" value="{{ message.route_question }}">
                       <input type="hidden" name="workspace_id" value="{{ candidate.workspace_id }}">
                       <button class="sample" type="submit">
-                        {% if loop.first %}Yes, use {{ candidate.name }}{% else %}{{ candidate.name }}{% endif %}
+                        {# F-14: a workspace name may be Arabic inside an English label. #}
+                        {% if loop.first %}Yes, use <bdi>{{ candidate.name }}</bdi>{% else %}<bdi>{{ candidate.name }}</bdi>{% endif %}
                       </button>
                     </form>
                   </li>
@@ -303,7 +346,7 @@
           #}
           <div class="bubble bubble--interrupted">
             <p class="incomplete-mark">Incomplete — not an answer</p>
-            <p>{{ message.text }}</p>
+            <p dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text }}</p>
           </div>
 
         {% elif message.kind == MessageKind.ERROR %}
@@ -313,7 +356,17 @@
           #}
           <div class="panel panel--error" role="alert">
             <p class="error__sentence">{{ message.error.sentence }}</p>
-            <p class="error__attempted mono">{{ message.error.attempted }}</p>
+            {#
+              F-14: `attempted` is `"Asked: " + the user's own question`
+              (ui/conversation.py) -- natural-language content, not an
+              identifier, so it drops `.mono` (none of `--font-mono`'s
+              fonts carry Arabic glyphs, and monospace breaks Arabic's
+              cursive letter joining) and gets `dir="auto"` instead.
+              `value` stays `.mono`: it is the exception type and message
+              (`f"{type(exc).__name__}: {exc}"`), a technical string that
+              is never document content.
+            #}
+            <p class="error__attempted" dir="auto"{% if is_arabic(message.error.attempted) %} lang="ar"{% endif %}>{{ message.error.attempted }}</p>
             <p class="error__value mono">{{ message.error.value }}</p>
             <p class="error__hint">{{ message.error.hint }}</p>
           </div>
