@@ -26,13 +26,14 @@ from __future__ import annotations
 
 import threading
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
 from agent.querying import ClarificationContext
 from agent.state import Answer, AnswerKind, Source, Turn
 from config import get_settings
+from ui.routing import RouteCandidate
 from ui.runs import Run, RunCancelled, find_span
 from vector_store import SearchHit
 
@@ -44,6 +45,12 @@ class MessageKind(StrEnum):
     CLARIFICATION = "clarification"
     ERROR = "error"
     INTERRUPTED = "interrupted"
+    # F-12: the confirmation-before-answer bubble. One kind for both
+    # shapes it can take -- a ranked proposal (`route_candidates` non-
+    # empty) and the plain "nothing matched" message (empty) -- because
+    # both are the same event from the operator's point of view: Sanad
+    # would not answer without asking first.
+    ROUTE_PROPOSAL = "route_proposal"
 
 
 # The three that come out of the agent, mapped one for one. A dict rather
@@ -139,6 +146,13 @@ class Message:
     # also default to False here. The template renders no disclosure at
     # all rather than an empty one when this is False.
     has_trace: bool = False
+    # F-12 ROUTE_PROPOSAL only. `route_question` is the exact text every
+    # confirm button resubmits (the original question, verbatim -- never
+    # re-typed by the operator, so a button click cannot ask something
+    # different from what was proposed). `route_candidates` is ranked best
+    # first and empty means no workspace had any hit at all.
+    route_question: str = ""
+    route_candidates: tuple[RouteCandidate, ...] = ()
     # F-15. The stable id `ui/feedback.py` keys a stored verdict on:
     # `db.repo.upsert_answer_feedback`'s ON CONFLICT target is this value,
     # not a message's position in `Conversation.messages`, because a
@@ -272,6 +286,39 @@ def message_for(
         retries=answer.retries,
         disclaimer=answer.disclaimer,
         has_trace=True,
+    )
+
+
+# F-12. "This looks like a question for {name}. Answer from there?" per the
+# card's own copy -- primary button text is built at the template, from
+# `route_candidates[0].name`, so there is one sentence rather than two that
+# have to agree on the workspace name.
+NO_MATCH_TEXT = (
+    "None of your workspaces look like a match for this question. Pick one "
+    "from the selector above and ask again."
+)
+
+
+def route_proposal_message(
+    question: str, candidates: Sequence[RouteCandidate]
+) -> Message:
+    """F-12's confirmation-before-answer bubble.
+
+    `candidates` is ranked best first (`ui.routing.propose_workspace`).
+    Empty means no workspace had any hit at all: PRD F-12 is explicit that
+    Sanad "asks for confirmation" rather than answering blind, and a
+    proposal with nothing behind it would be a guess wearing a question's
+    clothes -- so this shows the plain request to pick one instead."""
+    if not candidates:
+        return Message(
+            kind=MessageKind.ROUTE_PROPOSAL, text=NO_MATCH_TEXT, route_question=question
+        )
+    lead = candidates[0]
+    return Message(
+        kind=MessageKind.ROUTE_PROPOSAL,
+        text=f"This looks like a question for {lead.name}. Answer from there?",
+        route_question=question,
+        route_candidates=tuple(candidates),
     )
 
 
@@ -424,6 +471,40 @@ class Conversation:
             self.messages.append(Message(kind=MessageKind.USER, text=question))
             self.run = run
             return True
+
+    def begin_route(self, question: str, propose: Callable[[], Message]) -> bool:
+        """F-12: ask the routing question and append its reply, atomically.
+
+        Unlike `begin`, there is no `Run` and no worker thread. Routing is
+        local embedding plus vector search, not a model call (the F-12
+        card is explicit: no LLM call), so there is no stage to show and
+        nothing a Cancel button could interrupt. Held under one lock for
+        the same reason `begin` is: two rapid Sends must not both search
+        and both append a proposal, which is the exact race `begin` closes
+        for a real answer.
+
+        False when a run is already in flight for this conversation --
+        the sentinel routing conversation is not exempt from the rule that
+        one question is answered before the next starts.
+
+        `propose` runs INSIDE the lock, after the user's message is
+        appended, so a caller whose `propose` raises (evidence-only mode:
+        `agent.chat.ChatUnavailableError`) still leaves the question
+        visible in the transcript; the exception propagates to the caller,
+        which appends its own error message with `append_system`."""
+        with self._lock:
+            if self.run is not None:
+                return False
+            self.messages.append(Message(kind=MessageKind.USER, text=question))
+            self.messages.append(propose())
+            return True
+
+    def append_system(self, message: Message) -> None:
+        """One system-authored message, appended under the same lock as
+        everything else here (F-12: the evidence-only refusal that follows
+        a routing question `begin_route`'s `propose` could not answer)."""
+        with self._lock:
+            self.messages.append(message)
 
     def settle(self) -> None:
         """Fold a finished run into the transcript.
