@@ -202,6 +202,28 @@ def test_no_answer_is_generated_before_confirmation(three_workspaces):
     assert model.calls == [], "no model call may happen before the operator confirms"
 
 
+def test_an_over_long_question_is_refused_before_any_proposal(three_workspaces, monkeypatch):
+    """The graph enforces `question_max_length` when a run starts, but
+    routing never starts one: without its own check an over-long question
+    was proposed a workspace and failed only after confirmation. It must be
+    refused up front, with no proposal and no embedding call."""
+    build, _ws, _db = three_workspaces
+    client, _runtime = build()
+    _choose_routing(client)
+    embedded: list[str] = []
+    real_embed = embeddings.embed_query
+    monkeypatch.setattr(
+        embeddings, "embed_query", lambda text: embedded.append(text) or real_embed(text)
+    )
+    too_long = "boucle " * (get_settings().question_max_length // 7 + 10)
+
+    page = client.post("/chat/ask", data={"question": too_long}, follow_redirects=True).text
+
+    assert "This looks like a question for" not in page
+    assert "a question may be at most" in page
+    assert embedded == [], "an over-long question must not be embedded for routing"
+
+
 def test_confirming_answers_from_the_proposed_workspace_and_selects_it(three_workspaces):
     build, ws, _db = three_workspaces
     client, runtime = build()

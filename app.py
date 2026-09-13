@@ -1209,6 +1209,18 @@ def _start_routing(
     if not asked:
         return RedirectResponse("/", status_code=SEE_OTHER)
     conversation = runtime.conversation(screen.ROUTE_SENTINEL)
+    # The length bound is normally enforced by the graph when a run starts
+    # (agent/graph.py). Routing never starts a run, so without this an
+    # over-long question would be proposed a workspace and only fail after
+    # the operator confirmed. Same sentence as the graph's.
+    max_length = get_settings().question_max_length
+    if len(asked) > max_length:
+        too_long = ValueError(
+            f"a question may be at most {max_length} characters "
+            f"(openapi AskRequest.question); this one is {len(asked)}."
+        )
+        conversation.append_system(error_message(too_long, asked))
+        return RedirectResponse("/", status_code=SEE_OTHER)
 
     def propose() -> Message:
         with runtime.routing_client() as client:
