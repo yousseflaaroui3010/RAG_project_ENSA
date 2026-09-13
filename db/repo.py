@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -673,4 +673,85 @@ def list_eval_results(conn: sqlite3.Connection, eval_run_id: str) -> list[sqlite
     return conn.execute(
         "SELECT * FROM eval_result WHERE eval_run_id = ? ORDER BY question_id",
         (eval_run_id,),
+    ).fetchall()
+
+
+# --- answer_feedback (F-15) ---------------------------------------------
+
+
+def upsert_answer_feedback(
+    conn: sqlite3.Connection,
+    *,
+    workspace_id: str,
+    answer_key: str,
+    question: str,
+    answer_text: str,
+    verdict: str,
+    comment: str | None = None,
+    id: str | None = None,
+) -> None:
+    """Write one verdict (plus optional comment) for one answer.
+
+    IDEMPOTENT BY `answer_key`, ATOMICALLY. `ON CONFLICT(answer_key) DO
+    UPDATE` rather than a SELECT-then-INSERT-or-UPDATE: two feedback POSTs
+    for the same answer milliseconds apart (a double click, exactly the
+    kind of race `app.py::Conversation.begin` was written to close for
+    asking a question) would otherwise both see "no existing row" and both
+    INSERT, and the schema's `UNIQUE (answer_key)` would turn the second
+    into a raised `sqlite3.IntegrityError` instead of the update the
+    caller wanted. The single statement lets SQLite's own conflict
+    resolution serialize the two instead. `question` and `answer_text` are
+    only ever written by the INSERT branch -- an update changes the
+    verdict and comment on the same answer, never rewrites what was asked
+    or answered."""
+    conn.execute(
+        "INSERT INTO answer_feedback "
+        "(id, workspace_id, answer_key, question, answer_text, verdict, comment, "
+        "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(answer_key) DO UPDATE SET "
+        "verdict = excluded.verdict, comment = excluded.comment, "
+        "updated_at = excluded.updated_at",
+        (
+            id or new_id(),
+            workspace_id,
+            answer_key,
+            question,
+            answer_text,
+            verdict,
+            comment,
+            (now := utc_now()),
+            now,
+        ),
+    )
+
+
+def get_answer_feedback_by_keys(
+    conn: sqlite3.Connection, answer_keys: Sequence[str]
+) -> list[sqlite3.Row]:
+    """Every feedback row whose `answer_key` is in `answer_keys`, one query
+    rather than one per message -- what `ui/feedback.py::verdicts_for`
+    reads to show "Thanks, feedback saved" against the right answers on
+    S1. Empty input returns [] without touching the database: an empty
+    `IN ()` is invalid SQL, and a conversation with no ANSWER/REFUSAL
+    message yet (or ever) is the common case, not an edge one."""
+    if not answer_keys:
+        return []
+    placeholders = ", ".join("?" for _ in answer_keys)
+    return conn.execute(
+        f"SELECT * FROM answer_feedback WHERE answer_key IN ({placeholders})",
+        tuple(answer_keys),
+    ).fetchall()
+
+
+def list_answer_feedback(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Every feedback row across every workspace, newest first, with the
+    workspace name joined in -- same shape as `list_eval_runs` above, for
+    the same reason: S3's list wants a workspace name to show, not an id
+    to look up. `answer_feedback.workspace_id` is ON DELETE CASCADE
+    (db/schema.sql), so this plain JOIN can never orphan a row."""
+    return conn.execute(
+        "SELECT answer_feedback.*, workspace.name AS workspace_name "
+        "FROM answer_feedback "
+        "JOIN workspace ON workspace.id = answer_feedback.workspace_id "
+        "ORDER BY answer_feedback.created_at DESC"
     ).fetchall()

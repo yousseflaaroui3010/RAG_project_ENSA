@@ -288,6 +288,15 @@ class Settings(BaseSettings):
             raise ValueError("watch_interval_seconds must be greater than 0")
         return value
 
+    # --- Answer feedback (F-15, V2 Low) ---
+    # Mirrors question_max_length's role for AskRequest: the one bound both
+    # `ui/feedback.py` (validating a POST /chat/feedback) and the S1
+    # textarea's `maxlength` attribute read from. A comment is free text
+    # typed by the operator, not a document, so this is a generous UI
+    # guard rail rather than a security boundary -- LD-07/ADR-13 apply here
+    # exactly as they do to a question.
+    feedback_comment_max_chars: int = 2000
+
     # --- OCR (F-16, V2 Lowest: scanned PDFs gain a text layer) ---
     # PyMuPDF's BUILT-IN Tesseract (pymupdf 1.28.0, human-approved
     # 2026-09-13, see DECISIONS.md): no new Python package and no separate

@@ -57,6 +57,7 @@ from api.routes import build_router
 from api.service import ApiService
 from config import get_settings
 from db import repo
+from ui import feedback as feedback_module
 from ui import reports_screen, screen, workspaces_screen
 from ui.access_gate import AccessGate
 from ui.conversation import Conversation, MessageKind
@@ -149,6 +150,13 @@ class Runtime:
     sync_errors: dict[str, str] = field(default_factory=dict)
     last_sync_run_id: dict[str, str] = field(default_factory=dict)
     sync_cancel_events: dict[str, threading.Event] = field(default_factory=dict)
+    # F-15. Mirrors `sync_errors` above: the last feedback POST for this
+    # workspace failed validation, keyed so a stale error from a different
+    # workspace never shows on this one. Cleared on the next successful
+    # submit for that workspace (see `feedback_route`), never on a plain
+    # render -- a render can happen many times (the poll) before the
+    # operator retries.
+    feedback_errors: dict[str, str] = field(default_factory=dict)
 
     @contextlib.contextmanager
     def ports(self) -> Iterator[AgentPorts]:
@@ -388,6 +396,21 @@ def _context(runtime: Runtime, request: Request) -> dict:
         # but the chat area shows a one-line notice that the conversation
         # context has moved."
         "moved": request.query_params.get("moved") == "1",
+        # F-15. `feedback_verdicts` is `{message.id: "up"|"down"}` for every
+        # ANSWER/REFUSAL already given feedback in THIS conversation, read
+        # fresh on every render so a redirect after POST /chat/feedback
+        # shows the saved state immediately. `feedback_error` is the last
+        # rejected attempt for the active workspace, if any (see
+        # `Runtime.feedback_errors`).
+        "feedback_verdicts": (
+            feedback_module.verdicts_for(conversation.messages, db_path=runtime.db_path)
+            if conversation
+            else {}
+        ),
+        "feedback_error": (
+            runtime.feedback_errors.get(active.id) if active else None
+        ),
+        "feedback_comment_max_chars": get_settings().feedback_comment_max_chars,
         # openapi AskRequest bounds the question, and config.py is where
         # that bound lives (docs/phase2/CLAUDE.md: no magic literals in
         # module code). `ask` enforces it server-side too -- this only
@@ -553,6 +576,12 @@ def _reports_context(runtime: Runtime, request: Request) -> dict:
         "state": reports_screen.screen_state(report_count=len(reports)),
         "ReportsScreenState": reports_screen.ReportsScreenState,
         "reports": reports,
+        # F-15. Independent of `reports`/`state` above -- see
+        # ui/reports_screen.py's module note on why feedback is never
+        # gated by the eval-run empty state. Pure SQLite reads, same as
+        # `reports` itself, so this never loads the embedding model and
+        # renders fine in evidence-only mode (ST-05).
+        "feedback": reports_screen.list_feedback(db_path=runtime.db_path),
     }
 
 
@@ -763,6 +792,66 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         active = _active(runtime)
         if active is not None:
             runtime.conversation(active.id).reset()
+        return RedirectResponse("/", status_code=SEE_OTHER)
+
+    @app.post("/chat/feedback")
+    async def feedback_route(request: Request) -> Response:
+        """F-15: thumbs up/down plus an optional comment on one answer or
+        refusal. Plain POST-redirect-GET, exactly like `/chat/ask` above
+        (CR-02) -- a real `<form>` per button in `_conversation.html`, no
+        script required.
+
+        NOT an /api/v1 route on purpose: docs/phase2/openapi.yaml is
+        signed and F-15 is V2, and `tests/integration/test_api.py`'s
+        route-inventory test only enumerates `/api/v1/*`, so this needs no
+        contract change (recorded in DECISIONS.md).
+
+        EVIDENCE-ONLY MODE (ST-05): refused here, explicitly, rather than
+        relying on the fact that no ANSWER/REFUSAL message can exist in
+        that mode today (`Runtime.ports` already raises before a question
+        is ever asked). Harmless either way -- no row is written -- but an
+        explicit check does not depend on that coincidence surviving a
+        later change, the same reasoning `watcher.start_if_enabled`
+        gives for re-checking the flag itself. No error is surfaced: the
+        controls this posts from never render in evidence-only mode (no
+        answer ever exists to attach them to), so a rejection reaching a
+        real user here would mean something forged the request, not that
+        it made a normal mistake.
+        """
+        form = await _form(request)
+        workspace_id = form.get("workspace_id", "")
+        if get_settings().evidence_only:
+            return RedirectResponse("/", status_code=SEE_OTHER)
+        message_id = form.get("message_id", "")
+        verdict = form.get("verdict", "")
+        comment = form.get("comment") or None
+        conversation = runtime.conversations.get(workspace_id)
+        messages = conversation.messages if conversation is not None else []
+        try:
+            feedback_module.submit_feedback(
+                messages=messages,
+                workspace_id=workspace_id,
+                message_id=message_id,
+                verdict=verdict,
+                comment=comment,
+                db_path=runtime.db_path,
+            )
+        except feedback_module.UnknownAnswerError:
+            runtime.feedback_errors[workspace_id] = (
+                "This answer is no longer on screen, so feedback could "
+                "not be saved."
+            )
+        except feedback_module.CommentTooLongError as exc:
+            runtime.feedback_errors[workspace_id] = (
+                "Feedback could not be saved: the comment is longer than "
+                f"{exc.max_chars} characters."
+            )
+        except feedback_module.InvalidVerdictError:
+            runtime.feedback_errors[workspace_id] = (
+                "Feedback could not be saved: invalid response."
+            )
+        else:
+            runtime.feedback_errors.pop(workspace_id, None)
         return RedirectResponse("/", status_code=SEE_OTHER)
 
     @app.post("/workspace")

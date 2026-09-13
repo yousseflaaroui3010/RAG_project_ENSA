@@ -93,3 +93,26 @@ CREATE TABLE IF NOT EXISTS eval_result (
   sources_present  INTEGER,
   error            TEXT
 );
+
+-- F-15 (V2, Low). One row per answer a user has reacted to, keyed by
+-- `answer_key` (ui/conversation.py's `Message.id`, a uuid4 stamped when
+-- the message is built -- see that field for why it exists). `question`
+-- and `answer_text` are copied in at write time rather than joined from
+-- anywhere, because the in-memory Conversation they came from does not
+-- survive a restart (PRD section 6, single user on one machine): the
+-- feedback row is the only durable record of what was actually asked and
+-- answered. UNIQUE (answer_key) is the idempotency guarantee
+-- ui/feedback.py relies on -- giving feedback on the same answer twice is
+-- an UPSERT (INSERT ... ON CONFLICT(answer_key) DO UPDATE) onto this
+-- constraint, never a second row.
+CREATE TABLE IF NOT EXISTS answer_feedback (
+  id             TEXT    PRIMARY KEY,
+  workspace_id   TEXT    NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  answer_key     TEXT    NOT NULL UNIQUE,
+  question       TEXT    NOT NULL,
+  answer_text    TEXT    NOT NULL,
+  verdict        TEXT    NOT NULL CHECK (verdict IN ('up', 'down')),
+  comment        TEXT,
+  created_at     TEXT    NOT NULL,
+  updated_at     TEXT    NOT NULL
+);
