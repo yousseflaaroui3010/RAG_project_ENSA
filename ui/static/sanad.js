@@ -444,6 +444,24 @@
     wireSamples(document);
   }
 
+  function paintSteps(key) {
+    var steps = stageBlock.querySelectorAll("[data-step]");
+    var current = -1;
+    steps.forEach(function (step, index) {
+      if (step.getAttribute("data-step") === key) {
+        current = index;
+      }
+    });
+    if (current < 0) {
+      return;
+    }
+    stageBlock.setAttribute("data-stage-key", key);
+    steps.forEach(function (step, index) {
+      step.classList.toggle("is-done", index < current);
+      step.classList.toggle("is-current", index === current);
+    });
+  }
+
   function tick() {
     fetch("/chat/messages", { headers: { "X-Requested-With": "fetch" } })
       .then(function (response) {
@@ -473,6 +491,10 @@
         if (label && label.textContent.trim() !== next) {
           label.textContent = next;
         }
+        // S6: move the step rail to the stage the server just reported.
+        // Classes only, same as the label: the node is never replaced.
+        var freshStage = fresh.querySelector("[data-stage]");
+        paintSteps(freshStage && freshStage.getAttribute("data-stage-key"));
         window.setTimeout(tick, POLL_MS);
       })
       .catch(function () {

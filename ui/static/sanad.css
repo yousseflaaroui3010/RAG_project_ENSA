@@ -546,7 +546,54 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent);
   color: var(--text-muted);
 }
 .bubble__head .icon { color: var(--accent); }
-.answer__text { margin: 0; white-space: pre-line; line-height: 1.7; }
+.answer__text { margin: 0; line-height: 1.7; }
+
+/* S6: the answer's own formatting (ui/answer_format.py). Quiet on purpose:
+   the evidence strip below stays the loudest thing in the bubble. */
+.prose > :first-child { margin-top: 0; }
+.prose > :last-child { margin-bottom: 0; }
+.prose p, .prose ul, .prose ol, .prose blockquote, .prose pre, .prose table {
+  margin: 0 0 var(--space-12);
+}
+.prose ul, .prose ol { padding-inline-start: var(--space-24); }
+.prose li + li { margin-top: var(--space-4); }
+.prose li::marker { color: var(--accent); }
+.prose strong { font-weight: 650; }
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  margin: var(--space-16) 0 var(--space-8);
+  font-size: var(--size-body);
+  font-weight: 650;
+  line-height: 1.4;
+}
+.prose blockquote {
+  padding-inline-start: var(--space-12);
+  border-inline-start: 3px solid var(--border);
+  color: var(--text-muted);
+}
+.prose code {
+  font-family: var(--font-mono);
+  font-size: var(--size-mono);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.prose pre { overflow-x: auto; padding: var(--space-12); border-radius: var(--radius-md); background: var(--surface-raised); }
+.prose pre code { padding: 0; background: none; }
+/* A wide table scrolls inside the bubble, never the page. */
+.prose__table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: var(--size-meta);
+}
+.prose__table th, .prose__table td {
+  padding: var(--space-8) var(--space-12);
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+.prose__table th { font-weight: 650; background: var(--surface-raised); }
 
 /* The evidence strip: every source this answer rests on, as numbered seals
    that jump to the matching card. The signature of this interface. */
@@ -1002,6 +1049,57 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 .stage__dot::before { inset-inline-start: -12px; }
 .stage__dot::after { inset-inline-start: 12px; animation-delay: 400ms; }
 @keyframes pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+/* S6: the chat's four real stages as a rail under the label. Done steps
+   are solid ink, the current one fills in a slow sweep, the rest wait. */
+.stage--steps { flex-wrap: wrap; }
+.stepper {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-8);
+  flex-basis: 100%;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.stepper__step { display: grid; align-content: start; gap: var(--space-4); min-width: 0; }
+.stepper__bar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+}
+.stepper__bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 300ms var(--ease);
+}
+[dir="rtl"] .stepper__bar::after { transform-origin: right; }
+.stepper__step.is-done .stepper__bar::after { transform: scaleX(1); }
+.stepper__step.is-current .stepper__bar::after {
+  transform: scaleX(1);
+  animation: sweep 1600ms var(--ease) infinite;
+}
+@keyframes sweep {
+  0% { transform: scaleX(0); opacity: 1; }
+  70% { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0.35; }
+}
+.stepper__name {
+  font-size: var(--size-meta);
+  line-height: 1.35;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.stepper__step.is-done .stepper__name,
+.stepper__step.is-current .stepper__name { color: var(--text); }
+.stepper__step.is-current .stepper__name { font-weight: 600; }
 
 /* ---- Reduced motion (3.6, criterion 12) ---------------------------- */
 

@@ -61,6 +61,7 @@ from db import repo
 from ui import feedback as feedback_module
 from ui import i18n, reports_screen, routing, rtl, screen, workspaces_screen
 from ui.access_gate import AccessGate
+from ui.answer_format import render_answer
 from ui.conversation import (
     Conversation,
     Message,
@@ -70,7 +71,7 @@ from ui.conversation import (
 )
 from ui.i18n.request import LanguageMiddleware, context_language, language_links
 from ui.ports import build_default_ports
-from ui.runs import Run
+from ui.runs import STAGE_LABELS, Run, Stage
 
 logger = logging.getLogger(__name__)
 
@@ -479,6 +480,9 @@ def _context(runtime: Runtime, request: Request) -> dict:
     )
     run = conversation.run if conversation else None
     busy = bool(conversation and conversation.busy)
+    # Read ONCE, so the label and the step rail below can never disagree
+    # about which stage the agent is in (the worker moves it between reads).
+    stage = (run.stage or Stage.PREPARING) if (run and busy) else None
     active_id = active.id if active else None
     return {
         "request": request,
@@ -519,7 +523,10 @@ def _context(runtime: Runtime, request: Request) -> dict:
         "MessageKind": MessageKind,
         "messages": conversation.messages if conversation else [],
         "busy": busy,
-        "stage_label": run.stage_label if (run and busy) else "",
+        "stage_label": STAGE_LABELS[stage] if stage else "",
+        # S6 waiting animation: which of the four real stages is current.
+        "stage_key": stage.value if stage else "",
+        "stage_steps": [step.value for step in Stage],
         "input_reason": (
             screen.BUSY_REASON
             if busy
@@ -898,6 +905,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     templates.env.globals.update(t=_t, th=_th, tx=_tx, ui_lang=_ui_lang,
                                  language_links=_language_links, js_strings=_js_strings)
     templates.env.filters["when"] = _when
+    # S6: an answer's bold, lists and tables, with HTML, links and images off.
+    templates.env.filters["answer_html"] = render_answer
 
     def render(request: Request, name: str = "chat.html") -> HTMLResponse:
         return templates.TemplateResponse(request, name, _context(runtime, request))
