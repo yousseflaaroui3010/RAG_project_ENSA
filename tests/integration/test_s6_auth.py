@@ -437,6 +437,7 @@ def test_a_reader_is_offered_no_control_they_may_not_use(keycloak):
     assert f'action="/workspaces/{ws.id}/sync"' not in page
     assert 'action="/workspaces"' not in page
     assert f'href="/workspaces/{ws.id}/delete"' not in page
+    assert "data-dropzone" not in page, "a reader may not add documents either"
 
 
 def test_a_curator_keeps_sync_in_a_granted_workspace_but_not_the_settings(keycloak):
@@ -449,6 +450,7 @@ def test_a_curator_keeps_sync_in_a_granted_workspace_but_not_the_settings(keyclo
     page = client.get(f"/workspaces?ws={ws.id}").text
 
     assert f'action="/workspaces/{ws.id}/sync"' in page
+    assert "data-dropzone" in page, "a curator adds documents in a granted workspace"
     assert f'href="/workspaces/{ws.id}/delete"' not in page
 
 
@@ -550,3 +552,81 @@ def test_an_admin_still_sees_every_workspace_in_reports(keycloak):
     page = client.get("/reports").text
 
     assert "Alpha" in page and "Beta" in page
+
+
+# --- documents follow the same roles ----------------------------------------
+
+
+def _upload(client, workspace_id, name, body):
+    from urllib.parse import quote
+
+    return client.post(
+        f"/workspaces/{workspace_id}/documents",
+        content=body,
+        headers={"X-File-Name": quote(name), "Content-Type": "application/octet-stream"},
+    )
+
+
+def test_a_reader_cannot_add_or_remove_a_document_but_can_download_one(keycloak):
+    """Upload, remove and Sync are curator work; reading a source document
+    is what a reader is for. Both halves, because a rule that only ever
+    refuses would pass a test that granted nobody anything."""
+    client, _, db_path, _, sign_in = keycloak
+    folder = db_path.parent / "corpus-roles"
+    folder.mkdir(exist_ok=True)
+    (folder / "note.txt").write_text("Article 1. Texte.", encoding="utf-8")
+    ws = workspaces.create_workspace(name="HR", folder_path=str(folder), db_path=db_path)
+    sign_in(READER_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
+
+    added = _upload(client, ws.id, "new.txt", b"payload")
+    removed = client.post(
+        f"/workspaces/{ws.id}/documents/note.txt/remove", follow_redirects=False
+    )
+    downloaded = client.get(f"/workspaces/{ws.id}/documents/note.txt")
+
+    assert added.status_code == 403
+    assert not (folder / "new.txt").exists()
+    assert removed.status_code == 303
+    assert (folder / "note.txt").exists(), "a reader removed a document"
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"Article 1. Texte."
+
+
+def test_a_curator_may_add_and_remove_in_a_granted_workspace_only(keycloak):
+    client, _, db_path, _, sign_in = keycloak
+    mine = db_path.parent / "corpus-mine"
+    theirs = db_path.parent / "corpus-theirs"
+    for folder in (mine, theirs):
+        folder.mkdir(exist_ok=True)
+    granted = workspaces.create_workspace(name="Mine", folder_path=str(mine), db_path=db_path)
+    other = workspaces.create_workspace(name="Theirs", folder_path=str(theirs), db_path=db_path)
+    sign_in(CURATOR_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=granted.id, user_id="kc-curator")
+
+    ok = _upload(client, granted.id, "ok.txt", b"payload")
+    refused = _upload(client, other.id, "sneaky.txt", b"payload")
+
+    assert ok.status_code == 201
+    assert (mine / "ok.txt").exists()
+    assert refused.status_code == 403
+    assert not (theirs / "sneaky.txt").exists()
+    with repo.session(db_path) as conn:
+        actions = [row["action"] for row in repo.list_activity(conn)]
+    assert "uploaded a document" in actions
+
+
+def test_a_document_in_a_workspace_nobody_granted_cannot_be_downloaded(keycloak):
+    client, _, db_path, _, sign_in = keycloak
+    folder = db_path.parent / "corpus-hidden"
+    folder.mkdir(exist_ok=True)
+    (folder / "secret.txt").write_text("CONFIDENTIEL", encoding="utf-8")
+    hidden = workspaces.create_workspace(name="Hidden", folder_path=str(folder), db_path=db_path)
+    sign_in(READER_CLAIMS)
+
+    response = client.get(f"/workspaces/{hidden.id}/documents/secret.txt")
+
+    assert response.status_code == 403
+    assert b"CONFIDENTIEL" not in response.content

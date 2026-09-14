@@ -15,6 +15,8 @@ MESSAGES: dict[str, str] = {
     "title.passage": "مقتطف — سند",
     "title.delete": "حذف {name} — سند",
     "shell.skip": "الانتقال إلى المحتوى",
+    "phr.activity.uploaded": "إضافة وثيقة",
+    "phr.activity.removed_doc": "إزالة وثيقة",
     "ws.none_shared.title": "لا يوجد فضاء مشترك معك",
     "ws.none_shared.body": "لم يُمنح لك أي فضاء عمل بعد. اطلب من المسؤول منحك الوصول.",
     "shell.nav.admin": "الإدارة",

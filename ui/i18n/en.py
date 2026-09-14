@@ -18,6 +18,8 @@ MESSAGES: dict[str, str] = {
     "title.passage": "Passage — Sanad",
     "title.delete": "Delete {name} — Sanad",
     "shell.skip": "Skip to content",
+    "phr.activity.uploaded": "uploaded a document",
+    "phr.activity.removed_doc": "removed a document",
     "ws.none_shared.title": "No workspace shared with you",
     "ws.none_shared.body": (
         "No workspace has been given to you yet. "

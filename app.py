@@ -1804,6 +1804,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
         if get_settings().evidence_only:
             return refused("docs.error.evidence", 409)
+        if not _may_manage(request, workspace_id):
+            return refused("docs.error.forbidden", 403)
         try:
             target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
         except workspaces.WorkspaceNotFoundError:
@@ -1818,6 +1820,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             )
         except documents.DocumentError as exc:
             return refused(exc.key, exc.status, **exc.params)
+        _log_activity(
+            runtime,
+            request,
+            "uploaded a document",
+            workspace_id=workspace_id,
+            detail=saved.file_name,
+        )
         key = "docs.upload.replaced" if saved.replaced else "docs.upload.saved"
         return JSONResponse(
             status_code=201,
@@ -1834,6 +1843,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         """The original file, as an attachment -- never rendered inline, so
         a document can never run as a page on this origin."""
         lang = context_language(request)
+        if not _may_see(request, workspace_id):
+            return PlainTextResponse(
+                i18n.translate(lang, "docs.error.forbidden"), status_code=403
+            )
         try:
             target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
             path = documents.existing_document(target.folder_path, file_name)
@@ -1854,6 +1867,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     def confirm_remove_document(request: Request, workspace_id: str, file_name: str) -> Response:
         """The confirmation page, the same no-JS pattern as deleting a
         workspace: a removal always costs a deliberate second step."""
+        if not _may_manage(request, workspace_id):
+            return _refuse_action(runtime, request)
         try:
             target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
             path = documents.existing_document(target.folder_path, file_name)
@@ -1872,6 +1887,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         evidence-only) is not an error here: the file is gone either way
         and the next Sync removes it."""
         base = f"/workspaces?ws={workspace_id}"
+        if not _may_manage(request, workspace_id):
+            return _refuse_action(runtime, request)
         if get_settings().evidence_only:
             return RedirectResponse(f"{base}&doc_error=docs.error.evidence", status_code=SEE_OTHER)
         try:
@@ -1881,6 +1898,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             return RedirectResponse("/workspaces", status_code=SEE_OTHER)
         except documents.DocumentError as exc:
             return RedirectResponse(f"{base}&doc_error={exc.key}", status_code=SEE_OTHER)
+        _log_activity(
+            runtime,
+            request,
+            "removed a document",
+            workspace_id=workspace_id,
+            detail=removed,
+        )
         with contextlib.suppress(sync.SyncInProgressError, sync.EvidenceOnlyError):
             runtime.start_sync(workspace_id)
         return RedirectResponse(

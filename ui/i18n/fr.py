@@ -17,6 +17,8 @@ MESSAGES: dict[str, str] = {
     "title.passage": "Extrait — Sanad",
     "title.delete": "Supprimer {name} — Sanad",
     "shell.skip": "Aller au contenu",
+    "phr.activity.uploaded": "document ajouté",
+    "phr.activity.removed_doc": "document retiré",
     "ws.none_shared.title": "Aucun espace partagé avec vous",
     "ws.none_shared.body": (
         "Aucun espace de travail ne vous a encore été attribué. "
