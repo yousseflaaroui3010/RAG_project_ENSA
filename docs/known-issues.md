@@ -1,4 +1,4 @@
-# Known issues (V2.0.0)
+# Known issues (V3.0.0)
 
 Everything below is known, reproduced or reasoned from the code, and
 deliberately not fixed before the defense. Each line says what happens, why
@@ -44,6 +44,21 @@ breaks a signed gate (G1-G3 pass on the golden set).
 | Answer traces are shown per answer (F-10) but not persisted (issue #51) | A trace lives as long as the conversation on screen (DECISIONS 2026-09-12) |
 | Sample questions show file names rather than questions | Cosmetic |
 | The six ST-38 screen-reader rows | Open until the human Narrator pass |
+
+
+## V3 features (S6: streaming, documents, login, dashboard)
+
+| Issue | Effect | Why it waits |
+|---|---|---|
+| A streamed answer is held back for its first 40 characters | The bubble stays empty a beat longer than the model's first word | It is the price of never showing `NOT_COVERED` typing itself out before an honest refusal (DECISIONS 2026-09-13) |
+| A provider failure in the MIDDLE of a stream is not retried | The answer fails with the named "unreachable" error and a Retry, where a whole call would have been retried by the client | Retrying a half-delivered stream means deciding what to do with the words already shown |
+| Sign-out shows Keycloak's own "Do you want to log out?" page | One extra click when signing out | Skipping it means keeping the id token, which is keeping a credential for cosmetics |
+| The realm must list the post-logout URI | Otherwise Keycloak answers 400 on sign-out | It is one line in the client configuration; the README says so |
+| `/api/v1` is administrators-only when `AUTH_MODE=keycloak` | A curator or reader cannot use the machine API | The signed contract has no notion of who is asking; per-route permissions are a separate change (DECISIONS 2026-09-14) |
+| Chat history lives in memory, per person | Signing out or restarting loses the transcript | Persisting it is personal data under law 09-08 and needs a named owner first |
+| Roles are read at sign-in | A role changed in Keycloak applies at the person's next sign-in | Re-reading on every request would put a network call in front of every page |
+| Uploads are refused in evidence-only mode | The published demo cannot receive documents | That instance has no room for the embedding model, so an uploaded file could never be indexed anyway |
+| The drop zone needs JavaScript | With scripting off there is no upload control at all | The file is sent as a raw request body; the alternative is a multipart parser this project does not carry |
 
 ## V1.1 and V2.0 features (F-10 to F-16)
 
