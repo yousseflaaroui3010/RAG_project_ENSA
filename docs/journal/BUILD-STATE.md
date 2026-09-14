@@ -1,6 +1,36 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-14, v3.0.0 RELEASE GATE PASSED (read this block first; older headers below are history)
+## STATE AT 2026-09-14, v3.0.0 SHIPPED (read this block first; older headers below are history)
+
+**v3.0.0 is tagged and published.** Tag `v3.0.0` on `2f02ec7`. The gate on
+merged `main`: G1 38/40 (need 90%), G2 20/20, G3 38/38, `RELEASE GATE: PASS`,
+exit 0. `main`'s tree `abd9c61c...` is byte-identical to the tree that ran
+1194 passed, 2 skipped, 1 xfailed; ruff clean. Report committed at
+`docs/evals/release-v3.0.0-2026-09-14.json`, notes at
+`docs/release-notes-v3.0.0.md`.
+
+**READ THIS BEFORE THE NEXT MERGE.** #126's squash carried only two of its
+three commits. The third corrected the defense demo script, which named the
+WRONG failing questions (`g-in-026` where v3 fails `g-in-014`) in the line the
+presenter reads aloud. GitHub reported MERGED throughout. It was found only
+because `main` was re-read afterwards, and recovered as #127. From now on:
+pin every squash to its head commit (`gh pr merge --match-head-commit <sha>`)
+and verify by reading the merged files, never by the MERGED status. DECISIONS
+row dated today.
+
+**On main:** #118 formatted answers + stage rail, #119 streamed answers, #121
+Reports dashboard, #123 demo script, #125 upload + Keycloak login + roles +
+admin view, #126 the release, #127 the review fixes the squash dropped.
+
+**Still human-only, and now the only things left:** a named owner for the law
+09-08 personal-data check (which blocks persisting chat history across a
+restart), and a hand-run of sign-in/sign-out from the team's own account --
+the dev Keycloak keeps its realm in memory, so that needs the five-step realm
+setup in README.md first.
+
+---
+
+## STATE AT 2026-09-14, v3.0.0 RELEASE GATE PASSED (history now)
 
 **The paid run is finished and the gate is green.** 60 of 60 frozen questions
 answered against the real model on the v3 code. `uv run python
