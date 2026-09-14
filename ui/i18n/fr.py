@@ -17,6 +17,22 @@ MESSAGES: dict[str, str] = {
     "title.passage": "Extrait — Sanad",
     "title.delete": "Supprimer {name} — Sanad",
     "shell.skip": "Aller au contenu",
+    "auth.title": "Connexion à Sanad",
+    "auth.lead": (
+        "Sanad ne vous demande jamais votre mot de passe : la connexion se fait "
+        "chez votre fournisseur d’identité."
+    ),
+    "auth.sign_in": "Se connecter",
+    "auth.sign_out": "Se déconnecter",
+    "auth.failed": "La connexion n’a pas abouti.",
+    "auth.roles": "Rôles : {roles}",
+    "auth.no_roles": "aucun",
+    "auth.no_role.title": "Accès pas encore accordé",
+    "auth.no_role.body": (
+        "Votre compte est reconnu, mais aucun rôle Sanad ne lui est attribué. "
+        "Demandez à un administrateur de vous donner un rôle pour ce compte :"
+    ),
+    "docs.error.forbidden": "vous n’avez pas le droit de faire cela dans cet espace.",
     "shell.brand": "Sanad",
     "shell.active_workspace": "Espace actif",
     "shell.let_sanad_choose": "Laisser Sanad choisir",

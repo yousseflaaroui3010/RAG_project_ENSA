@@ -158,6 +158,38 @@ A missing folder or a missing language file fails loud at startup rather
 than silently at Sync time. Not set on Railway/Docker by default (no
 tessdata ships there).
 
+## Signing in (S6)
+
+`AUTH_MODE` picks one of three, and the default changes nothing:
+
+| `AUTH_MODE` | What it is |
+|---|---|
+| `none` (default) | local-first: no login, everything allowed, exactly as before (ADR-13) |
+| `password` | one shared password for the whole instance (`ACCESS_PASSWORD`), used by the published demo |
+| `keycloak` | named people with roles: **admin**, **curator**, **reader** |
+
+With `keycloak`, Sanad never sees a password: it redirects to your realm,
+exchanges the code server-to-server, and reads the roles from Keycloak's
+introspection endpoint. Roles are realm roles named `sanad-admin`,
+`sanad-curator`, `sanad-reader` (prefix configurable). Someone with no
+Sanad role can sign in and is told to ask an administrator; they see
+nothing else. Non-admins see only the workspaces they were granted.
+
+A realm for development, in five steps (about three minutes):
+
+1. `docker compose -f compose.keycloak.yaml up -d` with `KEYCLOAK_ADMIN_USER`
+   and `KEYCLOAK_ADMIN_PASSWORD` set in your shell.
+2. In the admin console at http://localhost:8080, create a realm `sanad`.
+3. Create a client `sanad`: client authentication ON, standard flow ON,
+   valid redirect URI `http://127.0.0.1:8000/auth/callback`.
+4. Realm roles: `sanad-admin`, `sanad-curator`, `sanad-reader`. Create a
+   user and assign one.
+5. Put the client's secret in `.env` as `KEYCLOAK_CLIENT_SECRET`, with
+   `AUTH_MODE=keycloak` and `KEYCLOAK_ISSUER=http://localhost:8080/realms/sanad`.
+
+No realm export ships in this repository on purpose: an export carries the
+client secret, and a secret never goes into a committed file.
+
 ## Documentation map
 
 | Document | What it settles |
@@ -167,6 +199,7 @@ tessdata ships there).
 | [Project plan](docs/phase2/Sanad_ProjectPlan_v1.0.md) | When and by whom: stories ST-01 to ST-52 |
 | [BUILD-STATE](docs/journal/BUILD-STATE.md) | What is actually working right now |
 | [DECISIONS](docs/journal/DECISIONS.md) | Every real choice and its trade-off |
+| [S6 login design](docs/design/S6-auth-rbac.md) | How login, roles and the activity log work, and why no new dependency |
 
 ## Data locality
 

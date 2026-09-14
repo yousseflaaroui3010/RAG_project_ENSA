@@ -1215,6 +1215,13 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 /* A row reached from the question map clears the sticky header. */
 .file-table tr[id^="q-"] { scroll-margin-top: calc(var(--space-64) * 2); }
 
+/* ---- S6 sign-in ---------------------------------------------------- */
+
+.shell__account { display: flex; align-items: center; gap: var(--space-8); margin: 0; }
+.shell__who { font-size: var(--size-meta); font-weight: 600; color: var(--text); }
+.auth-card { max-width: var(--prose-max); margin-inline: auto; text-align: center; }
+.auth-card .panel--error { text-align: start; }
+
 /* ---- Notice banner and form errors --------------------------------- */
 
 .notice {

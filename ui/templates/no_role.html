@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ t('auth.no_role.title') }}{% endblock %}
+
+{#
+  Signed in, and holding no Sanad role. Nobody is anything by default
+  (ui/auth.py), so this is what a brand-new account sees until an
+  administrator grants one. It names the account so the admin being asked
+  knows which one to grant, and offers sign-out so a shared machine is not
+  stuck on this page.
+#}
+{% block main %}
+<section class="panel panel--empty auth-card" aria-labelledby="no-role-title">
+  <h1 id="no-role-title">{{ t('auth.no_role.title') }}</h1>
+  <p>{{ t('auth.no_role.body') }}</p>
+  <p class="mono error__value">{{ who.username }}</p>
+  <form method="post" action="/auth/logout">
+    <button class="btn btn--quiet" type="submit">{{ t('auth.sign_out') }}</button>
+  </form>
+</section>
+{% endblock %}

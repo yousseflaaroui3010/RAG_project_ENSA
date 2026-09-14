@@ -18,6 +18,22 @@ MESSAGES: dict[str, str] = {
     "title.passage": "Passage — Sanad",
     "title.delete": "Delete {name} — Sanad",
     "shell.skip": "Skip to content",
+    "auth.title": "Sign in to Sanad",
+    "auth.lead": (
+        "Sanad never asks for your password: signing in happens at your identity "
+        "provider."
+    ),
+    "auth.sign_in": "Sign in",
+    "auth.sign_out": "Sign out",
+    "auth.failed": "Signing in did not complete.",
+    "auth.roles": "Roles: {roles}",
+    "auth.no_roles": "none",
+    "auth.no_role.title": "Access not granted yet",
+    "auth.no_role.body": (
+        "Your account is recognised, but it holds no Sanad role. Ask an "
+        "administrator to grant one for this account:"
+    ),
+    "docs.error.forbidden": "you are not allowed to do that in this workspace.",
     "shell.brand": "Sanad",
     "shell.active_workspace": "Active workspace",
     "shell.let_sanad_choose": "Let Sanad choose",

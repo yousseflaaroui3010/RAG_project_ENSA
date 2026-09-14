@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ t('auth.title') }}{% endblock %}
+
+{#
+  S6 sign-in. Sanad never asks for a password itself: the one button sends
+  the browser to Keycloak, which owns every credential. That is the whole
+  point of the design -- this page holds no input, so there is nothing on
+  it to phish, mistype or store.
+#}
+{% block main %}
+<section class="panel panel--empty auth-card" aria-labelledby="auth-title">
+  <h1 id="auth-title">{{ t('auth.title') }}</h1>
+  <p>{{ t('auth.lead') }}</p>
+  {% if login_error %}
+    {# UX spec 5: the exact failing value, and a sentence about the
+       SERVICE, never about the person. #}
+    <div class="panel panel--error" role="alert">
+      <p class="error__sentence">{{ t('auth.failed') }}</p>
+      <p class="error__value mono">{{ login_error }}</p>
+    </div>
+  {% endif %}
+  <p>
+    <a class="btn btn--primary" href="/auth/login">{{ t('auth.sign_in') }}</a>
+  </p>
+</section>
+{% endblock %}

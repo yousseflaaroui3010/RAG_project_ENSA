@@ -117,6 +117,18 @@
         language named in itself, `lang`/`hreflang` so a screen reader
         pronounces "العربية" as Arabic, aria-current on the active one.
       #}
+      {#
+        S6: only with AUTH_MODE=keycloak. In the local and password modes
+        there is no account to name, and a "Sign out" button that signs
+        nobody out would be a dead control (the same rule the theme toggle
+        and the drop zone follow).
+      #}
+      {% if signed_in_as %}
+        <form class="shell__account" method="post" action="/auth/logout">
+          <span class="shell__who" title="{{ t('auth.roles', roles=signed_in_as.roles | join(', ') or t('auth.no_roles')) }}">{{ signed_in_as.display_name }}</span>
+          <button class="btn btn--quiet" type="submit">{{ t('auth.sign_out') }}</button>
+        </form>
+      {% endif %}
       <nav class="lang-switch" aria-label="{{ t('shell.language') }}">
         {% for link in language_links() %}
           <a class="lang-switch__link{{ ' is-current' if link.current else '' }}"
