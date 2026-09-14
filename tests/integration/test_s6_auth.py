@@ -462,3 +462,91 @@ def test_an_admin_still_sees_every_control(keycloak):
     assert f'action="/workspaces/{ws.id}/sync"' in page
     assert 'action="/workspaces"' in page
     assert f'href="/workspaces/{ws.id}/delete"' in page
+
+
+# --- what the machine API and Reports may show -----------------------------
+
+
+def test_the_machine_api_belongs_to_administrators_once_there_are_accounts(keycloak):
+    """Found by reading the diff: the gate authenticated /api/v1 but
+    nothing authorised it, and the signed contract has no notion of who is
+    asking -- so a reader with a session could list every workspace's name
+    there, and create one, while the screens correctly hid them."""
+    client, _, db_path, _, sign_in = keycloak
+    workspaces.create_workspace(
+        name="Hidden Legal", folder_path=str(db_path.parent), db_path=db_path
+    )
+
+    sign_in(READER_CLAIMS)
+    listed = client.get("/api/v1/workspaces")
+    created = client.post(
+        "/api/v1/workspaces",
+        json={"name": "Mine", "folder_path": str(db_path.parent), "legal_flag": False},
+    )
+
+    assert listed.status_code == 403
+    assert listed.json()["code"] == "NOT_ALLOWED"
+    assert "Hidden Legal" not in listed.text
+    assert created.status_code == 403
+    assert [w.name for w in workspaces.list_workspaces(db_path=db_path)] == ["Hidden Legal"]
+
+    sign_in(ADMIN_CLAIMS)
+    assert client.get("/api/v1/workspaces").status_code == 200
+
+
+def test_reports_never_name_a_workspace_this_person_may_not_open(keycloak):
+    """A run row carries the workspace NAME, and a feedback row carries the
+    QUESTION someone asked in it. Both are hidden everywhere else for an
+    ungranted workspace; Reports must not be the way out."""
+    client, _, db_path, _, sign_in = keycloak
+    granted = workspaces.create_workspace(
+        name="Granted HR", folder_path=str(db_path.parent), db_path=db_path
+    )
+    hidden = workspaces.create_workspace(
+        name="Hidden Legal", folder_path=str(db_path.parent), db_path=db_path
+    )
+    with repo.session(db_path) as conn:
+        # A run per workspace, so the RUNS table is exercised too and not
+        # only the feedback one -- mutating the runs filter survived while
+        # this test created no runs at all.
+        for workspace_id in (granted.id, hidden.id):
+            repo.insert_eval_run(conn, workspace_id=workspace_id, question_total=1)
+        for workspace_id, question in (
+            (granted.id, "QUESTION-IN-GRANTED"),
+            (hidden.id, "QUESTION-IN-HIDDEN"),
+        ):
+            repo.upsert_answer_feedback(
+                conn,
+                workspace_id=workspace_id,
+                answer_key=f"key-{workspace_id}",
+                question=question,
+                answer_text="answer",
+                verdict="up",
+            )
+    sign_in(READER_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=granted.id, user_id="kc-reader")
+
+    page = client.get("/reports").text
+
+    assert "Granted HR" in page and "QUESTION-IN-GRANTED" in page
+    assert "Hidden Legal" not in page
+    assert "QUESTION-IN-HIDDEN" not in page
+
+
+def test_an_admin_still_sees_every_workspace_in_reports(keycloak):
+    client, _, db_path, _, sign_in = keycloak
+    workspaces.create_workspace(name="Alpha", folder_path=str(db_path.parent), db_path=db_path)
+    workspaces.create_workspace(name="Beta", folder_path=str(db_path.parent), db_path=db_path)
+    ws = workspaces.list_workspaces(db_path=db_path)
+    with repo.session(db_path) as conn:
+        for workspace in ws:
+            repo.upsert_answer_feedback(
+                conn, workspace_id=workspace.id, answer_key=f"k-{workspace.id}",
+                question=f"Q-{workspace.name}", answer_text="a", verdict="up",
+            )
+    sign_in(ADMIN_CLAIMS)
+
+    page = client.get("/reports").text
+
+    assert "Alpha" in page and "Beta" in page

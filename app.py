@@ -850,8 +850,21 @@ def _ws_context(
 
 def _reports_context(runtime: Runtime, request: Request) -> dict:
     """Everything one render of the read-only S3 Reports screen needs."""
-    reports = reports_screen.list_reports(db_path=runtime.db_path)
-    feedback_rows = reports_screen.list_feedback(db_path=runtime.db_path)
+    # S6: None for an admin and for the login-free modes ("everything");
+    # a set for anyone else, so Reports never names a workspace the rest of
+    # the screens correctly hide.
+    principal = principal_of(request)
+    visible_ids = (
+        None
+        if principal.unrestricted or principal.is_admin
+        else {option.id for option in visible_options(runtime, request)}
+    )
+    reports = reports_screen.list_reports(
+        db_path=runtime.db_path, visible_ids=visible_ids
+    )
+    feedback_rows = reports_screen.list_feedback(
+        db_path=runtime.db_path, visible_ids=visible_ids
+    )
     active = _active(runtime, request)
     # S3's list spans every workspace at once (UX spec 8.1), so there is
     # no single content workspace to detect a script from the way S1's
