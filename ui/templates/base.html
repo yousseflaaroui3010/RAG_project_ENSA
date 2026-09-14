@@ -103,6 +103,12 @@
            gates it. #}
         <a class="shell__link{{ ' is-current' if current_screen == 'reports' else '' }}"
            href="/reports" {% if current_screen == 'reports' %}aria-current="page"{% endif %}><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>{{ t('shell.nav.reports') }}</a>
+        {# S6: only an admin has anything to do there, and a link that
+           always refuses is a dead control. #}
+        {% if signed_in_as and signed_in_as.is_admin %}
+          <a class="shell__link{{ ' is-current' if current_screen == 'admin' else '' }}"
+             href="/admin" {% if current_screen == 'admin' %}aria-current="page"{% endif %}><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7Z"/></svg>{{ t('shell.nav.admin') }}</a>
+        {% endif %}
       </nav>
 
       {#

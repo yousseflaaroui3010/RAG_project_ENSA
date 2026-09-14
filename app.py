@@ -62,7 +62,17 @@ from api.routes import build_router
 from api.service import ApiService
 from config import get_settings
 from db import repo
-from ui import auth, i18n, oidc, reports_screen, routing, rtl, screen, workspaces_screen
+from ui import (
+    admin_screen,
+    auth,
+    i18n,
+    oidc,
+    reports_screen,
+    routing,
+    rtl,
+    screen,
+    workspaces_screen,
+)
 from ui import feedback as feedback_module
 from ui.access_gate import AccessGate
 from ui.answer_format import render_answer
@@ -881,7 +891,7 @@ def _slug(value: str) -> str:
     return "".join("-" if ch in _SLUG_UNSAFE else ch for ch in value) or "report"
 
 
-async def _form(request: Request) -> dict[str, str]:
+async def _form(request: Request, *, multi: bool = False) -> dict[str, str] | dict[str, list[str]]:
     """One posted form, decoded, with no third-party parser.
 
     WHY NOT FastAPI's `Form(...)` OR `await request.form()`: both require
@@ -917,7 +927,16 @@ async def _form(request: Request) -> dict[str, str]:
             return {}
         chunks.append(chunk)
     body = b"".join(chunks).decode("utf-8", errors="replace")
-    return dict(parse_qsl(body, keep_blank_values=True, encoding="utf-8"))
+    pairs = parse_qsl(body, keep_blank_values=True, encoding="utf-8")
+    if multi:
+        # S6 admin grants: a form of checkboxes posts one `workspace_id`
+        # per ticked box, and `dict()` would keep only the last -- one
+        # workspace granted out of five ticked, silently.
+        grouped: dict[str, list[str]] = {}
+        for key, value in pairs:
+            grouped.setdefault(key, []).append(value)
+        return grouped
+    return dict(pairs)
 
 
 # Any short, non-blank string works: warm-up cares about walking the same
@@ -1291,6 +1310,59 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         response = RedirectResponse(target, status_code=SEE_OTHER)
         response.delete_cookie(auth.SESSION_COOKIE, path="/")
         return response
+
+    @app.get("/admin", response_class=HTMLResponse)
+    def admin_route(request: Request) -> Response:
+        """Who may use Sanad, what they hold, and what has been done."""
+        if not principal_of(request).is_admin:
+            return _refuse_action(runtime, request)
+        return templates.TemplateResponse(
+            request,
+            "admin.html",
+            {
+                **_shell_context(runtime, request),
+                "current_screen": "admin",
+                "people": admin_screen.people(db_path=runtime.db_path),
+                "activity": admin_screen.activity(db_path=runtime.db_path),
+                "workspaces_all": screen.workspace_options(db_path=runtime.db_path),
+            },
+        )
+
+    @app.post("/admin/grants")
+    async def admin_grants_route(request: Request) -> Response:
+        """Set one person's workspaces to exactly what was ticked."""
+        if not principal_of(request).is_admin:
+            return _refuse_action(runtime, request)
+        form = await _form(request, multi=True)
+        user_id = (form.get("user_id") or [""])[0]
+        wanted = set(form.get("workspace_id") or [])
+        if not user_id:
+            return RedirectResponse("/admin", status_code=SEE_OTHER)
+        added, removed = admin_screen.set_grants(
+            user_id=user_id, workspace_ids=wanted, db_path=runtime.db_path
+        )
+        for workspace_id in added:
+            _log_activity(runtime, request, "granted access", workspace_id=workspace_id,
+                          detail=user_id)
+        for workspace_id in removed:
+            _log_activity(runtime, request, "revoked access", workspace_id=workspace_id,
+                          detail=user_id)
+        return RedirectResponse("/admin", status_code=SEE_OTHER)
+
+    @app.post("/admin/people/{user_id}/sign-out")
+    def admin_sign_out_route(request: Request, user_id: str) -> Response:
+        """End every session this person has, and drop their transcripts.
+
+        Also the law 09-08 answer for "take this person's data out of the
+        running process": what is left afterwards is their account row and
+        the activity log, which records actions and never questions."""
+        if not principal_of(request).is_admin:
+            return _refuse_action(runtime, request)
+        with repo.session(runtime.db_path) as conn:
+            repo.delete_sessions_for_user(conn, user_id)
+        runtime.forget_conversations(user_id)
+        _log_activity(runtime, request, "signed a person out everywhere", detail=user_id)
+        return RedirectResponse("/admin", status_code=SEE_OTHER)
 
     @app.get("/chat/messages", response_class=HTMLResponse)
     def messages(request: Request) -> HTMLResponse:
