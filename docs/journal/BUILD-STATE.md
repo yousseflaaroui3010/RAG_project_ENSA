@@ -1,11 +1,23 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-13, S6 v3 IN PROGRESS (read this block first; older headers below are history)
+## STATE AT 2026-09-14, S6 LOGIN BRANCH (read this block first; older headers below are history)
+
+**On main:** #118 formatted answers + stage rail, #119 streamed answers, #121 Reports dashboard. Each merged, deployed to Railway (SUCCESS), health 200 and `/` 401 without the password.
+
+**Open PRs:** #120 document upload/download/remove -- green except the `.env.example` guard (UPLOAD_MAX_BYTES), which only a human can add; `feat/S6-keycloak-auth` -- login, roles, grants, activity log, same guard (AUTH_MODE and the KEYCLOAK_* lines).
+
+**Still human-only, and blocking nothing else:** a named owner for the law 09-08 personal-data check; a hand-run of login against a real Keycloak in Docker; the document-route role guards, which land when #120 merges and the login branch rebases on it.
+
+---
+
+## STATE AT 2026-09-13, S6 v3 IN PROGRESS (history now)
 
 **On main since v2.0.0:** #116 v2.1 visual refresh; #117 French interface by
 default with Arabic and English switches (live on Railway).
 
-**Branch `feat/S6-streamed-answers`:** the answer streams while it is written (held until it cannot be a decline), Cancel keeps the partial text marked unfinished, and static asset URLs carry a content fingerprint.
+**Branch `feat/S6-document-upload`:** drag-and-drop upload into the workspace folder, Download on every document and source card, Remove with confirmation. BLOCKED ON ONE HUMAN EDIT: `.env.example` needs the `UPLOAD_MAX_BYTES` line (the assistant's tool guard forbids reading or editing that file).
+
+**Merged #119 (6cbc74d), Railway SUCCESS, health 200, / 401:** the answer streams while it is written (held until it cannot be a decline), Cancel keeps the partial text marked unfinished, and static asset URLs carry a content fingerprint.
 
 **Merged #118 (c3dd87e), Railway deploy SUCCESS, health 200 v2.0.0, / 401 without password:** answers render their
 own bold, lists, tables and headings (`ui/answer_format.py`, markdown-it-py,

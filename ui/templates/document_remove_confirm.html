@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ t('docs.delete_aria', name=file_name) }}{% endblock %}
+
+{#
+  S6: removing one document from a workspace folder. Same no-JS pattern as
+  workspace_delete_confirm.html -- a real page with one action and one way
+  back -- and it says plainly that the file leaves the DISK, because unlike
+  deleting a workspace, this does touch the operator's own files.
+#}
+{% block main %}
+<dialog class="panel panel--error" open data-confirm-dialog
+        data-return-url="/workspaces?ws={{ target.id }}">
+  <h1>{{ th('docs.del.title_html', name=file_name) }}</h1>
+  <p>{{ t('docs.del.body') }}</p>
+  <p class="mono error__value">{{ target.folder_path }}</p>
+  <form method="post" action="/workspaces/{{ target.id }}/documents/{{ file_name | urlencode }}/remove">
+    <button class="btn btn--primary" type="submit">{{ t('docs.del.yes') }}</button>
+  </form>
+  <p><a href="/workspaces?ws={{ target.id }}" autofocus>{{ t('docs.del.cancel') }}</a></p>
+</dialog>
+{% endblock %}

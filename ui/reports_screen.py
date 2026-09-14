@@ -180,9 +180,21 @@ def _summary(row: Any) -> ReportSummary:
     )
 
 
-def list_reports(*, db_path: str | Path | None = None) -> list[ReportSummary]:
+def list_reports(
+    *, db_path: str | Path | None = None, visible_ids: set[str] | None = None
+) -> list[ReportSummary]:
+    """Evaluation runs, newest first.
+
+    `visible_ids` is S6's filter: None means "every workspace" (the local
+    modes, and an admin), and a set means only these. A run names its
+    workspace, so an unfiltered list would print the NAME of a workspace
+    this person was never granted -- the screens hide it and this would
+    have shown it anyway."""
     with repo.session(db_path) as conn:
-        return [_summary(r) for r in repo.list_eval_runs(conn)]
+        rows = [_summary(r) for r in repo.list_eval_runs(conn)]
+    if visible_ids is None:
+        return rows
+    return [row for row in rows if row.workspace_id in visible_ids]
 
 
 @dataclass(frozen=True)
@@ -509,6 +521,7 @@ class FeedbackRow:
     are."""
 
     id: str
+    workspace_id: str
     workspace_name: str
     created_at: str
     verdict: str
@@ -520,6 +533,7 @@ class FeedbackRow:
 def _feedback_row(row: Any) -> FeedbackRow:
     return FeedbackRow(
         id=row["id"],
+        workspace_id=row["workspace_id"],
         workspace_name=row["workspace_name"],
         created_at=row["created_at"],
         verdict=row["verdict"],
@@ -529,10 +543,18 @@ def _feedback_row(row: Any) -> FeedbackRow:
     )
 
 
-def list_feedback(*, db_path: str | Path | None = None) -> list[FeedbackRow]:
-    """Every stored answer-feedback row, newest first (task brief)."""
+def list_feedback(
+    *, db_path: str | Path | None = None, visible_ids: set[str] | None = None
+) -> list[FeedbackRow]:
+    """Stored answer feedback, newest first (task brief), filtered the same
+    way as the runs above: a comment carries the QUESTION someone asked in
+    a workspace, which is the last thing to show to someone who may not
+    open it."""
     with repo.session(db_path) as conn:
-        return [_feedback_row(r) for r in repo.list_answer_feedback(conn)]
+        rows = [_feedback_row(r) for r in repo.list_answer_feedback(conn)]
+    if visible_ids is None:
+        return rows
+    return [row for row in rows if row.workspace_id in visible_ids]
 
 
 # --- S6 dashboard: gate tiles, trend lines, question grid ------------------

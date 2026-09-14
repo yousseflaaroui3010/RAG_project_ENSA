@@ -27,7 +27,9 @@ from __future__ import annotations
 import contextlib
 import functools
 import hashlib
+import hmac
 import logging
+import secrets
 import sqlite3
 import threading
 import time
@@ -36,7 +38,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, quote, unquote
 
 import jinja2
 import uvicorn
@@ -44,7 +46,14 @@ import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -60,10 +69,22 @@ from api.routes import build_router
 from api.service import ApiService
 from config import get_settings
 from db import repo
+from ui import (
+    admin_screen,
+    auth,
+    documents,
+    i18n,
+    oidc,
+    reports_screen,
+    routing,
+    rtl,
+    screen,
+    workspaces_screen,
+)
 from ui import feedback as feedback_module
-from ui import i18n, reports_screen, routing, rtl, screen, workspaces_screen
 from ui.access_gate import AccessGate
 from ui.answer_format import render_answer
+from ui.auth_gate import AuthGate
 from ui.conversation import (
     Conversation,
     Message,
@@ -142,6 +163,9 @@ class Runtime:
 
     ports_factory: Any = None
     db_path: str | Path | None = None
+    # S6: the Keycloak seam. None means "build the configured one"; tests
+    # pass a scripted fake, exactly as they pass a scripted chat model.
+    oidc_provider: Any = None
     # ST-39 warm-up. Off by default so a test that builds a `Runtime`
     # directly -- which is every test in this codebase -- never spends a
     # real model download by accident. `main()` is the only place that
@@ -359,21 +383,153 @@ class Runtime:
                 skipped=0,
             )
 
-    def conversation(self, workspace_id: str) -> Conversation:
-        """The one conversation for this workspace.
+    def conversation(self, workspace_id: str, user_id: str = "local") -> Conversation:
+        """This person's conversation in this workspace.
 
-        Keyed by workspace rather than by browser session because PRD
-        section 6 is single user on one machine: there is no second
-        person whose transcript this could collide with, and inventing a
-        cookie session would add a failure mode with no user behind it."""
-        existing = self.conversations.get(workspace_id)
+        Keyed by workspace alone until S6, because PRD section 6 was
+        single user on one machine. With `AUTH_MODE=keycloak` there IS a
+        second person, so the key carries the user id too: two people
+        signed in to one server must never see each other's transcript,
+        and a shared key is how they would. The separator cannot appear in
+        either half (both are UUIDs or the literal "local", and F-12's
+        sentinel), so two different pairs cannot collide on one key."""
+        key = f"{user_id}|{workspace_id}"
+        existing = self.conversations.get(key)
         if existing is None:
             existing = Conversation(workspace_id=workspace_id)
-            self.conversations[workspace_id] = existing
+            self.conversations[key] = existing
         return existing
 
+    def forget_conversations(self, user_id: str) -> None:
+        """Drop every transcript belonging to one person (sign-out)."""
+        prefix = f"{user_id}|"
+        for key in [k for k in self.conversations if k.startswith(prefix)]:
+            self.conversations.pop(key, None)
 
-def _active(runtime: Runtime) -> screen.WorkspaceOption | None:
+
+def _signed_in_as(request: Request) -> auth.Principal | None:
+    """The person to name in the header, or None in the login-free modes.
+
+    `request.state.principal` rather than `principal_of`: the fallback
+    there is the unrestricted LOCAL principal, and naming "local" in the
+    header of a single-user desktop app would be noise."""
+    return getattr(request.state, "principal", None)
+
+
+def _shell_context(runtime: Runtime, request: Request) -> dict:
+    """Just enough for `base.html` on a page with no workspace behind it
+    (the sign-in page, the no-role page). No workspace list: a person who
+    is not signed in has no business seeing workspace NAMES."""
+    return {
+        "request": request,
+        "dir": "rtl" if context_language(request) == "ar" else "ltr",
+        "lang": context_language(request),
+        "current_screen": "auth",
+        "workspaces": [],
+        "active": None,
+        "busy": False,
+        "signed_in_as": _signed_in_as(request),
+    }
+
+
+def _flow_secret() -> bytes:
+    """What the sign-in cookie is signed with.
+
+    The client secret: it is already the thing that proves this server is
+    the one Keycloak knows, it never leaves the machine, and using it here
+    means there is no second secret for an operator to configure and
+    forget."""
+    return get_settings().keycloak_client_secret.encode("utf-8")
+
+
+def _sign_flow(state: str, nonce: str) -> str:
+    body = f"{state}:{nonce}"
+    signature = hmac.new(_flow_secret(), body.encode("utf-8"), "sha256").hexdigest()
+    return f"{body}:{signature}"
+
+
+def _read_flow(cookie: str | None) -> tuple[str, str] | None:
+    """The (state, nonce) this browser was given, or None if the cookie is
+    absent, malformed, or not the one this server signed."""
+    if not cookie:
+        return None
+    state, _, rest = cookie.partition(":")
+    nonce, _, signature = rest.partition(":")
+    if not state or not nonce or not signature:
+        return None
+    expected = hmac.new(
+        _flow_secret(), f"{state}:{nonce}".encode(), "sha256"
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        return None
+    return state, nonce
+
+
+def _refuse_action(runtime: Runtime, request: Request) -> Response:
+    """What a refused action returns: the screen it came from, unchanged.
+
+    A 403 PAGE IS NOT USED for a form post, on purpose. Every action here
+    is posted from a screen the person is already on, and the honest
+    outcome is "nothing happened" plus the screen as it now is -- an error
+    page would lose the workspace they were looking at. The refusal is
+    recorded in the activity log, which is where an admin looks."""
+    _log_activity(runtime, request, "refused", detail=request.url.path)
+    return RedirectResponse("/", status_code=SEE_OTHER)
+
+
+def principal_of(request: Request) -> auth.Principal:
+    """Who is asking. `auth.LOCAL` (everything allowed) in the two modes
+    without accounts, which is every release before S6."""
+    return getattr(request.state, "principal", None) or auth.LOCAL
+
+
+def _granted_ids(runtime: Runtime, principal: auth.Principal) -> set[str]:
+    if principal.unrestricted or principal.is_admin:
+        return set()
+    with repo.session(runtime.db_path) as conn:
+        return repo.granted_workspace_ids(conn, principal.id)
+
+
+def visible_options(
+    runtime: Runtime, request: Request
+) -> list[screen.WorkspaceOption]:
+    """The workspaces this person may use, in the screens' own order.
+
+    ONE FILTER, USED BY EVERY SCREEN. A workspace nobody granted is not
+    listed, not routable (F-12), and not selectable -- refusing the action
+    later would still have leaked its NAME through the selector."""
+    principal = principal_of(request)
+    options = screen.workspace_options(db_path=runtime.db_path)
+    if principal.unrestricted or principal.is_admin:
+        return options
+    granted = _granted_ids(runtime, principal)
+    return [option for option in options if option.id in granted]
+
+
+def _log_activity(
+    runtime: Runtime,
+    request: Request,
+    action: str,
+    *,
+    workspace_id: str | None = None,
+    detail: str | None = None,
+) -> None:
+    """One activity row, and never the content of a question or answer."""
+    if get_settings().auth_mode != auth.MODE_KEYCLOAK:
+        return
+    principal = principal_of(request)
+    with repo.session(runtime.db_path) as conn:
+        repo.record_activity(
+            conn,
+            user_id=None if principal.unrestricted else principal.id,
+            username=principal.username,
+            action=action,
+            workspace_id=workspace_id,
+            detail=detail,
+        )
+
+
+def _active(runtime: Runtime, request: Request) -> screen.WorkspaceOption | None:
     """The workspace the shell is pointed at.
 
     Falls back to the first one so that a fresh process lands somewhere
@@ -388,7 +544,7 @@ def _active(runtime: Runtime) -> screen.WorkspaceOption | None:
     deleted while routing was selected) self-heals to the ordinary
     fallback below rather than stranding the shell in routing mode with
     nothing left to route between."""
-    options = screen.workspace_options(db_path=runtime.db_path)
+    options = visible_options(runtime, request)
     if not options:
         return None
     if runtime.active_workspace_id == screen.ROUTE_SENTINEL and len(options) >= 2:
@@ -399,15 +555,15 @@ def _active(runtime: Runtime) -> screen.WorkspaceOption | None:
     return chosen or options[0]
 
 
-def _conversation_key(runtime: Runtime) -> str | None:
+def _conversation_key(runtime: Runtime, request: Request) -> str | None:
     """Which `Runtime.conversations` entry the shell is showing right now:
     the active workspace's id, or F-12's routing sentinel when no
     workspace is selected and there is something to route between. None
     only when no workspace exists at all -- there is nothing to show."""
-    active = _active(runtime)
+    active = _active(runtime, request)
     if active is not None:
         return active.id
-    if screen.workspace_options(db_path=runtime.db_path):
+    if visible_options(runtime, request):
         return screen.ROUTE_SENTINEL
     return None
 
@@ -473,8 +629,9 @@ def _context(runtime: Runtime, request: Request) -> dict:
     this, so the two cannot disagree about which state the screen is in --
     the failure mode that a second, "just for the partial" context
     function would introduce."""
-    options = screen.workspace_options(db_path=runtime.db_path)
-    active = _active(runtime)
+    options = visible_options(runtime, request)
+    active = _active(runtime, request)
+    principal = principal_of(request)
     documents: list[str] = []
     conversation = None
     # F-12: no active workspace while at least one exists is routing mode
@@ -483,10 +640,10 @@ def _context(runtime: Runtime, request: Request) -> dict:
     is_routing = active is None and bool(options)
     if active is not None:
         documents = screen.answerable_documents(active.id, db_path=runtime.db_path)
-        conversation = runtime.conversation(active.id)
+        conversation = runtime.conversation(active.id, principal.id)
         conversation.settle()
     elif is_routing:
-        conversation = runtime.conversation(screen.ROUTE_SENTINEL)
+        conversation = runtime.conversation(screen.ROUTE_SENTINEL, principal.id)
         conversation.settle()
     state = screen.state_for(
         options=options,
@@ -503,6 +660,7 @@ def _context(runtime: Runtime, request: Request) -> dict:
         "dir": _direction(request, active_id),
         "lang": _lang(active_id),
         "current_screen": "chat",
+        "signed_in_as": _signed_in_as(request),
         # UX spec 4: "Changing it clears nothing and interrupts nothing,
         # but the chat area shows a one-line notice that the conversation
         # context has moved."
@@ -598,7 +756,7 @@ def _ws_context(
     mean re-running the folder scan ourselves while the real one is still
     going. "N files processed so far" is the whole honest sentence
     available; see design principle 3."""
-    options = screen.workspace_options(db_path=runtime.db_path)
+    options = visible_options(runtime, request)
     selected_id = _ws_selected_id(runtime, request, options, override=selected_override)
     selected: workspaces.Workspace | None = None
     running: sqlite3.Row | None = None
@@ -649,12 +807,13 @@ def _ws_context(
         "dir": _direction(request, selected_id),
         "lang": _lang(selected_id),
         "current_screen": "workspaces",
+        "signed_in_as": _signed_in_as(request),
         # base.html's <noscript> refresh (UX spec 6.3's no-JS path) is keyed
         # on this same name for S1; a Sync in flight is the same kind of
         # fact for S2, so it reuses the hook rather than teaching base.html
         # a second word for one idea.
         "busy": running is not None,
-        "active": _active(runtime),
+        "active": _active(runtime, request),
         "workspaces": options,
         "state": workspaces_screen.screen_state(workspace_count=len(options)),
         "WorkspaceScreenState": workspaces_screen.WorkspaceScreenState,
@@ -684,14 +843,52 @@ def _ws_context(
         # Evidence-only mode never starts the watcher (watcher.start_if_enabled),
         # so the line must not claim "on" there even if watch_folders is set.
         "watch_enabled": get_settings().watch_folders and not get_settings().evidence_only,
+        # S6 documents. The drop zone is not offered where uploads are
+        # refused anyway (evidence-only); `doc_error` is a catalog key from
+        # the remove route's redirect, accepted only if it is one of the
+        # document errors so a hand-edited URL cannot print another key.
+        "uploads_enabled": not get_settings().evidence_only,
+        "upload_max_mb": get_settings().upload_max_bytes // (1024 * 1024),
+        "upload_accept": ",".join(
+            f".{ext}" for ext in get_settings().supported_document_extensions
+        ),
+        "removed_name": request.query_params.get("removed", ""),
+        "doc_error": (
+            request.query_params.get("doc_error")
+            if request.query_params.get("doc_error", "").startswith("docs.error.")
+            else None
+        ),
+        # S6: a control nobody may use is not rendered at all (the rule the
+        # theme toggle and the drop zone already follow). The routes refuse
+        # the same actions server-side; this only keeps the screen honest.
+        "may_manage_workspaces": principal_of(request).may_manage_workspaces(),
+        "may_manage_documents": bool(
+            selected_id
+            and principal_of(request).may_manage_documents(
+                selected_id, _granted_ids(runtime, principal_of(request))
+            )
+        ),
     }
 
 
 def _reports_context(runtime: Runtime, request: Request) -> dict:
     """Everything one render of the read-only S3 Reports screen needs."""
-    reports = reports_screen.list_reports(db_path=runtime.db_path)
-    feedback_rows = reports_screen.list_feedback(db_path=runtime.db_path)
-    active = _active(runtime)
+    # S6: None for an admin and for the login-free modes ("everything");
+    # a set for anyone else, so Reports never names a workspace the rest of
+    # the screens correctly hide.
+    principal = principal_of(request)
+    visible_ids = (
+        None
+        if principal.unrestricted or principal.is_admin
+        else {option.id for option in visible_options(runtime, request)}
+    )
+    reports = reports_screen.list_reports(
+        db_path=runtime.db_path, visible_ids=visible_ids
+    )
+    feedback_rows = reports_screen.list_feedback(
+        db_path=runtime.db_path, visible_ids=visible_ids
+    )
+    active = _active(runtime, request)
     # S3's list spans every workspace at once (UX spec 8.1), so there is
     # no single content workspace to detect a script from the way S1's
     # active conversation or S2's selected detail have one -- the shell's
@@ -702,8 +899,9 @@ def _reports_context(runtime: Runtime, request: Request) -> dict:
         "dir": _direction(request, active_id),
         "lang": _lang(active_id),
         "current_screen": "reports",
+        "signed_in_as": _signed_in_as(request),
         "busy": any(report.is_running for report in reports),
-        "workspaces": screen.workspace_options(db_path=runtime.db_path),
+        "workspaces": visible_options(runtime, request),
         "active": active,
         "state": reports_screen.screen_state(report_count=len(reports)),
         "ReportsScreenState": reports_screen.ReportsScreenState,
@@ -729,17 +927,17 @@ def _slug(value: str) -> str:
     return "".join("-" if ch in _SLUG_UNSAFE else ch for ch in value) or "report"
 
 
-async def _form(request: Request) -> dict[str, str]:
+async def _form(request: Request, *, multi: bool = False) -> dict[str, str] | dict[str, list[str]]:
     """One posted form, decoded, with no third-party parser.
 
     WHY NOT FastAPI's `Form(...)` OR `await request.form()`: both require
     `python-multipart` -- FastAPI checks for it at import time and
     Starlette asserts on it inside `form()`, whatever the content type. It
     exists to parse `multipart/form-data`, which is the file-upload
-    encoding, and Sanad has no upload: UX spec 13 rules out drag-and-drop
-    file upload outright, "because workspaces point at folders on disk".
-    So the package would be a dependency added for a format the product
-    refuses to accept.
+    encoding. Since S6 Sanad does accept uploads (CR-03), but sanad.js sends
+    each file as the raw request body (`upload_document_route`), so the
+    multipart format -- and the package that parses it -- is still never
+    needed.
 
     This is NOT a hand-rolled parser. `urllib.parse.parse_qsl` is the
     standard library's own decoder for `application/x-www-form-urlencoded`
@@ -765,7 +963,16 @@ async def _form(request: Request) -> dict[str, str]:
             return {}
         chunks.append(chunk)
     body = b"".join(chunks).decode("utf-8", errors="replace")
-    return dict(parse_qsl(body, keep_blank_values=True, encoding="utf-8"))
+    pairs = parse_qsl(body, keep_blank_values=True, encoding="utf-8")
+    if multi:
+        # S6 admin grants: a form of checkboxes posts one `workspace_id`
+        # per ticked box, and `dict()` would keep only the last -- one
+        # workspace granted out of five ticked, silently.
+        grouped: dict[str, list[str]] = {}
+        for key, value in pairs:
+            grouped.setdefault(key, []).append(value)
+        return grouped
+    return dict(pairs)
 
 
 # Any short, non-blank string works: warm-up cares about walking the same
@@ -858,6 +1065,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     # middleware passes every request straight through, so ADR-13's
     # local-first behaviour is unchanged.
     app.add_middleware(AccessGate, password=get_settings().access_password)
+    # S6: attaches who is signed in, and refuses anything that is not,
+    # when AUTH_MODE is 'keycloak'. Inert in the other two modes.
+    app.add_middleware(AuthGate, db_path=runtime.db_path)
     # Added after the gate, so it wraps it: a 401 page is in the visitor's
     # language too, and a valid ?lang= still sets its cookie.
     app.add_middleware(LanguageMiddleware)
@@ -930,6 +1140,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     templates.env.filters["answer_html"] = render_answer
 
     def render(request: Request, name: str = "chat.html") -> HTMLResponse:
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
         return templates.TemplateResponse(request, name, _context(runtime, request))
 
     @app.get("/", response_class=HTMLResponse)
@@ -944,9 +1157,248 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         while workspaces exist, and that case renders S1 (asking a
         question and getting proposed a workspace), it does not redirect
         away from it."""
-        if not screen.workspace_options(db_path=runtime.db_path):
+        if not visible_options(runtime, request):
             return RedirectResponse("/workspaces", status_code=SEE_OTHER)
         return render(request)
+
+    def _no_role_page(request: Request) -> Response | None:
+        """The page a signed-in person with no Sanad role sees.
+
+        Nobody is anything by default (ui/auth.py), so this is what a
+        newly created Keycloak account gets until an administrator grants
+        a role -- one honest sentence, rather than an empty workspace
+        selector that looks like a broken product."""
+        if principal_of(request).has_any_role:
+            return None
+        return templates.TemplateResponse(
+            request,
+            "no_role.html",
+            {**_shell_context(runtime, request), "who": principal_of(request)},
+            status_code=403,
+        )
+
+    def _may_manage(request: Request, workspace_id: str) -> bool:
+        principal = principal_of(request)
+        return principal.may_manage_documents(
+            workspace_id, _granted_ids(runtime, principal)
+        )
+
+    def _may_see(request: Request, workspace_id: str) -> bool:
+        principal = principal_of(request)
+        return principal.has_any_role and principal.may_see_workspace(
+            workspace_id, _granted_ids(runtime, principal)
+        )
+
+    def _provider():
+        """The Keycloak seam, injectable for tests (`Runtime.oidc_provider`)."""
+        return runtime.oidc_provider or oidc.build_provider()
+
+    def _login_failed(request: Request, reason: str, status: int = 503) -> Response:
+        """One page for every sign-in failure, naming what went wrong.
+
+        The reason is a sentence about the SERVICE ("could not be
+        reached", "did not accept this sign-in"), never about the person:
+        a login page that speculates about the user is how "wrong
+        password" gets shown to someone whose provider was simply down."""
+        logger.warning("sign-in failed: %s", reason)
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {**_shell_context(runtime, request), "login_error": reason},
+            status_code=status,
+        )
+
+    @app.get("/auth/login")
+    def auth_login(request: Request) -> Response:
+        """Start the authorization-code flow (docs/design/S6-auth-rbac.md).
+
+        `state` and `nonce` are minted here and carried in a SHORT-LIVED,
+        SIGNED cookie. Signed with the client secret, because an attacker
+        who can set a cookie could otherwise plant their own `state` and
+        complete a sign-in the person never started (login CSRF)."""
+        if get_settings().auth_mode != auth.MODE_KEYCLOAK:
+            return RedirectResponse("/", status_code=SEE_OTHER)
+        if principal_of(request).has_any_role and getattr(
+            request.state, "principal", None
+        ):
+            return RedirectResponse("/", status_code=SEE_OTHER)
+        try:
+            provider = _provider()
+            state, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
+            target = provider.authorization_url(
+                state=state,
+                nonce=nonce,
+                redirect_uri=get_settings().keycloak_redirect_url,
+            )
+        except oidc.ProviderUnavailableError as exc:
+            return _login_failed(request, str(exc))
+        response = RedirectResponse(target, status_code=SEE_OTHER)
+        response.set_cookie(
+            auth.FLOW_COOKIE,
+            _sign_flow(state, nonce),
+            max_age=auth.FLOW_MAX_AGE_SECONDS,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+            path="/auth",
+        )
+        return response
+
+    @app.get("/auth/callback")
+    def auth_callback(request: Request) -> Response:
+        """Finish the flow: verify `state`, exchange the code, read roles."""
+        if get_settings().auth_mode != auth.MODE_KEYCLOAK:
+            return RedirectResponse("/", status_code=SEE_OTHER)
+        expected = _read_flow(request.cookies.get(auth.FLOW_COOKIE))
+        supplied = request.query_params.get("state", "")
+        code = request.query_params.get("code", "")
+        if expected is None or not code or not secrets.compare_digest(
+            expected[0], supplied
+        ):
+            # One message for "no cookie", "tampered cookie" and "wrong
+            # state": telling a caller which one it was tells an attacker
+            # how close they got.
+            return _login_failed(request, "this sign-in could not be verified.", 400)
+        try:
+            tokens = _provider().exchange_code(
+                code=code, redirect_uri=get_settings().keycloak_redirect_url
+            )
+            access_token = tokens.get("access_token", "")
+            if not access_token:
+                raise oidc.ProviderUnavailableError(
+                    "the login service returned no access token."
+                )
+            claims = _provider().introspect(access_token)
+        except oidc.ProviderUnavailableError as exc:
+            return _login_failed(request, str(exc))
+        if not claims.get("active"):
+            return _login_failed(request, "this sign-in is no longer valid.", 400)
+
+        user_id = str(claims.get("sub") or "")
+        username = str(claims.get("preferred_username") or claims.get("username") or "")
+        if not user_id or not username:
+            return _login_failed(request, "the login service named no user.", 400)
+        roles = auth.roles_from_claims(claims)
+        token, token_hash = auth.new_session_token()
+        with repo.session(runtime.db_path) as conn:
+            repo.upsert_user(
+                conn,
+                user_id=user_id,
+                username=username,
+                email=claims.get("email"),
+                display_name=claims.get("name"),
+                roles=" ".join(roles),
+            )
+            repo.create_session(
+                conn,
+                token_hash=token_hash,
+                user_id=user_id,
+                expires_at=auth.session_expiry(),
+            )
+            repo.record_activity(
+                conn, user_id=user_id, username=username, action="signed in"
+            )
+        response = RedirectResponse("/", status_code=SEE_OTHER)
+        response.set_cookie(
+            auth.SESSION_COOKIE,
+            token,
+            max_age=get_settings().session_ttl_hours * 3600,
+            httponly=True,
+            samesite="lax",
+            secure=request.url.scheme == "https",
+            path="/",
+        )
+        response.delete_cookie(auth.FLOW_COOKIE, path="/auth")
+        return response
+
+    @app.post("/auth/logout")
+    def auth_logout(request: Request) -> Response:
+        """Delete the session, the cookie and this person's transcripts."""
+        principal = principal_of(request)
+        token = request.cookies.get(auth.SESSION_COOKIE)
+        if token:
+            with repo.session(runtime.db_path) as conn:
+                repo.delete_session(conn, auth.hash_token(token))
+                if not principal.unrestricted:
+                    repo.record_activity(
+                        conn,
+                        user_id=principal.id,
+                        username=principal.username,
+                        action="signed out",
+                    )
+        if not principal.unrestricted:
+            # A shared machine: the next person to sign in must not find
+            # the previous one's conversation in memory.
+            runtime.forget_conversations(principal.id)
+        # END KEYCLOAK'S SESSION TOO, not only ours. Found in a real
+        # browser against a real realm: deleting our cookie alone left the
+        # realm's own SSO session alive, so the very next click on Sign in
+        # was answered silently with the SAME person -- a sign-out button
+        # that signs nobody out on the shared demo machine. Where the realm
+        # publishes no end-session endpoint, we still land on our own
+        # sign-in page, which is the old behaviour.
+        target = "/auth/login"
+        with contextlib.suppress(oidc.ProviderUnavailableError, AttributeError):
+            end_session = _provider().end_session_url(
+                redirect_uri=str(request.base_url).rstrip("/") + "/auth/login"
+            )
+            target = end_session or target
+        response = RedirectResponse(target, status_code=SEE_OTHER)
+        response.delete_cookie(auth.SESSION_COOKIE, path="/")
+        return response
+
+    @app.get("/admin", response_class=HTMLResponse)
+    def admin_route(request: Request) -> Response:
+        """Who may use Sanad, what they hold, and what has been done."""
+        if not principal_of(request).is_admin:
+            return _refuse_action(runtime, request)
+        return templates.TemplateResponse(
+            request,
+            "admin.html",
+            {
+                **_shell_context(runtime, request),
+                "current_screen": "admin",
+                "people": admin_screen.people(db_path=runtime.db_path),
+                "activity": admin_screen.activity(db_path=runtime.db_path),
+                "workspaces_all": screen.workspace_options(db_path=runtime.db_path),
+            },
+        )
+
+    @app.post("/admin/grants")
+    async def admin_grants_route(request: Request) -> Response:
+        """Set one person's workspaces to exactly what was ticked."""
+        if not principal_of(request).is_admin:
+            return _refuse_action(runtime, request)
+        form = await _form(request, multi=True)
+        user_id = (form.get("user_id") or [""])[0]
+        wanted = set(form.get("workspace_id") or [])
+        if not user_id:
+            return RedirectResponse("/admin", status_code=SEE_OTHER)
+        added, removed = admin_screen.set_grants(
+            user_id=user_id, workspace_ids=wanted, db_path=runtime.db_path
+        )
+        for workspace_id in added:
+            _log_activity(runtime, request, "granted access", workspace_id=workspace_id,
+                          detail=user_id)
+        for workspace_id in removed:
+            _log_activity(runtime, request, "revoked access", workspace_id=workspace_id,
+                          detail=user_id)
+        return RedirectResponse("/admin", status_code=SEE_OTHER)
+
+    @app.post("/admin/people/{user_id}/sign-out")
+    def admin_sign_out_route(request: Request, user_id: str) -> Response:
+        """End every session this person has, and drop their transcripts.
+
+        Also the law 09-08 answer for "take this person's data out of the
+        running process": what is left afterwards is their account row and
+        the activity log, which records actions and never questions."""
+        if not principal_of(request).is_admin:
+            return _refuse_action(runtime, request)
+        with repo.session(runtime.db_path) as conn:
+            repo.delete_sessions_for_user(conn, user_id)
+        runtime.forget_conversations(user_id)
+        _log_activity(runtime, request, "signed a person out everywhere", detail=user_id)
+        return RedirectResponse("/admin", status_code=SEE_OTHER)
 
     @app.get("/chat/messages", response_class=HTMLResponse)
     def messages(request: Request) -> HTMLResponse:
@@ -966,22 +1418,24 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         # an extra `workspace_id` field, naming which candidate to answer
         # from. Ordinary asks never carry this field, so `form.get`
         # returns None and nothing here changes for them.
-        return _start(runtime, form.get("question", ""), form.get("workspace_id") or None)
+        return _start(
+            runtime, request, form.get("question", ""), form.get("workspace_id") or None
+        )
 
     @app.post("/chat/cancel")
     def cancel(request: Request) -> Response:
-        key = _conversation_key(runtime)
+        key = _conversation_key(runtime, request)
         if key is not None:
-            run = runtime.conversation(key).run
+            run = runtime.conversation(key, principal_of(request).id).run
             if run is not None:
                 run.cancel()
         return RedirectResponse("/", status_code=SEE_OTHER)
 
     @app.post("/chat/new")
     def new_conversation(request: Request) -> Response:
-        key = _conversation_key(runtime)
+        key = _conversation_key(runtime, request)
         if key is not None:
-            runtime.conversation(key).reset()
+            runtime.conversation(key, principal_of(request).id).reset()
         return RedirectResponse("/", status_code=SEE_OTHER)
 
     @app.post("/chat/feedback")
@@ -1010,12 +1464,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         """
         form = await _form(request)
         workspace_id = form.get("workspace_id", "")
+        if not _may_see(request, workspace_id):
+            return _refuse_action(runtime, request)
         if get_settings().evidence_only:
             return RedirectResponse("/", status_code=SEE_OTHER)
         message_id = form.get("message_id", "")
         verdict = form.get("verdict", "")
         comment = form.get("comment") or None
-        conversation = runtime.conversations.get(workspace_id)
+        conversation = runtime.conversations.get(
+            f"{principal_of(request).id}|{workspace_id}"
+        )
         messages = conversation.messages if conversation is not None else []
         try:
             feedback_module.submit_feedback(
@@ -1065,11 +1523,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         # value, so the shell cannot be stranded in routing mode with
         # nothing left to route between.
         if chosen == screen.ROUTE_SENTINEL and len(
-            screen.workspace_options(db_path=runtime.db_path)
+            visible_options(runtime, request)
         ) < 2:
             chosen = None
         moved = chosen is not None and chosen != (
-            _active(runtime).id if _active(runtime) else None
+            _active(runtime, request).id if _active(runtime, request) else None
         )
         runtime.active_workspace_id = chosen
         return RedirectResponse(
@@ -1105,7 +1563,12 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         Both failures look completely correct on screen, which is what
         makes them worth the extra path segment: the reader has no way to
         tell they are reading the wrong document's section."""
-        conversation = runtime.conversations.get(workspace_id)
+        # S6: this person's transcript in that workspace, never anyone
+        # else's -- the passage a card opens must come from the answer the
+        # SAME reader was given.
+        conversation = runtime.conversations.get(
+            f"{principal_of(request).id}|{workspace_id}"
+        )
         messages = conversation.messages if conversation else []
         card = None
         if 0 <= message < len(messages):
@@ -1119,6 +1582,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     @app.get("/workspaces", response_class=HTMLResponse)
     def workspaces_screen_route(request: Request) -> HTMLResponse:
         """S2 (ST-28): the workspace list, the detail region, Sync."""
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
         return templates.TemplateResponse(
             request, "workspaces.html", _ws_context(runtime, request)
         )
@@ -1135,6 +1601,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/workspaces")
     async def create_workspace_route(request: Request) -> Response:
+        if not principal_of(request).may_manage_workspaces():
+            return _refuse_action(runtime, request)
         form = await _form(request)
         submitted = {
             "name": form.get("name", ""),
@@ -1159,6 +1627,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/workspaces/{workspace_id}/rename")
     async def rename_workspace_route(request: Request, workspace_id: str) -> Response:
+        if not principal_of(request).may_manage_workspaces():
+            return _refuse_action(runtime, request)
         form = await _form(request)
         try:
             workspaces.rename_workspace(
@@ -1180,6 +1650,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/workspaces/{workspace_id}/legal-flag")
     async def legal_flag_route(request: Request, workspace_id: str) -> Response:
+        if not principal_of(request).may_manage_workspaces():
+            return _refuse_action(runtime, request)
         form = await _form(request)
         try:
             workspaces.set_legal_flag(
@@ -1209,6 +1681,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/workspaces/{workspace_id}/delete")
     def delete_workspace_route(request: Request, workspace_id: str) -> Response:
+        if not principal_of(request).may_manage_workspaces():
+            return _refuse_action(runtime, request)
+
         def refused(message: str) -> Response:
             try:
                 target = workspaces.get_workspace(
@@ -1270,6 +1745,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         "blocked with a message, first run continues") is the claim
         `Runtime.start_sync` makes in THIS thread, so the operator who
         clicked sees it; see that method for why the claim moved here."""
+        if not _may_manage(request, workspace_id):
+            return _refuse_action(runtime, request)
+        _log_activity(runtime, request, "started a sync", workspace_id=workspace_id)
         try:
             runtime.start_sync(workspace_id)
         except sync.EvidenceOnlyError as exc:
@@ -1291,17 +1769,156 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
 
     @app.post("/workspaces/{workspace_id}/sync/cancel")
-    def cancel_sync_route(workspace_id: str) -> Response:
+    def cancel_sync_route(request: Request, workspace_id: str) -> Response:
+        if not _may_manage(request, workspace_id):
+            return _refuse_action(runtime, request)
         event = runtime.sync_cancel_events.get(workspace_id)
         if event is not None:
             event.set()
         return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
+
+    # --- S6 documents: upload, download, remove (ui/documents.py) --------
+
+    @app.post("/workspaces/{workspace_id}/documents")
+    async def upload_document_route(request: Request, workspace_id: str) -> Response:
+        """One file, sent by sanad.js as the raw request body.
+
+        RAW BYTES, NOT A MULTIPART FORM: parsing `multipart/form-data`
+        needs `python-multipart`, which this project deliberately does not
+        carry (see `_form`). The name travels percent-encoded in
+        `X-File-Name`, so an Arabic or accented name survives the header.
+        A custom header is also what keeps another site from posting here:
+        a cross-origin page cannot send one without a CORS preflight this
+        app never approves.
+
+        Answers JSON for the script: 201 with the reader's sentence, or a
+        4xx whose `error` is the translated reason. No row is written and
+        no Sync is started here; sanad.js starts one Sync after the whole
+        batch."""
+        lang = context_language(request)
+
+        def refused(key: str, status: int, **params: object) -> JSONResponse:
+            return JSONResponse(
+                status_code=status, content={"error": i18n.translate(lang, key, **params)}
+            )
+
+        if get_settings().evidence_only:
+            return refused("docs.error.evidence", 409)
+        if not _may_manage(request, workspace_id):
+            return refused("docs.error.forbidden", 403)
+        try:
+            target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
+        except workspaces.WorkspaceNotFoundError:
+            return refused("docs.error.workspace", 404)
+        declared = request.headers.get("content-length", "")
+        try:
+            saved = await documents.save_document(
+                target.folder_path,
+                unquote(request.headers.get("x-file-name", "")),
+                request.stream(),
+                declared_size=int(declared) if declared.isdigit() else None,
+            )
+        except documents.DocumentError as exc:
+            return refused(exc.key, exc.status, **exc.params)
+        _log_activity(
+            runtime,
+            request,
+            "uploaded a document",
+            workspace_id=workspace_id,
+            detail=saved.file_name,
+        )
+        key = "docs.upload.replaced" if saved.replaced else "docs.upload.saved"
+        return JSONResponse(
+            status_code=201,
+            content={
+                "file_name": saved.file_name,
+                "size_bytes": saved.size_bytes,
+                "replaced": saved.replaced,
+                "message": i18n.translate(lang, key, name=saved.file_name),
+            },
+        )
+
+    @app.get("/workspaces/{workspace_id}/documents/{file_name}")
+    def download_document_route(request: Request, workspace_id: str, file_name: str) -> Response:
+        """The original file, as an attachment -- never rendered inline, so
+        a document can never run as a page on this origin."""
+        lang = context_language(request)
+        if not _may_see(request, workspace_id):
+            return PlainTextResponse(
+                i18n.translate(lang, "docs.error.forbidden"), status_code=403
+            )
+        try:
+            target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
+            path = documents.existing_document(target.folder_path, file_name)
+        except workspaces.WorkspaceNotFoundError:
+            return PlainTextResponse(i18n.translate(lang, "docs.error.workspace"), status_code=404)
+        except documents.DocumentError as exc:
+            return PlainTextResponse(
+                i18n.translate(lang, exc.key, **exc.params), status_code=exc.status
+            )
+        return FileResponse(
+            path,
+            filename=path.name,
+            content_disposition_type="attachment",
+            headers={"X-Content-Type-Options": "nosniff"},
+        )
+
+    @app.get("/workspaces/{workspace_id}/documents/{file_name}/remove", response_class=HTMLResponse)
+    def confirm_remove_document(request: Request, workspace_id: str, file_name: str) -> Response:
+        """The confirmation page, the same no-JS pattern as deleting a
+        workspace: a removal always costs a deliberate second step."""
+        if not _may_manage(request, workspace_id):
+            return _refuse_action(runtime, request)
+        try:
+            target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
+            path = documents.existing_document(target.folder_path, file_name)
+        except (workspaces.WorkspaceNotFoundError, documents.DocumentError):
+            return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
+        return templates.TemplateResponse(
+            request,
+            "document_remove_confirm.html",
+            {**_ws_context(runtime, request), "target": target, "file_name": path.name},
+        )
+
+    @app.post("/workspaces/{workspace_id}/documents/{file_name}/remove")
+    def remove_document_route(request: Request, workspace_id: str, file_name: str) -> Response:
+        """Delete the file from the folder, then start a Sync so answers
+        stop citing it. A Sync that cannot start (one already running,
+        evidence-only) is not an error here: the file is gone either way
+        and the next Sync removes it."""
+        base = f"/workspaces?ws={workspace_id}"
+        if not _may_manage(request, workspace_id):
+            return _refuse_action(runtime, request)
+        if get_settings().evidence_only:
+            return RedirectResponse(f"{base}&doc_error=docs.error.evidence", status_code=SEE_OTHER)
+        try:
+            target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
+            removed = documents.remove_document(target.folder_path, file_name)
+        except workspaces.WorkspaceNotFoundError:
+            return RedirectResponse("/workspaces", status_code=SEE_OTHER)
+        except documents.DocumentError as exc:
+            return RedirectResponse(f"{base}&doc_error={exc.key}", status_code=SEE_OTHER)
+        _log_activity(
+            runtime,
+            request,
+            "removed a document",
+            workspace_id=workspace_id,
+            detail=removed,
+        )
+        with contextlib.suppress(sync.SyncInProgressError, sync.EvidenceOnlyError):
+            runtime.start_sync(workspace_id)
+        return RedirectResponse(
+            f"{base}&removed={quote(removed)}", status_code=SEE_OTHER
+        )
 
     @app.get("/reports", response_class=HTMLResponse)
     def reports_route(request: Request) -> HTMLResponse:
         """S3 (ST-34): the list of evaluation runs `scripts/run_evaluation.py`
         has already written. Read-only -- see ui/reports_screen.py for why
         there is no "run now" action here."""
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
         return templates.TemplateResponse(
             request, "reports.html", _reports_context(runtime, request)
         )
@@ -1352,7 +1969,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
 
 def _start(
-    runtime: Runtime, question: str, workspace_override: str | None = None
+    runtime: Runtime,
+    request: Request,
+    question: str,
+    workspace_override: str | None = None,
 ) -> Response:
     """Put one question in flight (or say why it cannot be).
 
@@ -1367,16 +1987,23 @@ def _start(
     one step -- a stale or hand-crafted id is silently ignored rather than
     switching the shell to nothing, and the request then falls through to
     ordinary routing-mode handling exactly as if nothing had been chosen."""
-    options = screen.workspace_options(db_path=runtime.db_path)
+    options = visible_options(runtime, request)
     if workspace_override and any(opt.id == workspace_override for opt in options):
         runtime.active_workspace_id = workspace_override
 
-    active = _active(runtime)
+    active = _active(runtime, request)
     if active is None:
         if options:
-            return _start_routing(runtime, question, options)
+            return _start_routing(runtime, request, question, options)
         return RedirectResponse("/", status_code=SEE_OTHER)
-    conversation = runtime.conversation(active.id)
+    principal = principal_of(request)
+    if not principal.may_ask(active.id, _granted_ids(runtime, principal)):
+        # Unreachable through the screen -- a workspace this person may not
+        # use is not in `options` and so cannot be active -- and refused
+        # anyway, because "unreachable through the screen" is a statement
+        # about today's templates, not about what a POST can carry.
+        return _refuse_action(runtime, request)
+    conversation = runtime.conversation(active.id, principal.id)
     asked = question.strip()
     # A blank submit is not an error to show the operator; the input is
     # `required` and an empty box means they pressed Send by accident.
@@ -1406,7 +2033,10 @@ def _start(
 
 
 def _start_routing(
-    runtime: Runtime, question: str, options: list[screen.WorkspaceOption]
+    runtime: Runtime,
+    request: Request,
+    question: str,
+    options: list[screen.WorkspaceOption],
 ) -> Response:
     """F-12: propose a workspace instead of answering, when none is
     selected.
@@ -1424,7 +2054,7 @@ def _start_routing(
     asked = question.strip()
     if not asked:
         return RedirectResponse("/", status_code=SEE_OTHER)
-    conversation = runtime.conversation(screen.ROUTE_SENTINEL)
+    conversation = runtime.conversation(screen.ROUTE_SENTINEL, principal_of(request).id)
     # The length bound is normally enforced by the graph when a run starts
     # (agent/graph.py). Routing never starts a run, so without this an
     # over-long question would be proposed a workspace and only fail after

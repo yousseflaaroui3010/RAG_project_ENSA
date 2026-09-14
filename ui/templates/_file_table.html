@@ -32,6 +32,7 @@
       {{ _header('size', t('files.col.size')) }}
       {{ _header('status', t('files.col.status')) }}
       {{ _header('reason', t('files.col.reason')) }}
+      <th scope="col">{{ t('files.col.actions') }}</th>
     </tr>
   </thead>
   <tbody>
@@ -47,6 +48,18 @@
           </span>
         </td>
         <td>{{ tx(row.reason) }}</td>
+        <td class="file-table__actions">
+          {% if row.downloadable %}
+            {# S6. Plain links: download works with scripting off, and
+               Remove goes to a real confirmation page first. #}
+            <a href="/workspaces/{{ selected.id }}/documents/{{ row.file_name | urlencode }}"
+               aria-label="{{ t('docs.download_aria', name=row.file_name) }}">{{ t('docs.download') }}</a>
+            {% if uploads_enabled %}
+              <a href="/workspaces/{{ selected.id }}/documents/{{ row.file_name | urlencode }}/remove"
+                 aria-label="{{ t('docs.delete_aria', name=row.file_name) }}">{{ t('docs.delete') }}</a>
+            {% endif %}
+          {% endif %}
+        </td>
       </tr>
     {% endfor %}
   </tbody>

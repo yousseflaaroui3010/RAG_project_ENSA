@@ -103,6 +103,12 @@
            gates it. #}
         <a class="shell__link{{ ' is-current' if current_screen == 'reports' else '' }}"
            href="/reports" {% if current_screen == 'reports' %}aria-current="page"{% endif %}><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>{{ t('shell.nav.reports') }}</a>
+        {# S6: only an admin has anything to do there, and a link that
+           always refuses is a dead control. #}
+        {% if signed_in_as and signed_in_as.is_admin %}
+          <a class="shell__link{{ ' is-current' if current_screen == 'admin' else '' }}"
+             href="/admin" {% if current_screen == 'admin' %}aria-current="page"{% endif %}><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 4v5c0 4-3 7-7 9-4-2-7-5-7-9V7Z"/></svg>{{ t('shell.nav.admin') }}</a>
+        {% endif %}
       </nav>
 
       {#
@@ -117,6 +123,18 @@
         language named in itself, `lang`/`hreflang` so a screen reader
         pronounces "العربية" as Arabic, aria-current on the active one.
       #}
+      {#
+        S6: only with AUTH_MODE=keycloak. In the local and password modes
+        there is no account to name, and a "Sign out" button that signs
+        nobody out would be a dead control (the same rule the theme toggle
+        and the drop zone follow).
+      #}
+      {% if signed_in_as %}
+        <form class="shell__account" method="post" action="/auth/logout">
+          <span class="shell__who" title="{{ t('auth.roles', roles=signed_in_as.roles | join(', ') or t('auth.no_roles')) }}">{{ signed_in_as.display_name }}</span>
+          <button class="btn btn--quiet" type="submit">{{ t('auth.sign_out') }}</button>
+        </form>
+      {% endif %}
       <nav class="lang-switch" aria-label="{{ t('shell.language') }}">
         {% for link in language_links() %}
           <a class="lang-switch__link{{ ' is-current' if link.current else '' }}"
