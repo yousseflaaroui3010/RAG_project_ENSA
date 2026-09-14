@@ -1,6 +1,31 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-14, S6 LOGIN BRANCH (read this block first; older headers below are history)
+## STATE AT 2026-09-14, v3.0.0 RELEASE GATE PASSED (read this block first; older headers below are history)
+
+**The paid run is finished and the gate is green.** 60 of 60 frozen questions
+answered against the real model on the v3 code. `uv run python
+scripts/release_gate.py --report docs/evals/release-v3.0.0-2026-09-14.json`
+prints G1 groundedness 38/40 (need 90%), G2 refusals 20/20, G3 sources 38/38,
+RELEASE GATE: PASS, exit 0. Same shape as v2.0.0's 38/40, so no regression:
+`g-in-026` recovered, `g-in-014` is newly refused, `g-in-033` was refused in
+both runs. The report itself is committed at
+`docs/evals/release-v3.0.0-2026-09-14.json`.
+
+**On main:** #118 formatted answers + stage rail, #119 streamed answers, #121
+Reports dashboard, #123 demo script, #125 upload + Keycloak login + roles +
+admin view. Each merged, deployed, health 200 and `/` 401 without the password.
+
+**Branch `chore/S6-release-v3.0.0` (not yet pushed):** version 3.0.0, the v3
+known-issues section, the admin layout fix, and now this release run. WAITING
+ON A HUMAN "merge": the branch has not been pushed, no PR is open, and
+`v3.0.0` is not tagged.
+
+**Still human-only:** a named owner for the law 09-08 personal-data check,
+which in turn blocks keeping chat history across a restart.
+
+---
+
+## STATE AT 2026-09-14, S6 LOGIN BRANCH (history now)
 
 **On main:** #118 formatted answers + stage rail, #119 streamed answers, #121 Reports dashboard. Each merged, deployed to Railway (SUCCESS), health 200 and `/` 401 without the password.
 

@@ -1266,6 +1266,16 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 .auth-card { max-width: var(--prose-max); margin-inline: auto; text-align: center; }
 .auth-card .panel--error { text-align: start; }
 
+/* ---- S6 admin view -------------------------------------------------- */
+
+/* One workspace per line, then the button: inline checkboxes ran into the
+   Save button mid-sentence ("...Code du travail [Enregistrer]"). */
+.admin-grants { display: grid; justify-items: start; gap: var(--space-4); margin: 0; }
+.admin-grants__item { display: flex; align-items: center; gap: var(--space-8); }
+.admin-grants button { margin-top: var(--space-8); }
+/* The account name under the person's name, not trailing it. */
+.file-table td .muted.mono { display: block; }
+
 /* ---- Notice banner and form errors --------------------------------- */
 
 .notice {
