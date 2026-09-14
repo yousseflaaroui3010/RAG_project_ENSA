@@ -11,7 +11,7 @@ breaks a signed gate (G1-G3 pass on the golden set).
 |---|---|---|---|
 | The relevance grader reads ~500-character child chunks | A fact sitting just past the chunk the grader sees is refused (g-in-033, Article 66's one-month delay) | Grading on full sections changes every question and puts G2's strict 20/20 at risk days before the jury | Grade on the parent section, or the chunk plus its neighbour; keep rewording inside the documents' own legal vocabulary; re-run all 60 |
 | The rewording step can import French-France terms (`CSE`) | Later search rounds look for concepts the Moroccan code does not use | Same prompt freeze as above | Add "use the documents' own terms" to prompts/query-reword with a new version and eval seeds |
-| G1 passes with little margin | One unlucky run can move G1 by a row | Three of the four v1.0.0 misses were model variation (docs/evals/v1.0.1-g1-triage.md) | The grader fix above |
+| G1 passes with little margin | One unlucky run can move G1 by a row, and it does: v3.0.0's second miss is `g-in-014`, where v2.0.0's was `g-in-026` -- both classified **model variation**, not a defect (docs/evals/v1.0.1-g1-triage.md) | Three of the four v1.0.0 misses were model variation | The grader fix above |
 
 ## Models and speed
 
@@ -56,6 +56,7 @@ breaks a signed gate (G1-G3 pass on the golden set).
 | The realm must list the post-logout URI | Otherwise Keycloak answers 400 on sign-out | It is one line in the client configuration; the README says so |
 | `/api/v1` is administrators-only when `AUTH_MODE=keycloak` | A curator or reader cannot use the machine API | The signed contract has no notion of who is asking; per-route permissions are a separate change (DECISIONS 2026-09-14) |
 | Chat history lives in memory, per person | Signing out or restarting loses the transcript | Persisting it is personal data under law 09-08 and needs a named owner first |
+| A committed evaluation report stores every answer verbatim | Harmless today -- the corpus is published Moroccan law -- but the same command pointed at a private workspace would put that workspace's document text into git | Nobody has done it; the fix is a rule, not code. Do not commit a report from a workspace whose documents are not public. Raised by the cold review of the v3.0.0 release branch |
 | Roles are read at sign-in | A role changed in Keycloak applies at the person's next sign-in | Re-reading on every request would put a network call in front of every page |
 | Uploads are refused in evidence-only mode | The published demo cannot receive documents | That instance has no room for the embedding model, so an uploaded file could never be indexed anyway |
 | The drop zone needs JavaScript | With scripting off there is no upload control at all | The file is sent as a raw request body; the alternative is a multipart parser this project does not carry |
