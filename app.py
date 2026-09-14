@@ -690,6 +690,7 @@ def _ws_context(
 def _reports_context(runtime: Runtime, request: Request) -> dict:
     """Everything one render of the read-only S3 Reports screen needs."""
     reports = reports_screen.list_reports(db_path=runtime.db_path)
+    feedback_rows = reports_screen.list_feedback(db_path=runtime.db_path)
     active = _active(runtime)
     # S3's list spans every workspace at once (UX spec 8.1), so there is
     # no single content workspace to detect a script from the way S1's
@@ -712,7 +713,9 @@ def _reports_context(runtime: Runtime, request: Request) -> dict:
         # gated by the eval-run empty state. Pure SQLite reads, same as
         # `reports` itself, so this never loads the embedding model and
         # renders fine in evidence-only mode (ST-05).
-        "feedback": reports_screen.list_feedback(db_path=runtime.db_path),
+        "feedback": feedback_rows,
+        # S6: tiles and trend lines built from the same rows the tables print.
+        "dashboard": reports_screen.dashboard(reports, feedback_rows),
     }
 
 
@@ -1314,6 +1317,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 "detail": detail,
                 "eval_run_id": eval_run_id,
                 "busy": detail is not None and detail.summary.is_running,
+                # S6: the question grid, grouped in the table's own order.
+                "question_groups": (
+                    reports_screen.question_groups(detail.questions) if detail else ()
+                ),
             },
             status_code=404 if detail is None else 200,
         )

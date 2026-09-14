@@ -520,3 +520,40 @@ def test_a_missing_comment_shows_a_dash_not_a_blank_cell(tmp_path):
 
     assert "—" in feedback_section
     assert "None" not in feedback_section
+
+
+# --- S6 dashboard ------------------------------------------------------
+
+
+def test_the_reports_page_leads_with_gate_tiles_for_the_latest_completed_run(tmp_path):
+    client, db_path = _app(tmp_path)
+    eval_run_id, _path = _seed_report(tmp_path, db_path)
+
+    page = client.get("/reports").text
+
+    dash = page.split('class="dash"')[1].split("</section>")[0]
+    for code in ("G1", "G2", "G3", "feedback"):
+        assert f'data-gate="{code}"' in dash
+    assert f'href="/reports/{eval_run_id}"' in dash
+    g2 = dash.split('data-gate="G2"')[1].split("</article>")[0]
+    assert "1/1" in g2 and "Pass" in g2
+
+
+def test_no_completed_run_shows_no_tiles(tmp_path):
+    client, db_path = _app(tmp_path)
+    _seed_incomplete_report(tmp_path, db_path, status="running")
+
+    assert 'class="dash"' not in client.get("/reports").text
+
+
+def test_every_square_in_the_question_map_links_to_its_own_table_row(tmp_path):
+    client, db_path = _app(tmp_path)
+    eval_run_id, _path = _seed_report(tmp_path, db_path)
+
+    page = client.get(f"/reports/{eval_run_id}").text
+
+    targets = re.findall(r'class="qcell qcell--\w+" href="#q-([^"]+)"', page)
+    rows = re.findall(r'<tr id="q-([^"]+)">', page)
+    assert targets, "the question map rendered no squares"
+    assert sorted(targets) == sorted(rows)
+    assert len(targets) == len(set(targets))
