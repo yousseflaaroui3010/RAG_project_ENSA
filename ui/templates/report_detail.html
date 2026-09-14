@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_dashboard.html" as dash with context %}
 {% block title %}{{ t('title.report_detail') }}{% endblock %}
 
 {#
@@ -108,6 +109,8 @@
       </div>
     {% endif %}
 
+    {% if question_groups %}{{ dash.question_map(question_groups) }}{% endif %}
+
     <div class="table-card">
     <table class="file-table" data-report-questions>
       <caption class="sources__title">{{ t('rd.questions') }}</caption>
@@ -124,7 +127,7 @@
       </thead>
       <tbody>
         {% for q in detail.questions %}
-          <tr>
+          <tr id="q-{{ q.question_id }}">
             <td class="mono">{{ q.question_id }}</td>
             <td>{{ tx(q.kind_label) }}</td>
             <td>

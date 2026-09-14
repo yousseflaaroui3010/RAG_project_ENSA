@@ -1,0 +1,115 @@
+{#
+  S6 Reports dashboard. Every number here is also printed in the tables
+  below it (the runs table, the gates table, the per-question table), so a
+  chart is a faster reading of those facts, never the only copy of one.
+  Pass and fail are always a word and a shape as well as a colour.
+#}
+
+{% macro outcome_pill(passed) %}
+  {% if passed is none %}
+    <span class="status-pill">
+      <span class="status-dot status-dot--neutral status-dot--hollow-circle" aria-hidden="true"></span>
+      {{ t('rd.not_judged') }}
+    </span>
+  {% elif passed %}
+    <span class="status-pill">
+      <span class="status-dot status-dot--positive status-dot--filled-circle" aria-hidden="true"></span>
+      {{ t('rd.pass') }}
+    </span>
+  {% else %}
+    <span class="status-pill">
+      <span class="status-dot status-dot--danger status-dot--filled-square" aria-hidden="true"></span>
+      {{ t('rd.fail') }}
+    </span>
+  {% endif %}
+{% endmacro %}
+
+{% macro spark_line(spark) %}
+  {# One accent line (a single series needs no legend: the tile names it),
+     a hairline at the threshold when it is below 100%, a marker on the
+     latest run, and a generous invisible hover target per run. #}
+  <svg class="spark" viewBox="0 0 160 40" preserveAspectRatio="none"
+       role="img" aria-label="{{ t('dash.trend_aria', count=spark.run_count) }}">
+    {% if spark.threshold_y is not none %}
+      <line class="spark__threshold" x1="0" x2="160" y1="{{ spark.threshold_y }}" y2="{{ spark.threshold_y }}"/>
+    {% endif %}
+    <polyline class="spark__line" points="{{ spark.points }}"/>
+    <circle class="spark__last" cx="{{ spark.last_x }}" cy="{{ spark.last_y }}" r="4"/>
+    {% for x, y, run_at, pct in spark.marks %}
+      <circle class="spark__hit" cx="{{ x }}" cy="{{ y }}" r="10"><title>{{ run_at | when }} · {{ pct }}</title></circle>
+    {% endfor %}
+  </svg>
+{% endmacro %}
+
+{% macro dashboard_section(d) %}
+<section class="dash" aria-label="{{ t('dash.aria') }}">
+  <div class="dash__head">
+    <h2 class="section-title">{{ t('dash.title') }}</h2>
+    <p class="muted">
+      <a href="/reports/{{ d.latest.id }}">{{ th('dash.lead_html', name=d.latest.workspace_name, when=(d.latest.run_at | when)) }}</a>
+    </p>
+  </div>
+  <div class="dash__tiles">
+    {% for g in d.gates %}
+      <article class="tile" data-gate="{{ g.code }}">
+        <p class="tile__label">{{ tx(g.metric) }}</p>
+        <p class="tile__value">{{ g.value_label }}</p>
+        {% if g.ratio is not none %}
+          {# The bar is the ratio; the tick is the threshold. aria-hidden
+             because the value and the pill above already say both. #}
+          <div class="meter" aria-hidden="true">
+            <span class="meter__fill meter__fill--{{ 'pass' if g.passed else 'fail' }}"
+                  style="--ratio: {{ '%.4f' | format(g.ratio) }}"></span>
+            <span class="meter__threshold" style="--at: {{ '%.4f' | format(g.threshold) }}"></span>
+          </div>
+        {% else %}
+          <p class="muted tile__note">{{ t('dash.no_counts') }}</p>
+        {% endif %}
+        <p class="tile__foot">
+          {{ outcome_pill(g.passed) }}
+          <span class="muted">{{ t('dash.threshold', value=g.threshold_label) }}</span>
+        </p>
+        {% if g.spark %}{{ spark_line(g.spark) }}{% endif %}
+      </article>
+    {% endfor %}
+    <article class="tile" data-gate="feedback">
+      <p class="tile__label">{{ t('dash.feedback') }}</p>
+      {% if d.feedback.total %}
+        <p class="tile__value">{{ '%.0f' | format(d.feedback.ratio * 100) }}%</p>
+        <div class="meter" aria-hidden="true">
+          <span class="meter__fill meter__fill--neutral"
+                style="--ratio: {{ '%.4f' | format(d.feedback.ratio) }}"></span>
+        </div>
+        <p class="tile__foot muted">{{ t('dash.feedback_value', helpful=d.feedback.helpful, total=d.feedback.total) }}</p>
+      {% else %}
+        <p class="tile__value">—</p>
+        <p class="tile__foot muted">{{ t('dash.feedback_none') }}</p>
+      {% endif %}
+    </article>
+  </div>
+</section>
+{% endmacro %}
+
+{% macro question_map(groups) %}
+<section class="qmap" aria-labelledby="qmap-title">
+  <h2 class="section-title" id="qmap-title">{{ t('heat.title') }}</h2>
+  <p class="muted">{{ t('heat.lead') }}</p>
+  {% for group in groups %}
+    <div class="qmap__group">
+      <p class="qmap__label">{{ t('heat.group', label=tx(group.kind_label), passed=group.passed, total=group.questions | length) }}</p>
+      <ul class="qmap__cells">
+        {% for q in group.questions %}
+          {% set outcome = t('rd.pass') if q.passed else t('rd.fail') %}
+          <li>
+            <a class="qcell qcell--{{ 'pass' if q.passed else 'fail' }}" href="#q-{{ q.question_id }}"
+               aria-label="{{ t('heat.cell_aria', qid=q.question_id, outcome=outcome) }}"
+               title="{{ q.question_id }} · {{ outcome }}">
+              <span aria-hidden="true">{{ '✓' if q.passed else '✕' }}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endfor %}
+</section>
+{% endmacro %}
