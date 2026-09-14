@@ -1259,6 +1259,12 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
   margin: var(--space-4) 0 0;
   font-size: var(--size-meta);
 }
+/* ---- S6 sign-in ---------------------------------------------------- */
+
+.shell__account { display: flex; align-items: center; gap: var(--space-8); margin: 0; }
+.shell__who { font-size: var(--size-meta); font-weight: 600; color: var(--text); }
+.auth-card { max-width: var(--prose-max); margin-inline: auto; text-align: center; }
+.auth-card .panel--error { text-align: start; }
 
 /* ---- Notice banner and form errors --------------------------------- */
 

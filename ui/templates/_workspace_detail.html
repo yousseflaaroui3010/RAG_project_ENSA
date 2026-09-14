@@ -25,6 +25,7 @@
       <p class="notice" role="status">{{ tx(capacity_warning) }}</p>
     {% endif %}
 
+    {% if may_manage_workspaces %}
     <details class="ws-detail__settings">
       <summary>{{ t('ws.detail.settings') }}</summary>
 
@@ -62,6 +63,7 @@
       <a class="btn btn--quiet" href="/workspaces/{{ selected.id }}/delete"
          data-delete-trigger>{{ t('ws.detail.delete') }}</a>
     </details>
+    {% endif %}
 
     {% if removed_name %}
       <p class="notice" role="status">{{ t('docs.removed', name=removed_name) }}</p>
@@ -70,7 +72,7 @@
       <p class="notice" role="status">{{ t(doc_error, name='', types=upload_accept) }}</p>
     {% endif %}
 
-    {% if uploads_enabled and not running %}
+    {% if uploads_enabled and may_manage_documents and not running %}
       {#
         S6 upload (CR-03). HIDDEN UNTIL sanad.js REVEALS IT: sending a file
         needs the script (raw body, see app.py::upload_document_route), and
@@ -92,6 +94,9 @@
       </section>
     {% endif %}
 
+    {# S6: Sync belongs to curators and admins, in the workspaces they
+       hold. A reader sees the report below it, never the button. #}
+    {% if may_manage_documents %}
     <div class="ws-sync">
       {% if sync_blocked %}
         {# F-02 / UX spec 7.3: "blocked with a message stating the first
@@ -144,6 +149,7 @@
         </div>
       {% endif %}
     </div>
+    {% endif %}
 
     {% if running %}
       <p class="muted">{{ t('ws.sync.pending_report') }}</p>

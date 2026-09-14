@@ -116,3 +116,58 @@ CREATE TABLE IF NOT EXISTS answer_feedback (
   created_at     TEXT    NOT NULL,
   updated_at     TEXT    NOT NULL
 );
+
+-- --- S6 login, roles and activity (CR-03; docs/design/S6-auth-rbac.md) ----
+--
+-- These four tables exist only when AUTH_MODE is `keycloak`; they are
+-- created always, because a table that appears on a mode switch is a
+-- migration nobody ran. ADR-13 said single user, no authentication; the
+-- 2026-09-13 ruling changed that and the DECISIONS row records it.
+
+-- One person, as Keycloak knows them. `id` is the provider's stable `sub`
+-- claim, never an email: an email can be reassigned to a different human
+-- and a `sub` cannot. `roles` is the space-separated Sanad role list read
+-- at the last sign-in, kept so a page can be rendered without asking the
+-- provider again on every request.
+CREATE TABLE IF NOT EXISTS app_user (
+  id             TEXT    PRIMARY KEY,
+  username       TEXT    NOT NULL,
+  email          TEXT,
+  display_name   TEXT,
+  roles          TEXT    NOT NULL DEFAULT '',
+  created_at     TEXT    NOT NULL,
+  last_login_at  TEXT    NOT NULL
+);
+
+-- One signed-in browser. `token_hash` is the SHA-256 of the random value
+-- in the cookie, never the value itself: a copy of this database is then
+-- a list of sessions nobody can use.
+CREATE TABLE IF NOT EXISTS user_session (
+  token_hash     TEXT    PRIMARY KEY,
+  user_id        TEXT    NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  created_at     TEXT    NOT NULL,
+  expires_at     TEXT    NOT NULL,
+  last_seen_at   TEXT    NOT NULL
+);
+
+-- Which workspaces a non-admin may use at all. No row means the workspace
+-- is not offered to them anywhere, not merely that an action is refused.
+CREATE TABLE IF NOT EXISTS workspace_grant (
+  workspace_id   TEXT    NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  user_id        TEXT    NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  granted_at     TEXT    NOT NULL,
+  PRIMARY KEY (workspace_id, user_id)
+);
+
+-- What was done, by whom. NEVER what was asked: a question is document
+-- content and belongs in the transcript, not in an audit row (law 09-08,
+-- and docs/phase2/CLAUDE.md's rule about logging request bodies).
+CREATE TABLE IF NOT EXISTS activity_event (
+  id             TEXT    PRIMARY KEY,
+  user_id        TEXT    REFERENCES app_user(id) ON DELETE SET NULL,
+  username       TEXT    NOT NULL,
+  action         TEXT    NOT NULL,
+  workspace_id   TEXT,
+  detail         TEXT,
+  created_at     TEXT    NOT NULL
+);
