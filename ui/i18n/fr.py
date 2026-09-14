@@ -17,6 +17,59 @@ MESSAGES: dict[str, str] = {
     "title.passage": "Extrait — Sanad",
     "title.delete": "Supprimer {name} — Sanad",
     "shell.skip": "Aller au contenu",
+    "phr.activity.uploaded": "document ajouté",
+    "phr.activity.removed_doc": "document retiré",
+    "ws.none_shared.title": "Aucun espace partagé avec vous",
+    "ws.none_shared.body": (
+        "Aucun espace de travail ne vous a encore été attribué. "
+        "Demandez à un administrateur de vous donner accès."
+    ),
+    "shell.nav.admin": "Administration",
+    "admin.title": "Administration",
+    "admin.lead": "Qui peut utiliser Sanad, sur quels espaces, et ce qui a été fait.",
+    "admin.people": "Personnes",
+    "admin.people_caption": "Comptes connus",
+    "admin.col.person": "Personne",
+    "admin.col.roles": "Rôles",
+    "admin.col.last_seen": "Dernière connexion",
+    "admin.col.workspaces": "Espaces autorisés",
+    "admin.col.actions": "Actions",
+    "admin.all_workspaces": "Tous les espaces (rôle administrateur)",
+    "admin.no_workspaces": "Aucun espace pour l’instant.",
+    "admin.save_grants": "Enregistrer les accès",
+    "admin.sign_out_everywhere": "Déconnecter partout",
+    "admin.no_people": "Personne ne s’est encore connecté.",
+    "admin.activity": "Journal d’activité",
+    "admin.activity_lead": "Ce qui a été fait et par qui. Jamais le contenu d’une question.",
+    "admin.activity_caption": "{count} derniers événements",
+    "admin.col.when": "Quand",
+    "admin.col.who": "Qui",
+    "admin.col.what": "Quoi",
+    "admin.col.where": "Espace",
+    "admin.no_activity": "Aucune activité enregistrée.",
+    "phr.activity.signed_in": "connexion",
+    "phr.activity.signed_out": "déconnexion",
+    "phr.activity.started_sync": "synchronisation lancée",
+    "phr.activity.granted": "accès accordé",
+    "phr.activity.revoked": "accès retiré",
+    "phr.activity.refused": "action refusée",
+    "phr.activity.signed_out_everywhere": "déconnexion forcée",
+    "auth.title": "Connexion à Sanad",
+    "auth.lead": (
+        "Sanad ne vous demande jamais votre mot de passe : la connexion se fait "
+        "chez votre fournisseur d’identité."
+    ),
+    "auth.sign_in": "Se connecter",
+    "auth.sign_out": "Se déconnecter",
+    "auth.failed": "La connexion n’a pas abouti.",
+    "auth.roles": "Rôles : {roles}",
+    "auth.no_roles": "aucun",
+    "auth.no_role.title": "Accès pas encore accordé",
+    "auth.no_role.body": (
+        "Votre compte est reconnu, mais aucun rôle Sanad ne lui est attribué. "
+        "Demandez à un administrateur de vous donner un rôle pour ce compte :"
+    ),
+    "docs.error.forbidden": "vous n’avez pas le droit de faire cela dans cet espace.",
     "shell.brand": "Sanad",
     "shell.active_workspace": "Espace actif",
     "shell.let_sanad_choose": "Laisser Sanad choisir",
@@ -118,6 +171,40 @@ MESSAGES: dict[str, str] = {
     "sources.title": "Sources ({count})",
     "sources.open": "Ouvrir l’extrait",
     "sources.close": "Fermer",
+    "docs.title": "Documents",
+    "docs.drop.title": "Déposez vos documents ici",
+    "docs.drop.hint": (
+        "PDF, DOCX, PPTX, TXT ou MD, jusqu’à {size}. La synchronisation démarre ensuite "
+        "toute seule."
+    ),
+    "docs.drop.choose": "Choisir des fichiers",
+    "docs.upload.sending": "Envoi de {name}…",
+    "docs.upload.saved": "{name} ajouté.",
+    "docs.upload.replaced": "{name} remplacé.",
+    "docs.upload.failed": "{name} : {reason}",
+    "docs.upload.syncing": "Synchronisation lancée.",
+    "docs.error.name": "ce nom de fichier n’est pas utilisable.",
+    "docs.error.type": "type non pris en charge (acceptés : {types}).",
+    "docs.error.size": "{name} dépasse la taille maximale.",
+    "docs.error.empty": "{name} est vide.",
+    "docs.error.missing": "Aucun document nommé {name} dans cet espace.",
+    "docs.error.folder": "le dossier de l’espace est introuvable.",
+    "docs.error.evidence": "cette instance publiée est en lecture seule.",
+    "docs.error.workspace": "cet espace n’existe plus.",
+    "docs.download": "Télécharger",
+    "docs.download_aria": "Télécharger {name}",
+    "docs.delete": "Retirer",
+    "docs.delete_aria": "Retirer {name} du dossier",
+    "docs.del.title_html": "Retirer <bdi>{name}</bdi> ?",
+    "docs.del.body": (
+        "Le fichier est supprimé du dossier de l’espace sur le disque. La "
+        "synchronisation qui suit le retire des réponses."
+    ),
+    "docs.del.yes": "Oui, retirer ce document",
+    "docs.del.cancel": "Annuler, garder ce document",
+    "docs.removed": "{name} a été retiré du dossier.",
+    "files.col.actions": "Actions",
+    "sources.download": "Télécharger l’original",
     "passage.not_located": (
         "Affichage de la section entière. Sanad n’a pas pu repérer précisément le passage "
         "retrouvé : rien n’est donc surligné comme texte cité."

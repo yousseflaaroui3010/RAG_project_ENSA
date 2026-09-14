@@ -755,3 +755,135 @@ def list_answer_feedback(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         "JOIN workspace ON workspace.id = answer_feedback.workspace_id "
         "ORDER BY answer_feedback.created_at DESC"
     ).fetchall()
+
+
+# --- S6 login, roles and activity (docs/design/S6-auth-rbac.md) ----------
+
+
+def upsert_user(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    username: str,
+    email: str | None,
+    display_name: str | None,
+    roles: str,
+) -> None:
+    """Record who just signed in, keeping their first-seen date.
+
+    `ON CONFLICT DO UPDATE` rather than delete-and-insert: the same person
+    signing in again must not orphan their workspace grants, which point
+    at this row."""
+    now = utc_now()
+    conn.execute(
+        "INSERT INTO app_user (id, username, email, display_name, roles, "
+        "created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET username = excluded.username, "
+        "email = excluded.email, display_name = excluded.display_name, "
+        "roles = excluded.roles, last_login_at = excluded.last_login_at",
+        (user_id, username, email, display_name, roles, now, now),
+    )
+
+
+def get_user(conn: sqlite3.Connection, user_id: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM app_user WHERE id = ?", (user_id,)).fetchone()
+
+
+def list_users(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return list(conn.execute("SELECT * FROM app_user ORDER BY username"))
+
+
+def create_session(
+    conn: sqlite3.Connection, *, token_hash: str, user_id: str, expires_at: str
+) -> None:
+    now = utc_now()
+    conn.execute(
+        "INSERT INTO user_session (token_hash, user_id, created_at, expires_at, "
+        "last_seen_at) VALUES (?, ?, ?, ?, ?)",
+        (token_hash, user_id, now, expires_at, now),
+    )
+
+
+def get_session(conn: sqlite3.Connection, token_hash: str) -> sqlite3.Row | None:
+    """The session row joined to its user, or None.
+
+    The EXPIRY IS CHECKED IN SQL, not by the caller: a row whose
+    `expires_at` has passed is not a session, and returning it "so the
+    caller can check" is how an expired session gets used once."""
+    return conn.execute(
+        "SELECT s.token_hash, s.user_id, s.expires_at, s.last_seen_at, u.username, "
+        "u.email, u.display_name, u.roles FROM user_session s JOIN app_user u "
+        "ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?",
+        (token_hash, utc_now()),
+    ).fetchone()
+
+
+def touch_session(conn: sqlite3.Connection, token_hash: str) -> None:
+    conn.execute(
+        "UPDATE user_session SET last_seen_at = ? WHERE token_hash = ?",
+        (utc_now(), token_hash),
+    )
+
+
+def delete_session(conn: sqlite3.Connection, token_hash: str) -> None:
+    conn.execute("DELETE FROM user_session WHERE token_hash = ?", (token_hash,))
+
+
+def delete_sessions_for_user(conn: sqlite3.Connection, user_id: str) -> None:
+    conn.execute("DELETE FROM user_session WHERE user_id = ?", (user_id,))
+
+
+def delete_expired_sessions(conn: sqlite3.Connection) -> int:
+    cursor = conn.execute("DELETE FROM user_session WHERE expires_at <= ?", (utc_now(),))
+    return cursor.rowcount
+
+
+def grant_workspace(conn: sqlite3.Connection, *, workspace_id: str, user_id: str) -> None:
+    conn.execute(
+        "INSERT INTO workspace_grant (workspace_id, user_id, granted_at) "
+        "VALUES (?, ?, ?) ON CONFLICT(workspace_id, user_id) DO NOTHING",
+        (workspace_id, user_id, utc_now()),
+    )
+
+
+def revoke_workspace(conn: sqlite3.Connection, *, workspace_id: str, user_id: str) -> None:
+    conn.execute(
+        "DELETE FROM workspace_grant WHERE workspace_id = ? AND user_id = ?",
+        (workspace_id, user_id),
+    )
+
+
+def granted_workspace_ids(conn: sqlite3.Connection, user_id: str) -> set[str]:
+    return {
+        row["workspace_id"]
+        for row in conn.execute(
+            "SELECT workspace_id FROM workspace_grant WHERE user_id = ?", (user_id,)
+        )
+    }
+
+
+def record_activity(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str | None,
+    username: str,
+    action: str,
+    workspace_id: str | None = None,
+    detail: str | None = None,
+) -> None:
+    """One line of the activity log. `detail` is a file name or a workspace
+    name at most -- never a question, an answer or a document's text."""
+    conn.execute(
+        "INSERT INTO activity_event (id, user_id, username, action, workspace_id, "
+        "detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (new_id(), user_id, username, action, workspace_id, detail, utc_now()),
+    )
+
+
+def list_activity(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
+    return list(
+        conn.execute(
+            "SELECT * FROM activity_event ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (limit,),
+        )
+    )

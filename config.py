@@ -200,6 +200,11 @@ class Settings(BaseSettings):
         "md",
         "pptx",
     )
+    # S6 browser upload: the largest single document accepted, in bytes.
+    # Checked against the declared length AND the bytes actually received
+    # (ui/documents.py), so a client that lies about its size still stops
+    # here. 50 MB covers a long scanned PDF with room to spare.
+    upload_max_bytes: int = 50 * 1024 * 1024
     # Bytes read per hashing iteration. Files are hashed incrementally so a
     # 500 MB PDF never lands in memory whole.
     hash_read_chunk_bytes: int = 1024 * 1024
@@ -273,6 +278,45 @@ class Settings(BaseSettings):
     # one would change every stored vector and invalidate the evaluation
     # this release is gated on (docs/evals/ST-36-triage.md).
     evidence_only: bool = False
+
+    # --- S6 login, roles and permissions (CR-03; docs/design/S6-auth-rbac.md) ---
+    # Which of the three protections is in force. `none` is ADR-13's
+    # local-first default and changes nothing; `password` is the shared
+    # ACCESS_PASSWORD gate the published demo uses; `keycloak` is named
+    # people with roles. Never auto-detected: a half-configured login that
+    # quietly falls back to "no login" is the worst of the three.
+    auth_mode: str = "none"
+    # The realm's base URL, e.g. http://localhost:8080/realms/sanad. The
+    # endpoints are read from its OpenID configuration, never hardcoded.
+    keycloak_issuer: str = ""
+    keycloak_client_id: str = "sanad"
+    # A confidential client's secret. Never logged, never rendered.
+    keycloak_client_secret: str = ""
+    # Where Keycloak sends the browser back. Must match the client's
+    # configured redirect URI exactly, including the port.
+    keycloak_redirect_url: str = "http://127.0.0.1:8000/auth/callback"
+    # Realm roles are read as `<prefix><role>`: sanad-admin, sanad-curator,
+    # sanad-reader. Anything without the prefix belongs to another app.
+    auth_role_prefix: str = "sanad-"
+    # How long a signed-in browser stays signed in.
+    session_ttl_hours: int = 12
+
+    @field_validator("auth_mode")
+    @classmethod
+    def _auth_mode_must_be_known(cls, value: str) -> str:
+        # Literals here rather than an import: config never imports ui/.
+        # tests/unit/test_config.py pins these against ui.auth's constants.
+        modes = ("none", "password", "keycloak")
+        if value not in modes:
+            raise ValueError(f"auth_mode must be one of {modes}, got {value!r}")
+        return value
+
+    @field_validator("session_ttl_hours")
+    @classmethod
+    def _session_ttl_must_be_positive(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("session_ttl_hours must be greater than 0")
+        return value
 
     # --- Interface language (S6, human ruling 2026-09-13) ---
     # The platform is French by default with a switch to Arabic; English is

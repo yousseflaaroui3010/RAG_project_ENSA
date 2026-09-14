@@ -57,7 +57,8 @@ def run(**changes) -> ReportSummary:
 
 def feedback(verdict: str) -> FeedbackRow:
     return FeedbackRow(
-        id=verdict, workspace_name="HR", created_at="2026-09-10", verdict=verdict,
+        id=verdict, workspace_id="ws", workspace_name="HR", created_at="2026-09-10",
+        verdict=verdict,
         verdict_label="", question="q", comment_label="—",
     )
 
