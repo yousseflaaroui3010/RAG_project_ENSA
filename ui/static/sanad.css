@@ -1273,8 +1273,10 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 .admin-grants { display: grid; justify-items: start; gap: var(--space-4); margin: 0; }
 .admin-grants__item { display: flex; align-items: center; gap: var(--space-8); }
 .admin-grants button { margin-top: var(--space-8); }
-/* The account name under the person's name, not trailing it. */
-.file-table td .muted.mono { display: block; }
+/* The account name under the person's name, not trailing it. Scoped to the
+   people table: written unscoped it claimed every file table in the product
+   and happened to match only this one cell. */
+.file-table--people td .muted.mono { display: block; }
 
 /* ---- Notice banner and form errors --------------------------------- */
 

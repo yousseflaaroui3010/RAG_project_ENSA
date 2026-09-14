@@ -217,3 +217,12 @@ A release ships only when the golden-set run passes three gates: groundedness
 ≥ 0.90 (G1), 20/20 correct refusals on out-of-scope questions (G2), and sources
 on 100% of answers (G3). The gate script returns a non-zero exit code otherwise
 and the release stops there.
+
+The run behind the current release is committed, not just quoted:
+[`docs/evals/release-v3.0.0-2026-09-14.json`](docs/evals/release-v3.0.0-2026-09-14.json)
+— G1 38/40, G2 20/20, G3 38/38, PASS. Re-read it yourself with
+`uv run python scripts/release_gate.py --report docs/evals/release-v3.0.0-2026-09-14.json`;
+the script recomputes the thresholds from the rows rather than trusting the
+file's own verdict. What changed in this version, and what is still known to
+be wrong, is in [`docs/release-notes-v3.0.0.md`](docs/release-notes-v3.0.0.md)
+and [`docs/known-issues.md`](docs/known-issues.md).

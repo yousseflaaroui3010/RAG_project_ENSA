@@ -51,7 +51,7 @@ These are not optional. Each one removes a failure we have already seen.
 | 6 | Ask: *Quelles sont les règles applicables au télétravail ?* | Honest refusal, the searches it tried, no sources | "The documents do not cover remote work, so Sanad says so instead of inventing." | If it answers, say it is a known risk and show the Reports numbers |
 | 7 | Ask: *Quel est le délai ?* | One clarifying question (which deadline?) | "An ambiguous question gets exactly one clarifying question." | Model-driven: if it answers instead, move on; do not retry twice |
 | 8 | Switch the workspace selector to **Manuals**. Ask: *Comment définir une classe en Python ?* | Answer from `tutorial-classes.txt` only | "Workspaces are isolated: HR documents can never answer here." | Skip |
-| 9 | Open **Reports**, then the latest run | The dashboard tiles first: G1 38/40, G2 20/20, G3 38/38, each with its threshold and Pass; then the question map, whose two red squares are g-in-026 and g-in-033; then the table and **Export** Markdown | "This is the release gate: 60 frozen questions, and the version only ships if all three pass." | Show `docs/evals/` export instead |
+| 9 | Open **Reports**, then the latest run | The dashboard tiles first: G1 38/40, G2 20/20, G3 38/38, each with its threshold and Pass; then the question map, whose two red squares are g-in-014 and g-in-033; then the table and **Export** Markdown | "This is the release gate: 60 frozen questions, and the version only ships if all three pass." | Show `docs/evals/` export instead |
 | 10 | Open `http://127.0.0.1:8000/docs` | The 9-endpoint API contract | "The same engine is available to other programs through a signed contract." | Skip |
 
 Optional, only if time remains: add `?dir=rtl` to the Chat address to show
@@ -80,7 +80,7 @@ during setup.
 
 | Claim | Number | Source |
 |---|---|---|
-| Release gate (v2.0.0, golden v2) | G1 38/40, G2 20/20, G3 38/38 | `docs/evals/release-v2.0.0-2026-09-13.json` (from `data/reports/14b81a1d-.../2026-09-13T12-57-04.432096+00-00.json`), re-read by `scripts/release_gate.py`. The two misses are g-in-026 and g-in-033 |
+| Release gate (v3.0.0, golden v2) | G1 38/40, G2 20/20, G3 38/38 | `docs/evals/release-v3.0.0-2026-09-14.json`, re-read by `scripts/release_gate.py`. The two misses are g-in-014 and g-in-033. v2.0.0 scored the same three totals with g-in-026 in place of g-in-014 (`docs/evals/release-v2.0.0-2026-09-13.json`) -- check which report the demo machine is running before quoting the ids |
 | Answer speed (G4) | median 8.3 s, slowest 18.1 s, 20 questions; first question 23.2 s | `data/measurements/2026-09-11-spike-st18/traces.json` |
 | Intake speed (G5) | quiet laptop: 449.4 s and 375.3 s per 200 pages in two runs (PASS); under load: 823 s = 731.6 s (FAIL); unchanged re-Sync 0.09 s | `data/measurements/2026-09-12-spike-st18/results.json` and `2026-09-11-spike-st18/results.json` |
 | Corpus | HR: 3 files, 225 pages; Manuals: 10 files | same |
