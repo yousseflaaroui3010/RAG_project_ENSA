@@ -71,6 +71,9 @@ class FakeProvider:
     def introspect(self, access_token: str) -> dict:
         return {**self.claims, "active": self.active}
 
+    def end_session_url(self, *, redirect_uri: str) -> str:
+        return f"https://keycloak.test/realms/sanad/logout?redirect={redirect_uri}"
+
 
 @pytest.fixture
 def keycloak(tmp_path, monkeypatch):
@@ -232,6 +235,22 @@ def test_signing_out_deletes_the_session_and_locks_the_door_again(keycloak):
     after = client.get("/", follow_redirects=False)
     assert after.status_code == 303 and after.headers["location"] == "/auth/login"
     assert "signed out" in _actions(db_path)
+
+
+def test_signing_out_also_ends_the_session_at_keycloak(keycloak):
+    """Found in a real browser against a real realm: deleting our own
+    cookie left the realm's SSO session alive, so the next Sign in was
+    answered silently with the same person -- on the shared demo machine,
+    a sign-out button that signs nobody out."""
+    client, _, _, _, sign_in = keycloak
+    sign_in(ADMIN_CLAIMS)
+
+    response = client.post("/auth/logout", follow_redirects=False)
+
+    assert response.headers["location"].startswith(
+        "https://keycloak.test/realms/sanad/logout"
+    )
+    assert "/auth/login" in response.headers["location"]
 
 
 def test_an_expired_session_is_not_a_session(keycloak):
@@ -399,3 +418,47 @@ def test_signing_out_forgets_that_person_transcript(keycloak):
     client.post("/auth/logout", follow_redirects=False)
 
     assert not any(key.startswith("kc-reader|") for key in runtime.conversations)
+
+
+def test_a_reader_is_offered_no_control_they_may_not_use(keycloak):
+    """Found in a real browser: the reader's own workspace page still
+    showed Sync and "new workspace". The routes refused them, but a button
+    that cannot work is a dead control -- the rule the theme toggle, the
+    sample questions and the drop zone already follow."""
+    client, _, db_path, _, sign_in = keycloak
+    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(READER_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
+
+    page = client.get(f"/workspaces?ws={ws.id}").text
+
+    assert "HR" in page, "the granted workspace is still shown"
+    assert f'action="/workspaces/{ws.id}/sync"' not in page
+    assert 'action="/workspaces"' not in page
+    assert f'href="/workspaces/{ws.id}/delete"' not in page
+
+
+def test_a_curator_keeps_sync_in_a_granted_workspace_but_not_the_settings(keycloak):
+    client, _, db_path, _, sign_in = keycloak
+    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(CURATOR_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
+
+    page = client.get(f"/workspaces?ws={ws.id}").text
+
+    assert f'action="/workspaces/{ws.id}/sync"' in page
+    assert f'href="/workspaces/{ws.id}/delete"' not in page
+
+
+def test_an_admin_still_sees_every_control(keycloak):
+    client, _, db_path, _, sign_in = keycloak
+    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(ADMIN_CLAIMS)
+
+    page = client.get(f"/workspaces?ws={ws.id}").text
+
+    assert f'action="/workspaces/{ws.id}/sync"' in page
+    assert 'action="/workspaces"' in page
+    assert f'href="/workspaces/{ws.id}/delete"' in page

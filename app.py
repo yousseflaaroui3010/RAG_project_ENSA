@@ -825,6 +825,16 @@ def _ws_context(
         # Evidence-only mode never starts the watcher (watcher.start_if_enabled),
         # so the line must not claim "on" there even if watch_folders is set.
         "watch_enabled": get_settings().watch_folders and not get_settings().evidence_only,
+        # S6: a control nobody may use is not rendered at all (the rule the
+        # theme toggle and the drop zone already follow). The routes refuse
+        # the same actions server-side; this only keeps the screen honest.
+        "may_manage_workspaces": principal_of(request).may_manage_workspaces(),
+        "may_manage_documents": bool(
+            selected_id
+            and principal_of(request).may_manage_documents(
+                selected_id, _granted_ids(runtime, principal_of(request))
+            )
+        ),
     }
 
 
@@ -1265,7 +1275,20 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             # A shared machine: the next person to sign in must not find
             # the previous one's conversation in memory.
             runtime.forget_conversations(principal.id)
-        response = RedirectResponse("/auth/login", status_code=SEE_OTHER)
+        # END KEYCLOAK'S SESSION TOO, not only ours. Found in a real
+        # browser against a real realm: deleting our cookie alone left the
+        # realm's own SSO session alive, so the very next click on Sign in
+        # was answered silently with the SAME person -- a sign-out button
+        # that signs nobody out on the shared demo machine. Where the realm
+        # publishes no end-session endpoint, we still land on our own
+        # sign-in page, which is the old behaviour.
+        target = "/auth/login"
+        with contextlib.suppress(oidc.ProviderUnavailableError, AttributeError):
+            end_session = _provider().end_session_url(
+                redirect_uri=str(request.base_url).rstrip("/") + "/auth/login"
+            )
+            target = end_session or target
+        response = RedirectResponse(target, status_code=SEE_OTHER)
         response.delete_cookie(auth.SESSION_COOKIE, path="/")
         return response
 

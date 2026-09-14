@@ -181,7 +181,9 @@ A realm for development, in five steps (about three minutes):
    and `KEYCLOAK_ADMIN_PASSWORD` set in your shell.
 2. In the admin console at http://localhost:8080, create a realm `sanad`.
 3. Create a client `sanad`: client authentication ON, standard flow ON,
-   valid redirect URI `http://127.0.0.1:8000/auth/callback`.
+   valid redirect URI `http://127.0.0.1:8000/auth/callback`, and valid
+   POST LOGOUT redirect URI `http://127.0.0.1:8000/auth/login` (without
+   that second one Keycloak answers 400 when you sign out).
 4. Realm roles: `sanad-admin`, `sanad-curator`, `sanad-reader`. Create a
    user and assign one.
 5. Put the client's secret in `.env` as `KEYCLOAK_CLIENT_SECRET`, with

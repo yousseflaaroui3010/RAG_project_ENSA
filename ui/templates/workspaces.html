@@ -45,10 +45,12 @@
           </li>
         {% endfor %}
       </ul>
-      <details class="ws-list__new">
-        <summary>{{ t('ws.list.new') }}</summary>
-        {% include "_workspace_create_form.html" %}
-      </details>
+      {% if may_manage_workspaces %}
+        <details class="ws-list__new">
+          <summary>{{ t('ws.list.new') }}</summary>
+          {% include "_workspace_create_form.html" %}
+        </details>
+      {% endif %}
     </aside>
 
     {% include "_workspace_detail.html" %}
