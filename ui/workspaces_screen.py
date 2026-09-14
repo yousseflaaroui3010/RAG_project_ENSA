@@ -70,6 +70,10 @@ class FileRow:
     shape: str
     status_label: str
     reason: str
+    # S6: the file is on disk with a supported extension, so the table
+    # offers Download and Remove for it. A Removed row, or a file that
+    # vanished since the Sync, has nothing to download.
+    downloadable: bool = False
 
 
 def capacity_warning(*, folder_path: str, documents: list[Any]) -> str | None:
@@ -150,6 +154,11 @@ def file_rows(*, folder_path: str, items: list[sqlite3.Row]) -> list[FileRow]:
                 shape=shape,
                 status_label=label,
                 reason=item["reason"] or "",
+                downloadable=(
+                    size_bytes is not None
+                    and Path(item["file_name"]).suffix.lstrip(".").lower()
+                    in get_settings().supported_document_extensions
+                ),
             )
         )
     return rows

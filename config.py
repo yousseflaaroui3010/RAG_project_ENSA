@@ -200,6 +200,11 @@ class Settings(BaseSettings):
         "md",
         "pptx",
     )
+    # S6 browser upload: the largest single document accepted, in bytes.
+    # Checked against the declared length AND the bytes actually received
+    # (ui/documents.py), so a client that lies about its size still stops
+    # here. 50 MB covers a long scanned PDF with room to spare.
+    upload_max_bytes: int = 50 * 1024 * 1024
     # Bytes read per hashing iteration. Files are hashed incrementally so a
     # 500 MB PDF never lands in memory whole.
     hash_read_chunk_bytes: int = 1024 * 1024

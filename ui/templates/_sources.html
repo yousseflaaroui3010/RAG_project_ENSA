@@ -43,6 +43,9 @@
             {% endif %}
             <span class="source__action">{{ t('sources.open') }}<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span>
           </a>
+          {# S6: the whole original file, as an attachment. #}
+          <a class="source__download"
+             href="/workspaces/{{ workspace_id }}/documents/{{ card.file_name | urlencode }}">{{ t('sources.download') }}</a>
         </li>
       {% endfor %}
     </ul>

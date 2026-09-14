@@ -118,6 +118,40 @@ MESSAGES: dict[str, str] = {
     "sources.title": "Sources ({count})",
     "sources.open": "Ouvrir l’extrait",
     "sources.close": "Fermer",
+    "docs.title": "Documents",
+    "docs.drop.title": "Déposez vos documents ici",
+    "docs.drop.hint": (
+        "PDF, DOCX, PPTX, TXT ou MD, jusqu’à {size}. La synchronisation démarre ensuite "
+        "toute seule."
+    ),
+    "docs.drop.choose": "Choisir des fichiers",
+    "docs.upload.sending": "Envoi de {name}…",
+    "docs.upload.saved": "{name} ajouté.",
+    "docs.upload.replaced": "{name} remplacé.",
+    "docs.upload.failed": "{name} : {reason}",
+    "docs.upload.syncing": "Synchronisation lancée.",
+    "docs.error.name": "ce nom de fichier n’est pas utilisable.",
+    "docs.error.type": "type non pris en charge (acceptés : {types}).",
+    "docs.error.size": "{name} dépasse la taille maximale.",
+    "docs.error.empty": "{name} est vide.",
+    "docs.error.missing": "Aucun document nommé {name} dans cet espace.",
+    "docs.error.folder": "le dossier de l’espace est introuvable.",
+    "docs.error.evidence": "cette instance publiée est en lecture seule.",
+    "docs.error.workspace": "cet espace n’existe plus.",
+    "docs.download": "Télécharger",
+    "docs.download_aria": "Télécharger {name}",
+    "docs.delete": "Retirer",
+    "docs.delete_aria": "Retirer {name} du dossier",
+    "docs.del.title_html": "Retirer <bdi>{name}</bdi> ?",
+    "docs.del.body": (
+        "Le fichier est supprimé du dossier de l’espace sur le disque. La "
+        "synchronisation qui suit le retire des réponses."
+    ),
+    "docs.del.yes": "Oui, retirer ce document",
+    "docs.del.cancel": "Annuler, garder ce document",
+    "docs.removed": "{name} a été retiré du dossier.",
+    "files.col.actions": "Actions",
+    "sources.download": "Télécharger l’original",
     "passage.not_located": (
         "Affichage de la section entière. Sanad n’a pas pu repérer précisément le passage "
         "retrouvé : rien n’est donc surligné comme texte cité."

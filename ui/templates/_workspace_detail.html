@@ -63,6 +63,35 @@
          data-delete-trigger>{{ t('ws.detail.delete') }}</a>
     </details>
 
+    {% if removed_name %}
+      <p class="notice" role="status">{{ t('docs.removed', name=removed_name) }}</p>
+    {% endif %}
+    {% if doc_error %}
+      <p class="notice" role="status">{{ t(doc_error, name='', types=upload_accept) }}</p>
+    {% endif %}
+
+    {% if uploads_enabled and not running %}
+      {#
+        S6 upload (CR-03). HIDDEN UNTIL sanad.js REVEALS IT: sending a file
+        needs the script (raw body, see app.py::upload_document_route), and
+        a drop zone that does nothing with scripting off would be a dead
+        control. The files land in the workspace folder shown above; the
+        Sync the script starts afterwards is the ordinary Sync.
+      #}
+      <section class="dropzone" hidden data-dropzone
+               data-upload-url="/workspaces/{{ selected.id }}/documents"
+               aria-labelledby="dropzone-title">
+        <svg class="icon dropzone__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>
+        <p class="dropzone__title" id="dropzone-title">{{ t('docs.drop.title') }}</p>
+        <p class="muted">{{ t('docs.drop.hint', size=upload_max_mb ~ ' MB') }}</p>
+        <label class="btn btn--quiet dropzone__choose">
+          {{ t('docs.drop.choose') }}
+          <input class="dropzone__input" type="file" multiple accept="{{ upload_accept }}" data-upload-input>
+        </label>
+        <ul class="dropzone__status" aria-live="polite" data-upload-status></ul>
+      </section>
+    {% endif %}
+
     <div class="ws-sync">
       {% if sync_blocked %}
         {# F-02 / UX spec 7.3: "blocked with a message stating the first
