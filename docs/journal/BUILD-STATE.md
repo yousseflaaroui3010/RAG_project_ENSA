@@ -1,6 +1,50 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-15, POST-RELEASE FIXES (read this block first; older headers below are history)
+## STATE AT 2026-09-15, v3 FEATURE-COMPLETE ON MAIN (read this block first; older headers below are history)
+
+**Everything built is on `main` and live.** Merged 2026-09-15, each after a cold
+review with its findings fixed and CI green, each with an explicit clean merge
+message (no attribution line):
+- #129 `f2648b5` document readers warmed at start-up; a flaky S2 test fixed.
+- #130 `58508c5` reader hint, activity log names (username with the stored id),
+  admin page header listing real workspaces.
+- #131 `dae6f5e` known issues corrected, accessibility evidence, journal.
+- #132 `851460f` login-free header names nobody, inline tab icon (0 requests for
+  /favicon.ico), phone notice is the main landmark (Lighthouse 100 at phone
+  width, was 98).
+- #133 `9514165` saved chat history per person: survives a restart, expires
+  after CHAT_HISTORY_RETENTION_DAYS (default 30, max 3650), "Delete my saved
+  history" behind a confirmation page, deleted on admin sign-out-everywhere
+  and on admin revoke. Three cold reviews; the one that mattered reproduced a
+  deleted transcript being written back by a save in flight, fixed by dropping
+  the in-memory conversation inside the person lock. Personal-data owner under
+  law 09-08: YL (DECISIONS 2026-09-15).
+
+**Proof on `main`:** CI full suite green at `758437a` (tree identical to
+`9514165`); locally 1264 passed on the saved-history branch before its final
+simplification, 21 saved-history unit tests after it; ruff clean. Railway
+deploy `5ef981be` SUCCESS: health 200 version 3.0.0, `/`, `/workspaces`,
+`/admin`, `/reports`, `/api/v1/workspaces` all 401 without the password.
+
+**Decided, not yet executed: a rewrite of the repository history** (DECISIONS
+2026-09-15). All branches and tags; tooling configuration files removed from
+every commit, commit messages normalised to rule 4, the phase2 rules file and
+the changelog renamed. Proven on a copy: zero matches for the removed names in
+messages, paths and file contents, and the full suite passes on the rewritten
+code (1202 at the copy's point in history). Waiting on the session's permission
+mode being switched out of Auto, because the safety check refuses history
+rewrites and force-pushes there. A full backup of every branch, tag and PR ref
+is at `C:\sanad-backup` on YL's machine. AFTER IT LANDS, MB must take a fresh
+clone; the old one cannot be pulled.
+
+**Still human-only:** a hand-run of sign-in and sign-out from the team's own
+account (YL: skipped for now); the six ST-38 screen-reader rows (the automated
+audit in docs/evidence/ST-38/lighthouse-2026-09-15.md does not replace them);
+10 rehearsals and a backup video; the mock defense.
+
+---
+
+## STATE AT 2026-09-15, POST-RELEASE FIXES (history now)
 
 **Merged 2026-09-15, in order:** #129 document reader warm-up (`f2648b5`) and
 #130 the ST-38 reader hint / log names / admin header fix (`58508c5`), each after
