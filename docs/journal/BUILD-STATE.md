@@ -2,15 +2,16 @@
 
 ## STATE AT 2026-09-15, POST-RELEASE FIXES (read this block first; older headers below are history)
 
-**Open PRs, merge in THIS order:** #129 document reader warm-up (cold review
-done, its 3 findings fixed; full suite 1198 passed; CI green); #130 the ST-38
-reader hint / log names / admin header fix (cold review done, its 4 findings
-fixed; full suite 1198 passed; CI green); then the docs PR carrying this block
-(cold review done, its 2 blocking and 4 worth-fixing findings fixed). The docs
-PR describes code from #129 and #130, so it merges LAST. WAITING ON A HUMAN
-"merge" in the session that merges them (approval does not carry across
-sessions). Merge each with an explicit clean `--subject`/`--body`: the default
-squash message copies commit trailers onto `main`.
+**Merged 2026-09-15, in order:** #129 document reader warm-up (`f2648b5`) and
+#130 the ST-38 reader hint / log names / admin header fix (`58508c5`), each after
+a cold review with its findings fixed and CI green; then #131, the docs PR
+carrying this block (cold review: 2 blocking and 4 worth fixing, all fixed).
+Combined code on `main` at `58508c5`: full suite 1202 passed, 2 skipped,
+1 xfailed; ruff clean. Railway deploy `dd974708` SUCCESS: clean start, no
+warm-up (evidence-only), health 200 version 3.0.0, `/`, `/workspaces`,
+`/admin`, `/reports`, `/api/v1/workspaces` all 401 without the password. Each
+merge used an explicit clean `--subject`/`--body`, because the default squash
+message copies commit trailers onto `main`; neither merge commit carries one.
 
 **Checked in a real browser, 2026-09-15, on scratch accounts (not the team's
 own):** login, roles and grants against a real Keycloak 26.4 in Docker. A reader with nothing granted sees no workspace
