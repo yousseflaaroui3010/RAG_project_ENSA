@@ -61,8 +61,12 @@ class FakeProvider:
         self.claims = ADMIN_CLAIMS
         self.active = True
         self.codes: list[str] = []
+        self.ui_locales: str | None = None
 
-    def authorization_url(self, *, state: str, nonce: str, redirect_uri: str) -> str:
+    def authorization_url(
+        self, *, state: str, nonce: str, redirect_uri: str, ui_locales: str = ""
+    ) -> str:
+        self.ui_locales = ui_locales
         return f"https://keycloak.test/realms/sanad/auth?state={state}&nonce={nonce}"
 
     def exchange_code(self, *, code: str, redirect_uri: str) -> dict:
@@ -72,7 +76,8 @@ class FakeProvider:
     def introspect(self, access_token: str) -> dict:
         return {**self.claims, "active": self.active}
 
-    def end_session_url(self, *, redirect_uri: str) -> str:
+    def end_session_url(self, *, redirect_uri: str, ui_locales: str = "") -> str:
+        self.logout_ui_locales = ui_locales
         return f"https://keycloak.test/realms/sanad/logout?redirect={redirect_uri}"
 
 
@@ -150,6 +155,31 @@ def test_sign_in_sends_the_browser_to_keycloak_with_a_state_and_remembers_it(key
     assert query["state"][0] and query["nonce"][0]
     assert auth.FLOW_COOKIE in response.cookies
     assert query["state"][0] in response.cookies[auth.FLOW_COOKIE]
+
+
+def test_sign_in_and_sign_up_pages_open_in_the_language_sanad_is_showing(keycloak):
+    """2026-09-15: a visitor reading Sanad in French got Keycloak's sign-in
+    and sign-up pages in English (Keycloak follows the browser). The
+    language chosen in Sanad now travels with the redirect."""
+    client, _, _, provider, _ = keycloak
+
+    client.get("/auth/login?lang=ar", follow_redirects=False)
+    arabic = provider.ui_locales
+    client.cookies.clear()
+    client.get("/auth/login?lang=en", follow_redirects=False)
+    english = provider.ui_locales
+
+    assert (arabic, english) == ("ar", "en")
+
+
+def test_sign_out_confirmation_opens_in_the_language_sanad_is_showing(keycloak):
+    client, _, _, provider, sign_in = keycloak
+    sign_in(ADMIN_CLAIMS)
+    client.get("/?lang=ar", follow_redirects=False)
+
+    client.post("/auth/logout", follow_redirects=False)
+
+    assert provider.logout_ui_locales == "ar"
 
 
 def test_a_callback_with_the_wrong_state_is_refused_and_no_session_is_written(keycloak):

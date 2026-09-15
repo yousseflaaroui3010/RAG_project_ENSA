@@ -41,9 +41,62 @@ def _client() -> dict:
 def test_realm_defines_exactly_the_three_roles_the_code_reads():
     defaults = Settings()
     expected = {f"{defaults.auth_role_prefix}{role}" for role in auth.ROLES}
+    names = {r["name"] for r in REALM["roles"]["realm"]}
 
-    assert {r["name"] for r in REALM["roles"]["realm"]} == expected
+    sanad_roles = {n for n in names if n.startswith(defaults.auth_role_prefix)}
+    assert sanad_roles == expected
+    # Keycloak's own roles are listed too, and must be: once a realm file
+    # lists roles, import does not create these before resolving the
+    # default role's composites ("Unable to find composite realm role:
+    # uma_authorization", 2026-09-15).
+    assert names - sanad_roles == {"offline_access", "uma_authorization", "default-roles-sanad"}
     assert all(r.get("description") for r in REALM["roles"]["realm"])
+
+
+def test_anyone_can_sign_up_and_arrives_as_a_reader_who_sees_nothing_yet():
+    """YL asked for sign-up, not only sign-in (2026-09-15). A person who
+    signs up gets the reader role and nothing more: a reader sees no
+    workspace until an administrator grants one (verified in a browser on
+    the demo), so an open door on a public site opens onto an empty room."""
+    defaults = Settings()
+    assert REALM["registrationAllowed"] is True
+
+    default_role = next(r for r in REALM["roles"]["realm"] if r["name"] == "default-roles-sanad")
+    granted = set(default_role["composites"]["realm"])
+    assert f"{defaults.auth_role_prefix}reader" in granted
+    assert f"{defaults.auth_role_prefix}admin" not in granted
+    assert f"{defaults.auth_role_prefix}curator" not in granted
+
+
+def test_the_default_role_is_defined_where_keycloak_actually_reads_it():
+    """2026-09-15, found only by signing up in a browser: composites written
+    INSIDE `defaultRole` are silently ignored on import. The realm imported
+    without error, the file said "reader", and the new person arrived with
+    no role at all. They take effect only on the role's own entry in
+    `roles.realm`, which is the shape Keycloak's own export uses."""
+    assert REALM["defaultRole"] == {"name": "default-roles-sanad"}
+
+
+def test_sign_up_needs_no_mail_server_and_refuses_weak_passwords():
+    """No outgoing mail: sending email is a stop-and-ask action on this
+    project and there is no mail server, so email verification would lock
+    every new person out. The password rule is the guard that remains."""
+    assert REALM["verifyEmail"] is False
+    policy = REALM["passwordPolicy"]
+    length = int(re.search(r"length\((\d+)\)", policy).group(1))
+    assert length >= 10
+    assert "notUsername" in policy
+    assert REALM["bruteForceProtected"] is True
+
+
+def test_keycloak_pages_offer_exactly_the_languages_sanad_speaks():
+    from ui.i18n import SUPPORTED
+
+    assert REALM["internationalizationEnabled"] is True
+    assert set(REALM["supportedLocales"]) == set(SUPPORTED)
+    # The DECLARED default, not Settings(): the test environment switches the
+    # interface to English on purpose, and the realm follows the product.
+    assert REALM["defaultLocale"] == Settings.model_fields["default_ui_language"].default
 
 
 def test_client_is_confidential_and_matches_the_configured_callback():
