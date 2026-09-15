@@ -916,6 +916,88 @@ def test_a_new_conversation_clears_the_transcript(sanad):
     assert "Every answer carries the sources it was written from." in page
 
 
+# --- ST-51: chat history persisted across a restart (law 09-08) -------
+
+
+def test_a_settled_answer_survives_a_real_restart(sanad):
+    """The literal exit-gate proof, end to end through the real app: a
+    fresh `Runtime` (and a fresh `TestClient` around it) sharing only the
+    database file sees the same answer, source card included -- not just
+    the raw JSON round trip the unit tests already cover."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+
+    restarted_client, restarted_runtime = build()
+    page = restarted_client.get("/").text
+
+    assert restarted_runtime is not runtime
+    assert WRITTEN_ANSWER in _visible(page)
+    assert SOURCE_FILE in page
+
+
+def test_new_conversation_deletes_only_that_workspaces_stored_row(sanad):
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    with repo.session(db_path) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
+                (workspace.id,),
+            ).fetchone()[0]
+            == 1
+        )
+
+    client.post("/chat/new", follow_redirects=False)
+
+    with repo.session(db_path) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
+                (workspace.id,),
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_a_get_on_delete_history_never_deletes_anything(sanad):
+    """UX spec 5/7.2: the confirmation page is a real GET, and a GET must
+    never be the thing that deletes -- only the form's POST does."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+
+    page = client.get("/chat/history/delete")
+
+    assert page.status_code == 200
+    with repo.session(db_path) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
+                (workspace.id,),
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_deleting_my_history_removes_every_workspace_for_that_person(sanad):
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+
+    response = client.post("/chat/history/delete", follow_redirects=False)
+
+    assert response.status_code == 303
+    with repo.session(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 0
+    assert f"local|{workspace.id}" not in runtime.conversations
+
+
 # --- the shell (UX spec 4) -------------------------------------------
 
 

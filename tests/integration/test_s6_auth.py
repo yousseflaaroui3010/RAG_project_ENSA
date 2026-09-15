@@ -26,6 +26,7 @@ from app import Runtime, create_app
 from config import get_settings
 from db import repo
 from ui import auth
+from ui.conversation import Message, MessageKind
 
 ADMIN_CLAIMS = {
     "sub": "kc-admin",
@@ -418,6 +419,37 @@ def test_signing_out_forgets_that_person_transcript(keycloak):
     client.post("/auth/logout", follow_redirects=False)
 
     assert not any(key.startswith("kc-reader|") for key in runtime.conversations)
+
+
+def test_signing_out_keeps_the_stored_transcript_for_next_time(keycloak):
+    """ST-51: ordinary sign-out clears MEMORY (proven above) but must
+    leave storage alone -- that is the whole point of a stored transcript,
+    it comes back at the next sign-in, unlike admin "sign out everywhere"
+    (test_s6_admin.py), which deletes both."""
+    client, runtime, db_path, _, sign_in = keycloak
+    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(READER_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
+    conversation = runtime.conversation(ws.id, "kc-reader")
+    conversation.messages.append(Message(kind=MessageKind.ANSWER, text="reader's answer"))
+    runtime.save_conversation("kc-reader", conversation)
+
+    client.post("/auth/logout", follow_redirects=False)
+
+    with repo.session(db_path) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history WHERE user_id = 'kc-reader'"
+            ).fetchone()[0]
+            == 1
+        )
+
+    sign_in(READER_CLAIMS)
+    restored = runtime.conversation(ws.id, "kc-reader")
+    assert [m.text for m in restored.messages] == ["reader's answer"], (
+        "the transcript must reload from storage at the next sign-in"
+    )
 
 
 def test_a_reader_is_offered_no_control_they_may_not_use(keycloak):

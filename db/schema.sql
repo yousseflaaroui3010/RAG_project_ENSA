@@ -171,3 +171,23 @@ CREATE TABLE IF NOT EXISTS activity_event (
   detail         TEXT,
   created_at     TEXT    NOT NULL
 );
+
+-- ST-51 (law 09-08): one person's stored chat transcript for one
+-- workspace, surviving a server restart. `user_id` is NOT a foreign key
+-- to app_user -- the login-free modes key every conversation "local"
+-- (app.py Runtime.conversation), and that literal is never a row in
+-- app_user. `payload` is the whole transcript (messages, summary, turns,
+-- session_id -- never the in-flight `run` or `pending_clarification`) as
+-- one JSON blob: see ui/conversation.py's Conversation.to_payload /
+-- from_payload for the exact shape. `workspace_id` cascades on purpose,
+-- the same as every other workspace-derived row (PRD F-01): deleting a
+-- workspace takes its stored transcripts with it. `updated_at` is what
+-- `db/repo.py`'s retention sweep compares against
+-- `chat_history_retention_days` (config.py).
+CREATE TABLE IF NOT EXISTS chat_history (
+  user_id        TEXT    NOT NULL,
+  workspace_id   TEXT    NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  payload        TEXT    NOT NULL,
+  updated_at     TEXT    NOT NULL,
+  PRIMARY KEY (user_id, workspace_id)
+);

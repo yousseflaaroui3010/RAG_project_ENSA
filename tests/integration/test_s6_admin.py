@@ -15,6 +15,7 @@ from tests.integration.test_s6_auth import (  # noqa: F401 -- the fixture
     keycloak,
 )
 from ui import admin_screen, auth
+from ui.conversation import Message, MessageKind
 
 
 def _actions(db_path) -> list[str]:
@@ -144,6 +145,40 @@ def test_signing_a_person_out_everywhere_ends_their_session(keycloak):  # noqa: 
         assert repo.get_session(conn, auth.hash_token(reader_cookie)) is None
     assert not any(key.startswith("kc-reader|") for key in runtime.conversations)
     assert "signed a person out everywhere" in _actions(db_path)
+
+
+def test_signing_a_person_out_everywhere_also_deletes_their_stored_history(keycloak):  # noqa: F811
+    """ST-51, law 09-08: admin "sign out everywhere" is the answer to
+    "take this person's data out of the running process" -- their stored
+    transcripts must go too, in every workspace, and nobody else's row
+    may be touched."""
+    client, runtime, db_path, _, sign_in = keycloak
+    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(READER_CLAIMS)
+    reader_conversation = runtime.conversation(ws.id, "kc-reader")
+    reader_conversation.messages.append(Message(kind=MessageKind.ANSWER, text="reader's answer"))
+    runtime.save_conversation("kc-reader", reader_conversation)
+    sign_in(CURATOR_CLAIMS)
+    curator_conversation = runtime.conversation(ws.id, "kc-curator")
+    curator_conversation.messages.append(Message(kind=MessageKind.ANSWER, text="curator's answer"))
+    runtime.save_conversation("kc-curator", curator_conversation)
+    sign_in(ADMIN_CLAIMS)
+
+    client.post("/admin/people/kc-reader/sign-out", follow_redirects=False)
+
+    with repo.session(db_path) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history WHERE user_id = 'kc-reader'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history WHERE user_id = 'kc-curator'"
+            ).fetchone()[0]
+            == 1
+        ), "another person's stored history must survive"
 
 
 def test_the_activity_log_shows_what_was_done_and_never_a_question(keycloak):  # noqa: F811

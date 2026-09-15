@@ -22,13 +22,20 @@ from agent.state import Answer, AnswerKind, Source, Turn
 from agent.trace import StepKind, Trace, TraceStep
 from ui.conversation import (
     Conversation,
+    ErrorDetail,
+    Message,
     MessageKind,
+    Passage,
+    Segment,
+    SourceCard,
     UncitableSourceError,
     error_message,
     merge_spans,
     message_for,
+    route_proposal_message,
     segments_for,
 )
+from ui.routing import RouteCandidate
 from ui.runs import Run, RunCancelled, Stage
 from vector_store import SearchHit
 
@@ -712,15 +719,24 @@ def test_a_finished_run_must_be_saved_before_the_next_question_can_replace_it():
 def test_settling_twice_does_not_double_the_transcript():
     """Every render calls `settle`, and the page is rendered on the poll,
     on the redirect and on a refresh. A second call must be a no-op or one
-    answer appears three times."""
+    answer appears three times.
+
+    Also pins ST-51's contract: `settle()` returns True exactly once, the
+    call that actually folds the run in -- `app.py::_context` saves to
+    storage only on a True, or every poll tick would write for nothing
+    changed."""
     conversation = Conversation(workspace_id="ws-1")
     run = _run()
     run.fail(RuntimeError("boom"))
     conversation.run = run
-    conversation.settle()
-    conversation.settle()
-    conversation.settle()
+    assert conversation.settle() is True
+    assert conversation.settle() is False
+    assert conversation.settle() is False
     assert len(conversation.messages) == 1
+
+
+def test_settle_with_no_run_at_all_returns_false():
+    assert Conversation(workspace_id="ws-1").settle() is False
 
 
 def test_a_new_conversation_drops_the_session_so_memory_starts_clean():
@@ -738,3 +754,143 @@ def test_a_new_conversation_drops_the_session_so_memory_starts_clean():
     assert conversation.session_id is None
     assert conversation.run is None
     assert abandoned.cancelled is True
+
+
+# --- ST-51 serialization (law 09-08 persisted chat history) ---------------
+
+
+def _full_message() -> Message:
+    """One Message exercising every field, including the ones only F-12
+    and F-15 ever populate together in one object -- serialization must
+    not care that this particular combination never happens live."""
+    return Message(
+        kind=MessageKind.ANSWER,
+        text="La periode d'essai est de trois mois.",
+        sources=(
+            SourceCard(
+                index=0,
+                file_name=FILE,
+                section_label=LABEL,
+                passages=(
+                    Passage(
+                        file_name=FILE,
+                        section_label=LABEL,
+                        segments=(
+                            Segment(text="La periode d'essai ", cited=False),
+                            Segment(text="est de trois mois", cited=True),
+                        ),
+                        highlighted=True,
+                    ),
+                ),
+            ),
+        ),
+        searched=("periode d'essai",),
+        files_consulted=(FILE,),
+        retries=1,
+        disclaimer=True,
+        error=ErrorDetail(
+            sentence="Sanad could not answer this question.",
+            attempted="Asked: x",
+            value="RuntimeError: boom",
+            hint="Check the model settings.",
+        ),
+        choices=("Oui", "Non"),
+        has_trace=True,
+        route_question="Quelle est la duree ?",
+        route_candidates=(RouteCandidate(workspace_id="ws-2", name="HR", score=0.9),),
+        id="fixed-id-123",
+        partial=True,
+    )
+
+
+def test_message_round_trips_through_to_dict_from_dict():
+    original = _full_message()
+    assert Message.from_dict(original.to_dict()) == original
+
+
+def test_message_round_trip_survives_a_real_json_hop():
+    """`to_dict` alone proves nothing about what actually gets stored --
+    ST-51 writes `json.dumps(...)` and reads back `json.loads(...)`, and
+    that hop is where a tuple silently becomes a list or an enum member
+    silently becomes a plain string. Round-tripping through real JSON is
+    the only way either would show up."""
+    import json
+
+    original = _full_message()
+    restored = Message.from_dict(json.loads(json.dumps(original.to_dict())))
+    assert restored == original
+
+
+def test_message_from_dict_rejects_an_unknown_kind():
+    """A payload written by a future version with a fifth MessageKind must
+    not be silently misrendered as today's first variant -- it must be
+    treated as corrupt (the caller in app.py starts an empty conversation
+    instead)."""
+    data = _full_message().to_dict()
+    data["kind"] = "not-a-real-kind"
+    with pytest.raises(ValueError):
+        Message.from_dict(data)
+
+
+def test_message_from_dict_raises_on_a_missing_id():
+    """`id` is F-15's feedback key and has no safe default: a regenerated
+    id would silently disconnect a stored verdict from its answer."""
+    data = _full_message().to_dict()
+    del data["id"]
+    with pytest.raises(KeyError):
+        Message.from_dict(data)
+
+
+def test_route_proposal_message_round_trips_too():
+    """`route_proposal_message`'s empty-candidates shape (F-12: no
+    workspace matched) is a different code path through `to_dict` than
+    `_full_message`'s populated one -- both must round-trip."""
+    empty = route_proposal_message("q", [])
+    assert Message.from_dict(empty.to_dict()) == empty
+
+    populated = route_proposal_message(
+        "q", [RouteCandidate(workspace_id="ws-3", name="Legal", score=0.5)]
+    )
+    assert Message.from_dict(populated.to_dict()) == populated
+
+
+def test_conversation_payload_round_trips_messages_summary_turns_session():
+    conversation = Conversation(workspace_id="ws-1")
+    conversation.run = _finished()
+    assert conversation.settle() is True
+    conversation.summary = "compact summary"
+
+    restored = Conversation.from_payload("ws-1", conversation.to_payload())
+
+    assert restored.session_id == conversation.session_id
+    assert restored.summary == "compact summary"
+    assert restored.turns == conversation.turns
+    assert restored.turns != []  # settle() folded a real ANSWER turn in
+    assert restored.messages == conversation.messages
+    assert restored.run is None
+    assert restored.pending_clarification is None
+
+
+def test_conversation_payload_never_carries_run_or_pending_clarification():
+    """The two fields the task explicitly excludes: neither name may
+    appear in the stored payload at all, not merely be empty."""
+    conversation = Conversation(workspace_id="ws-1")
+    conversation.run = _run()
+    conversation.pending_clarification = ClarificationContext(
+        original="q", asked="which one?"
+    )
+
+    payload = conversation.to_payload()
+
+    assert "run" not in payload
+    assert "pending_clarification" not in payload
+
+
+def test_conversation_from_payload_raises_on_a_missing_messages_key():
+    """A payload with no `messages` key at all (a hand-corrupted row, or a
+    future format change) must raise rather than silently render an empty
+    transcript that looks like a fresh conversation -- the caller in
+    app.py is what decides to fall back to empty, and it must actually
+    see the failure to do that."""
+    with pytest.raises(KeyError):
+        Conversation.from_payload("ws-1", {"summary": "", "turns": []})

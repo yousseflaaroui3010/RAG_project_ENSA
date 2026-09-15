@@ -28,6 +28,7 @@ import contextlib
 import functools
 import hashlib
 import hmac
+import json
 import logging
 import secrets
 import sqlite3
@@ -392,19 +393,99 @@ class Runtime:
         signed in to one server must never see each other's transcript,
         and a shared key is how they would. The separator cannot appear in
         either half (both are UUIDs or the literal "local", and F-12's
-        sentinel), so two different pairs cannot collide on one key."""
+        sentinel), so two different pairs cannot collide on one key.
+
+        ST-51: on a cache miss this now LOADS whatever was stored for this
+        exact (person, workspace) pair rather than always starting empty --
+        the law 09-08 ruling that a person's transcript survives a
+        restart. Loaded once per process per key; every later call this
+        process makes for the same key returns the same in-memory object,
+        exactly as before this story."""
         key = f"{user_id}|{workspace_id}"
         existing = self.conversations.get(key)
         if existing is None:
-            existing = Conversation(workspace_id=workspace_id)
+            existing = self._load_conversation(user_id, workspace_id)
             self.conversations[key] = existing
         return existing
 
+    def _load_conversation(self, user_id: str, workspace_id: str) -> Conversation:
+        """`conversation`'s cache-miss path: the stored row for this key,
+        or a fresh empty `Conversation` when there is none, retention is 0,
+        the row has expired, or the payload cannot be read.
+
+        A corrupt or unreadable payload (bad JSON, an unknown enum value --
+        `Conversation.from_payload` raises on either) must not crash the
+        chat screen (task rule): caught here, logged as one line naming
+        only the workspace and the exception TYPE -- never the payload
+        itself, which could hold a question or an answer (core law: never
+        log a full request body)."""
+        with repo.session(self.db_path) as conn:
+            payload = repo.load_chat_history(
+                conn,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                retention_days=get_settings().chat_history_retention_days,
+            )
+        if payload is None:
+            return Conversation(workspace_id=workspace_id)
+        try:
+            return Conversation.from_payload(workspace_id, json.loads(payload))
+        except Exception as exc:  # noqa: BLE001 -- logged, never left silent
+            logger.warning(
+                "stored chat history for workspace %s is unreadable (%s); "
+                "starting an empty conversation",
+                workspace_id,
+                type(exc).__name__,
+            )
+            return Conversation(workspace_id=workspace_id)
+
+    def save_conversation(self, user_id: str, conversation: Conversation) -> None:
+        """Persist one settled transcript (ST-51). Called only when
+        `Conversation.settle()` just returned True, from `_context`, so
+        this never runs on a no-op render or the 700ms poll's common case
+        of nothing having changed.
+
+        `retention_days <= 0` is handled entirely inside
+        `repo.save_chat_history`: it deletes instead of storing, which is
+        what makes "0 = keep nothing" true rather than merely "keep it for
+        an instant"."""
+        with repo.session(self.db_path) as conn:
+            repo.save_chat_history(
+                conn,
+                user_id=user_id,
+                workspace_id=conversation.workspace_id,
+                payload=json.dumps(conversation.to_payload()),
+                retention_days=get_settings().chat_history_retention_days,
+            )
+
+    def delete_conversation_storage(self, user_id: str, workspace_id: str) -> None:
+        """`/chat/new`: New conversation also drops the stored row for
+        just this one (person, workspace) pair, not this person's other
+        workspaces."""
+        with repo.session(self.db_path) as conn:
+            repo.delete_chat_history(conn, user_id=user_id, workspace_id=workspace_id)
+
     def forget_conversations(self, user_id: str) -> None:
-        """Drop every transcript belonging to one person (sign-out)."""
+        """Drop every IN-MEMORY transcript belonging to one person
+        (ordinary sign-out). Storage is untouched on purpose -- that is
+        the point of an ordinary sign-out: the transcript comes back at
+        the next sign-in. See `delete_all_history` for the law 09-08
+        control that removes the stored copy too."""
         prefix = f"{user_id}|"
         for key in [k for k in self.conversations if k.startswith(prefix)]:
             self.conversations.pop(key, None)
+
+    def delete_all_history(self, user_id: str) -> None:
+        """Law 09-08: every stored conversation this person has, in every
+        workspace, gone -- plus their in-memory transcripts, so nothing of
+        theirs is left in the running process either. Used by the
+        person's own "Delete my saved history" control (`/chat/history/
+        delete`) and by admin "sign out everywhere" (`admin_sign_out_route`),
+        the two places this project has ruled a person's data must be
+        taken out."""
+        with repo.session(self.db_path) as conn:
+            repo.delete_chat_history_for_user(conn, user_id=user_id)
+        self.forget_conversations(user_id)
 
 
 def _signed_in_as(request: Request) -> auth.Principal | None:
@@ -641,10 +722,20 @@ def _context(runtime: Runtime, request: Request) -> dict:
     if active is not None:
         documents = screen.answerable_documents(active.id, db_path=runtime.db_path)
         conversation = runtime.conversation(active.id, principal.id)
-        conversation.settle()
+        # ST-51: persist only when settle() actually folded a finished run
+        # into the transcript, not on every render -- this function also
+        # runs on the 700ms poll while the page is open.
+        if conversation.settle():
+            runtime.save_conversation(principal.id, conversation)
     elif is_routing:
         conversation = runtime.conversation(screen.ROUTE_SENTINEL, principal.id)
-        conversation.settle()
+        # The routing sentinel conversation never gets a real `Run`
+        # (`_start_routing` calls `begin_route`, never `begin`), so
+        # `settle()` is always a no-op here -- never persisted, and there
+        # is nothing FK-safe to persist it against (ROUTE_SENTINEL is not
+        # a real workspace id).
+        if conversation.settle():
+            runtime.save_conversation(principal.id, conversation)
     state = screen.state_for(
         options=options,
         documents=documents,
@@ -1056,6 +1147,18 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 recovered.evaluation_runs,
             )
 
+        # ST-51 (law 09-08): sweep stored chat history past its retention
+        # window at every start-up, not only when a row happens to be
+        # loaded again -- a workspace nobody reopens must not keep its
+        # transcript past `chat_history_retention_days` just because
+        # nothing ever read it.
+        with repo.session(runtime.db_path) as conn:
+            swept = repo.sweep_expired_chat_history(
+                conn, retention_days=get_settings().chat_history_retention_days
+            )
+        if swept:
+            logger.warning("swept %s expired chat history row(s)", swept)
+
         # ST-39: on the real server only (see `Runtime.warm_up`), load both
         # search encoders, then the document readers, on a background thread
         # now rather than paying for them on the first real question or
@@ -1413,7 +1516,8 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/admin/people/{user_id}/sign-out")
     def admin_sign_out_route(request: Request, user_id: str) -> Response:
-        """End every session this person has, and drop their transcripts.
+        """End every session this person has, and drop their transcripts,
+        in memory AND stored (ST-51).
 
         Also the law 09-08 answer for "take this person's data out of the
         running process": what is left afterwards is their account row and
@@ -1422,7 +1526,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             return _refuse_action(runtime, request)
         with repo.session(runtime.db_path) as conn:
             repo.delete_sessions_for_user(conn, user_id)
-        runtime.forget_conversations(user_id)
+        runtime.delete_all_history(user_id)
         _log_activity(runtime, request, admin_screen.SIGNED_OUT_EVERYWHERE, detail=user_id)
         return RedirectResponse("/admin", status_code=SEE_OTHER)
 
@@ -1461,7 +1565,32 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     def new_conversation(request: Request) -> Response:
         key = _conversation_key(runtime, request)
         if key is not None:
-            runtime.conversation(key, principal_of(request).id).reset()
+            principal_id = principal_of(request).id
+            runtime.conversation(key, principal_id).reset()
+            # ST-51: a new conversation also drops the stored row for this
+            # one workspace, so it is not silently resurrected on the next
+            # load -- only this workspace's row, never this person's
+            # others (that is `/chat/history/delete`, below).
+            runtime.delete_conversation_storage(principal_id, key)
+        return RedirectResponse("/", status_code=SEE_OTHER)
+
+    @app.get("/chat/history/delete", response_class=HTMLResponse)
+    def confirm_delete_history(request: Request) -> Response:
+        """ST-51, law 09-08: the no-JS `ConfirmDialog` (UX spec 5, 7.2)
+        before wiping every stored conversation this person has, in every
+        workspace. Same pattern as `confirm_delete_workspace` and
+        `confirm_remove_document` -- a real page, one action, one way
+        back -- and, like those, a GET here never deletes anything; only
+        the POST below does."""
+        return templates.TemplateResponse(
+            request, "chat_history_delete_confirm.html", _ws_context(runtime, request)
+        )
+
+    @app.post("/chat/history/delete")
+    def delete_history_route(request: Request) -> Response:
+        """The person's own law 09-08 control: every stored conversation
+        they have, gone, plus what is currently in memory."""
+        runtime.delete_all_history(principal_of(request).id)
         return RedirectResponse("/", status_code=SEE_OTHER)
 
     @app.post("/chat/feedback")

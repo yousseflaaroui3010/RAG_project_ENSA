@@ -318,6 +318,25 @@ class Settings(BaseSettings):
             raise ValueError("session_ttl_hours must be greater than 0")
         return value
 
+    # --- Chat history persistence (S6, ST-51, law 09-08) ---
+    # The named personal-data owner is YL (DECISIONS 2026-09-15): each
+    # person's transcript, per workspace, survives a server restart, and
+    # this is how long a stored row is kept before it is treated as gone.
+    # 0 means nothing crosses a restart at all -- a save becomes a delete
+    # (`db.repo.save_chat_history`) and a load never even queries storage
+    # (`db.repo.load_chat_history`), so this is also the "keep nothing"
+    # switch, not merely "keep it briefly". Checked both when a row would
+    # be loaded and once at start-up (`app.py` lifespan), so a stale row
+    # nobody has rendered since is not left sitting past its window.
+    chat_history_retention_days: int = 30
+
+    @field_validator("chat_history_retention_days")
+    @classmethod
+    def _chat_history_retention_days_must_not_be_negative(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("chat_history_retention_days must be 0 or greater")
+        return value
+
     # --- Interface language (S6, human ruling 2026-09-13) ---
     # The platform is French by default with a switch to Arabic; English is
     # kept as a third catalog. A visitor's `?lang=` choice is remembered in a

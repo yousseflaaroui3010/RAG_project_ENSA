@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -655,3 +656,229 @@ def test_writer_contention_waits_for_the_timeout_instead_of_failing_instantly(
         f"configured -- that is sqlite3's own default, so `timeout` is not "
         f"reaching sqlite3.connect()"
     )
+
+
+# --- ST-51 persisted chat history (law 09-08) ------------------------------
+
+
+def test_save_then_load_chat_history_round_trips(conn):
+    ws_id = repo.create_workspace(conn, name="ws-history", folder_path="/tmp/wsh")
+    conn.commit()
+
+    repo.save_chat_history(
+        conn, user_id="local", workspace_id=ws_id, payload='{"messages": []}', retention_days=30
+    )
+    conn.commit()
+
+    assert (
+        repo.load_chat_history(conn, user_id="local", workspace_id=ws_id, retention_days=30)
+        == '{"messages": []}'
+    )
+
+
+def test_save_upserts_rather_than_raising_on_a_second_save(conn):
+    """Two settled answers in the same conversation both save; the second
+    must update the one row, not collide on the PRIMARY KEY."""
+    ws_id = repo.create_workspace(conn, name="ws-upsert", folder_path="/tmp/wsu")
+    conn.commit()
+
+    repo.save_chat_history(
+        conn, user_id="local", workspace_id=ws_id, payload="first", retention_days=30
+    )
+    conn.commit()
+    repo.save_chat_history(
+        conn, user_id="local", workspace_id=ws_id, payload="second", retention_days=30
+    )
+    conn.commit()
+
+    assert (
+        repo.load_chat_history(conn, user_id="local", workspace_id=ws_id, retention_days=30)
+        == "second"
+    )
+    assert _count(conn, "eval_run", workspace_id=ws_id) == 0  # unrelated sanity, table exists
+    assert conn.execute(
+        "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?", (ws_id,)
+    ).fetchone()[0] == 1
+
+
+def test_retention_zero_save_stores_nothing(conn):
+    ws_id = repo.create_workspace(conn, name="ws-zero", folder_path="/tmp/wsz")
+    conn.commit()
+
+    repo.save_chat_history(
+        conn, user_id="local", workspace_id=ws_id, payload="anything", retention_days=0
+    )
+    conn.commit()
+
+    assert conn.execute(
+        "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?", (ws_id,)
+    ).fetchone()[0] == 0
+    assert (
+        repo.load_chat_history(conn, user_id="local", workspace_id=ws_id, retention_days=0)
+        is None
+    )
+
+
+def test_retention_zero_deletes_a_row_stored_under_a_larger_setting(conn):
+    """A row saved while retention was, say, 30 must be gone the moment the
+    setting drops to 0 -- 0 is "keep nothing", not "keep what is already
+    there"."""
+    ws_id = repo.create_workspace(conn, name="ws-shrink", folder_path="/tmp/wss")
+    conn.commit()
+    repo.save_chat_history(
+        conn, user_id="local", workspace_id=ws_id, payload="stored", retention_days=30
+    )
+    conn.commit()
+
+    repo.save_chat_history(
+        conn, user_id="local", workspace_id=ws_id, payload="stored", retention_days=0
+    )
+    conn.commit()
+
+    assert conn.execute(
+        "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?", (ws_id,)
+    ).fetchone()[0] == 0
+
+
+def test_retention_zero_load_never_queries_storage(conn):
+    """Even a row that WAS somehow left behind (an old setting, a sweep
+    that has not run yet) must not come back once retention is 0."""
+    ws_id = repo.create_workspace(conn, name="ws-zero-load", folder_path="/tmp/wszl")
+    conn.commit()
+    conn.execute(
+        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
+        "VALUES ('local', ?, 'leftover', ?)",
+        (ws_id, repo.utc_now()),
+    )
+    conn.commit()
+
+    assert (
+        repo.load_chat_history(conn, user_id="local", workspace_id=ws_id, retention_days=0)
+        is None
+    )
+
+
+def test_a_row_older_than_the_retention_window_is_expired_on_load(conn):
+    ws_id = repo.create_workspace(conn, name="ws-expired", folder_path="/tmp/wse")
+    conn.commit()
+    stale = (datetime.now(UTC) - timedelta(days=31)).isoformat()
+    conn.execute(
+        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
+        "VALUES ('local', ?, 'old', ?)",
+        (ws_id, stale),
+    )
+    conn.commit()
+
+    result = repo.load_chat_history(conn, user_id="local", workspace_id=ws_id, retention_days=30)
+
+    assert result is None
+    assert conn.execute(
+        "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?", (ws_id,)
+    ).fetchone()[0] == 0, "an expired row must be deleted on read, not merely ignored"
+
+
+def test_a_row_inside_the_retention_window_is_not_touched(conn):
+    ws_id = repo.create_workspace(conn, name="ws-fresh", folder_path="/tmp/wsf")
+    conn.commit()
+    fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    conn.execute(
+        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
+        "VALUES ('local', ?, 'recent', ?)",
+        (ws_id, fresh),
+    )
+    conn.commit()
+
+    assert (
+        repo.load_chat_history(conn, user_id="local", workspace_id=ws_id, retention_days=30)
+        == "recent"
+    )
+
+
+def test_delete_chat_history_removes_only_that_one_workspace(conn):
+    ws1 = repo.create_workspace(conn, name="ws-del-a", folder_path="/tmp/wsda")
+    ws2 = repo.create_workspace(conn, name="ws-del-b", folder_path="/tmp/wsdb")
+    conn.commit()
+    repo.save_chat_history(conn, user_id="local", workspace_id=ws1, payload="a", retention_days=30)
+    repo.save_chat_history(conn, user_id="local", workspace_id=ws2, payload="b", retention_days=30)
+    conn.commit()
+
+    repo.delete_chat_history(conn, user_id="local", workspace_id=ws1)
+    conn.commit()
+
+    assert (
+        repo.load_chat_history(conn, user_id="local", workspace_id=ws1, retention_days=30)
+        is None
+    )
+    assert (
+        repo.load_chat_history(conn, user_id="local", workspace_id=ws2, retention_days=30) == "b"
+    )
+
+
+def test_delete_chat_history_for_user_leaves_other_people_alone(conn):
+    ws_id = repo.create_workspace(conn, name="ws-two-people", folder_path="/tmp/wstp")
+    conn.commit()
+    repo.save_chat_history(
+        conn, user_id="alice", workspace_id=ws_id, payload="alice's", retention_days=30
+    )
+    repo.save_chat_history(
+        conn, user_id="bob", workspace_id=ws_id, payload="bob's", retention_days=30
+    )
+    conn.commit()
+
+    removed = repo.delete_chat_history_for_user(conn, user_id="alice")
+    conn.commit()
+
+    assert removed == 1
+    assert (
+        repo.load_chat_history(conn, user_id="alice", workspace_id=ws_id, retention_days=30)
+        is None
+    )
+    assert (
+        repo.load_chat_history(conn, user_id="bob", workspace_id=ws_id, retention_days=30)
+        == "bob's"
+    )
+
+
+def test_sweep_expired_chat_history_removes_only_stale_rows(conn):
+    ws_id = repo.create_workspace(conn, name="ws-sweep", folder_path="/tmp/wssw")
+    conn.commit()
+    stale = (datetime.now(UTC) - timedelta(days=31)).isoformat()
+    fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    conn.execute(
+        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
+        "VALUES ('stale-user', ?, 'old', ?)",
+        (ws_id, stale),
+    )
+    conn.execute(
+        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
+        "VALUES ('fresh-user', ?, 'recent', ?)",
+        (ws_id, fresh),
+    )
+    conn.commit()
+
+    removed = repo.sweep_expired_chat_history(conn, retention_days=30)
+    conn.commit()
+
+    assert removed == 1
+    assert (
+        repo.load_chat_history(
+            conn, user_id="fresh-user", workspace_id=ws_id, retention_days=30
+        )
+        == "recent"
+    )
+
+
+def test_deleting_a_workspace_cascades_to_its_stored_chat_history(conn):
+    ws_id = repo.create_workspace(conn, name="ws-cascade-history", folder_path="/tmp/wsch")
+    conn.commit()
+    repo.save_chat_history(
+        conn, user_id="local", workspace_id=ws_id, payload="gone soon", retention_days=30
+    )
+    conn.commit()
+
+    repo.delete_workspace(conn, ws_id)
+    conn.commit()
+
+    assert conn.execute(
+        "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?", (ws_id,)
+    ).fetchone()[0] == 0
