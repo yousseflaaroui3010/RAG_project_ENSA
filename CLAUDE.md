@@ -50,7 +50,7 @@ Rules for the block, learned the hard way on this project:
 |---|---|
 | Tests | `uv run pytest` — **no `-q`**, see below |
 | Lint | `uv run ruff check .` |
-| App | `uv run python app.py` (app.py does not exist yet) |
+| App | `uv run python app.py` (serves http://127.0.0.1:8000) |
 
 **Do not add `-q` to pytest here.** `pyproject.toml` already sets
 `addopts = "-q"`, so typing it again makes it `-qq`, and `-qq` DELETES the
