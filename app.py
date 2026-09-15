@@ -229,6 +229,12 @@ class Runtime:
     # run a delete in that exact gap (a real thread race is not
     # reproducible on demand). None in every real run.
     _save_hook: Any = field(default=None, repr=False, compare=False)
+    # Test-only seam, the other side of the same race (second cold review):
+    # called by both deletes INSIDE the person lock, after BOTH the stored
+    # row and the in-memory copy are gone and before the lock is released,
+    # so a test can check that nothing of the person is left at that moment
+    # and start a save there. None in every real run.
+    _delete_hook: Any = field(default=None, repr=False, compare=False)
 
     def _person_lock(self, user_id: str) -> threading.Lock:
         """The one lock for this person's saved-history writes, created on
@@ -243,15 +249,20 @@ class Runtime:
                 self._person_locks[user_id] = lock
             return lock
 
-    def _history_epoch(self, user_id: str) -> int:
-        return self._history_epochs.get(user_id, 0)
+    def _history_epoch(self, scope: str) -> int:
+        return self._history_epochs.get(scope, 0)
 
-    def _bump_history_epoch(self, user_id: str) -> None:
-        """Called by every delete of this person's saved history (one
-        workspace or all of them), while holding `_person_lock(user_id)`.
-        A save that snapshotted before this runs, and only reaches the
-        lock after, sees a changed epoch and skips its write."""
-        self._history_epochs[user_id] = self._history_epoch(user_id) + 1
+    def _bump_history_epoch(self, scope: str) -> None:
+        """Called by every delete of saved history, while holding that
+        person's `_person_lock`. `scope` is the person's id for "delete all
+        of mine", or `"{user_id}|{workspace_id}"` for one workspace.
+
+        SCOPED, not per person (second cold review): a per-person counter
+        made "New conversation" in workspace A silently skip an unrelated
+        save already in flight for workspace B, so B's latest answer was
+        not on disk until the next one. A save checks its own workspace's
+        counter and its person's counter, never another workspace's."""
+        self._history_epochs[scope] = self._history_epoch(scope) + 1
 
     @contextlib.contextmanager
     def ports(self) -> Iterator[AgentPorts]:
@@ -526,23 +537,37 @@ class Runtime:
         saves fine, but this one does not get to un-delete anything."""
         if conversation.workspace_id == screen.ROUTE_SENTINEL:
             return
-        epoch_before = self._history_epoch(user_id)
+        key = f"{user_id}|{conversation.workspace_id}"
+        epochs_before = (self._history_epoch(user_id), self._history_epoch(key))
         payload = json.dumps(conversation.to_payload())
         if self._save_hook is not None:
             self._save_hook()
-        key = f"{user_id}|{conversation.workspace_id}"
         with self._person_lock(user_id):
-            if self._history_epoch(user_id) != epoch_before:
+            if (self._history_epoch(user_id), self._history_epoch(key)) != epochs_before:
                 return
             if self.conversations.get(key) is not conversation:
                 return
-            chat_history.save(
-                user_id=user_id,
-                workspace_id=conversation.workspace_id,
-                payload=payload,
-                retention_days=get_settings().chat_history_retention_days,
-                db_path=self.db_path,
-            )
+            # A FAILED SAVE MUST NOT FAIL THE PAGE (second cold review).
+            # This runs inside the chat screen's render, after the finished
+            # answer is already on screen; a busy database or a workspace
+            # deleted a moment ago used to turn that render into a 500.
+            # The answer stays on screen and is saved with the next one.
+            # Logged with the workspace and the error TYPE only -- never
+            # the transcript.
+            try:
+                chat_history.save(
+                    user_id=user_id,
+                    workspace_id=conversation.workspace_id,
+                    payload=payload,
+                    retention_days=get_settings().chat_history_retention_days,
+                    db_path=self.db_path,
+                )
+            except Exception as exc:  # noqa: BLE001 -- a save is best effort
+                logger.warning(
+                    "could not save chat history for workspace %s (%s)",
+                    conversation.workspace_id,
+                    type(exc).__name__,
+                )
 
     def delete_conversation_storage(self, user_id: str, workspace_id: str) -> None:
         """Drop the stored row for just this one (person, workspace)
@@ -557,11 +582,17 @@ class Runtime:
         `save_conversation`). Cancels an in-flight run before the
         `Conversation` is dropped, so a paid answer does not keep writing
         into an object nobody can reach any more."""
-        with self._person_lock(user_id):
-            self._bump_history_epoch(user_id)
-            chat_history.delete(user_id=user_id, workspace_id=workspace_id, db_path=self.db_path)
         key = f"{user_id}|{workspace_id}"
-        conversation = self.conversations.pop(key, None)
+        # The in-memory copy is dropped INSIDE the lock, in the same step
+        # as the stored row (second cold review). Dropping it after the
+        # lock was released left a gap where a fresh save still found this
+        # conversation live and wrote the deleted transcript back.
+        with self._person_lock(user_id):
+            self._bump_history_epoch(key)
+            chat_history.delete(user_id=user_id, workspace_id=workspace_id, db_path=self.db_path)
+            conversation = self.conversations.pop(key, None)
+            if self._delete_hook is not None:
+                self._delete_hook()
         if conversation is not None and conversation.run is not None:
             conversation.run.cancel()
 
@@ -572,7 +603,11 @@ class Runtime:
         the next sign-in. See `delete_all_history` for the law 09-08
         control that removes the stored copy too."""
         prefix = f"{user_id}|"
-        for key in [k for k in self.conversations if k.startswith(prefix)]:
+        # `list(...)` copies the keys in one step first: another person's
+        # first page load can add to this shared dict at any moment, and
+        # iterating the live dict raised "dictionary changed size during
+        # iteration" (second cold review).
+        for key in [k for k in list(self.conversations) if k.startswith(prefix)]:
             self.conversations.pop(key, None)
 
     def forget_workspace_conversations(self, workspace_id: str) -> None:
@@ -592,7 +627,7 @@ class Runtime:
         reference regardless) and, worse, `Conversation.run` inside it was
         never cancelled."""
         suffix = f"|{workspace_id}"
-        for key in [k for k in self.conversations if k.endswith(suffix)]:
+        for key in [k for k in list(self.conversations) if k.endswith(suffix)]:
             conversation = self.conversations.pop(key, None)
             if conversation is not None and conversation.run is not None:
                 conversation.run.cancel()
@@ -613,14 +648,23 @@ class Runtime:
         reach any more (a cold review found this: "delete my history"
         while an answer is still being written left the run finishing
         into nothing)."""
+        prefix = f"{user_id}|"
+        # Stored rows AND in-memory copies go in one locked step (second
+        # cold review): removing memory after releasing the lock let a
+        # fresh save find a conversation still live and write it back.
         with self._person_lock(user_id):
             self._bump_history_epoch(user_id)
             chat_history.delete_for_user(user_id=user_id, db_path=self.db_path)
-        prefix = f"{user_id}|"
-        for key, conversation in self.conversations.items():
-            if key.startswith(prefix) and conversation.run is not None:
+            dropped = [
+                self.conversations.pop(key, None)
+                for key in list(self.conversations)
+                if key.startswith(prefix)
+            ]
+            if self._delete_hook is not None:
+                self._delete_hook()
+        for conversation in dropped:
+            if conversation is not None and conversation.run is not None:
                 conversation.run.cancel()
-        self.forget_conversations(user_id)
 
 
 def _signed_in_as(request: Request) -> auth.Principal | None:

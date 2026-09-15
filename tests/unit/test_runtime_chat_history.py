@@ -489,3 +489,143 @@ def test_two_concurrent_first_loads_create_only_one_conversation_object(tmp_path
     assert len(results) == 2, "both threads must return"
     assert len(calls) == 1, "the second thread must not load a second time"
     assert results[0] is results[1], "both callers must get the SAME Conversation object"
+
+
+# --- the gap a SECOND cold review reproduced --------------------------------
+
+
+def _stored_rows(db_path, user_id: str) -> int:
+    with repo.session(db_path) as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM chat_history WHERE user_id = ?", (user_id,)
+        ).fetchone()[0]
+
+
+def test_delete_all_leaves_nothing_of_the_person_before_its_lock_opens(tmp_path):
+    """The second review reproduced deleted history coming back: the delete
+    removed the stored row, RELEASED the lock, and only then dropped the
+    in-memory copy -- so a save arriving in between found the conversation
+    still live and wrote it back (1 row left after "Delete my saved
+    history").
+
+    `_delete_hook` runs inside the lock at the last moment before it opens.
+    Kill test: move the in-memory removal back after the `with` block and
+    the memory assertion goes red on every run -- deterministically, not by
+    thread timing. The save started here then proves the behaviour: it
+    must wait for the lock and write nothing."""
+    db_path = tmp_path / "sanad.db"
+    repo.ensure_schema(db_path)
+    ws_id = _workspace(db_path)
+    runtime = Runtime(db_path=db_path)
+    conversation = runtime.conversation(ws_id, "alice")
+    conversation.messages.append(_answer("must stay deleted"))
+    runtime.save_conversation("alice", conversation)
+    assert _stored_rows(db_path, "alice") == 1
+
+    seen: dict[str, object] = {}
+    saver: list[threading.Thread] = []
+
+    def at_the_last_locked_moment() -> None:
+        seen["rows"] = _stored_rows(db_path, "alice")
+        seen["in_memory"] = f"alice|{ws_id}" in runtime.conversations
+        thread = threading.Thread(target=runtime.save_conversation, args=("alice", conversation))
+        thread.start()
+        saver.append(thread)
+
+    runtime._delete_hook = at_the_last_locked_moment
+    runtime.delete_all_history("alice")
+    saver[0].join(timeout=5)
+
+    assert seen["rows"] == 0
+    assert seen["in_memory"] is False, "the in-memory copy outlived the lock"
+    assert _stored_rows(db_path, "alice") == 0, "a save after the delete wrote it back"
+
+
+def test_a_per_workspace_delete_leaves_nothing_before_its_lock_opens(tmp_path):
+    """Same gap on the narrower delete ("New conversation", an admin
+    revoke). Kill test: move the pop back after the lock and this goes red."""
+    db_path = tmp_path / "sanad.db"
+    repo.ensure_schema(db_path)
+    ws_id = _workspace(db_path)
+    runtime = Runtime(db_path=db_path)
+    conversation = runtime.conversation(ws_id, "alice")
+    conversation.messages.append(_answer("must stay deleted"))
+    runtime.save_conversation("alice", conversation)
+
+    seen: dict[str, object] = {}
+    saver: list[threading.Thread] = []
+
+    def at_the_last_locked_moment() -> None:
+        seen["in_memory"] = f"alice|{ws_id}" in runtime.conversations
+        thread = threading.Thread(target=runtime.save_conversation, args=("alice", conversation))
+        thread.start()
+        saver.append(thread)
+
+    runtime._delete_hook = at_the_last_locked_moment
+    runtime.delete_conversation_storage("alice", ws_id)
+    saver[0].join(timeout=5)
+
+    assert seen["in_memory"] is False, "the in-memory copy outlived the lock"
+    assert _stored_rows(db_path, "alice") == 0, "a save after the delete wrote it back"
+
+
+def test_a_delete_in_one_workspace_does_not_skip_a_save_in_another(tmp_path):
+    """The delete counter is scoped (second cold review): a per-person counter
+    made "New conversation" in workspace A silently skip a save already in
+    flight for workspace B, so B's newest answer never reached disk.
+
+    Kill test: bump the PERSON's counter in `delete_conversation_storage`
+    instead of that workspace's and B's row is missing."""
+    db_path = tmp_path / "sanad.db"
+    repo.ensure_schema(db_path)
+    ws_a = _workspace(db_path, "A")
+    ws_b = _workspace(db_path, "B")
+    runtime = Runtime(db_path=db_path)
+    in_a = runtime.conversation(ws_a, "alice")
+    in_a.messages.append(_answer("in A"))
+    in_b = runtime.conversation(ws_b, "alice")
+    in_b.messages.append(_answer("in B"))
+
+    runtime._save_hook = lambda: runtime.delete_conversation_storage("alice", ws_a)
+    runtime.save_conversation("alice", in_b)
+    runtime._save_hook = None
+
+    with repo.session(db_path) as conn:
+        rows = conn.execute(
+            "SELECT workspace_id FROM chat_history WHERE user_id = ?", ("alice",)
+        )
+        stored = {row[0] for row in rows}
+    assert stored == {ws_b}, "workspace B's save was skipped by a delete in workspace A"
+
+
+def test_a_save_that_fails_does_not_fail_the_page_and_logs_no_chat_text(
+    tmp_path, monkeypatch, caplog
+):
+    """The save runs inside the chat screen's render after the answer is on
+    screen; a busy database used to turn that render into a 500 (second cold
+    review). Kill test: remove the try/except in `save_conversation` and the
+    call raises."""
+    import sqlite3
+
+    import app as app_module
+
+    db_path = tmp_path / "sanad.db"
+    repo.ensure_schema(db_path)
+    ws_id = _workspace(db_path)
+    runtime = Runtime(db_path=db_path)
+    conversation = runtime.conversation(ws_id, "alice")
+    conversation.messages.append(_answer("a private answer"))
+
+    def locked(**_kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(app_module.chat_history, "save", locked)
+
+    with caplog.at_level(logging.WARNING, logger="app"):
+        runtime.save_conversation("alice", conversation)
+
+    messages = [r.getMessage() for r in caplog.records]
+    lines = [m for m in messages if "could not save chat history" in m]
+    assert lines, "a failed save must be logged"
+    assert "OperationalError" in lines[0]
+    assert "a private answer" not in " ".join(messages)

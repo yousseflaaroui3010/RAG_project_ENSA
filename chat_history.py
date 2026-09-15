@@ -27,7 +27,7 @@ from db import repo
 def _cutoff(retention_days: int) -> str:
     """Rows with `updated_at` at or before this are expired.
 
-    `retention_days <= 0` (config.py's "keep nothing between restarts"
+    `retention_days == 0` (config.py's "keep nothing between restarts"
     switch) is folded into "everything up to right now" rather than
     special-cased: a real row's `updated_at` can never be later than the
     instant this runs, so a cutoff of "now" deletes every row that
@@ -49,7 +49,7 @@ def save(
 ) -> None:
     """Persist one person's whole transcript for one workspace.
 
-    `retention_days <= 0` means nothing survives a restart: a save then
+    `retention_days == 0` means nothing survives a restart: a save then
     DELETES any existing row for this key instead of writing one, so the
     setting is provably "stores nothing" rather than "stores it, just
     briefly"."""
@@ -75,7 +75,7 @@ def load(
 ) -> str | None:
     """This person's stored payload for this workspace, or None.
 
-    `retention_days <= 0` never even queries storage -- nothing is meant
+    `retention_days == 0` never even queries storage -- nothing is meant
     to survive a restart, so there is nothing to check an age against.
     A row found OLDER than the retention window is expired: deleted
     here, on read, rather than merely ignored, so an old transcript
@@ -112,7 +112,7 @@ def delete_for_user(*, user_id: str, db_path: str | Path | None = None) -> int:
 
 def sweep_expired(*, retention_days: int, db_path: str | Path | None = None) -> int:
     """Every row past the retention window, gone (app.py start-up sweep).
-    `retention_days <= 0` clears the table outright, through the same
+    `retention_days == 0` clears the table outright, through the same
     cutoff-based primitive a positive window uses (see `_cutoff`)."""
     with repo.session(db_path) as conn:
         return repo.delete_chat_history_older_than(conn, cutoff=_cutoff(retention_days))
