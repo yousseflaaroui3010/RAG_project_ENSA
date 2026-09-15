@@ -154,6 +154,33 @@ def test_ocr_max_pages_must_be_positive():
         Settings(_env_file=None, ocr_max_pages=0)
 
 
+def test_chat_history_retention_days_rejects_negative():
+    with pytest.raises(ValueError, match="chat_history_retention_days"):
+        Settings(_env_file=None, chat_history_retention_days=-1)
+
+
+def test_chat_history_retention_days_zero_is_allowed():
+    """0 is deliberately valid: it is config.py's documented 'keep
+    nothing across a restart' switch, not an error."""
+    assert Settings(_env_file=None, chat_history_retention_days=0).chat_history_retention_days == 0
+
+
+def test_chat_history_retention_days_rejects_an_absurdly_large_value():
+    """Found by a cold review: 1_000_000 underflows `datetime.min` inside
+    the start-up sweep's cutoff arithmetic and raises `OverflowError`
+    before the server can serve a single request. Must fail loud here,
+    at construction, instead."""
+    with pytest.raises(ValueError, match="chat_history_retention_days"):
+        Settings(_env_file=None, chat_history_retention_days=1_000_000)
+
+
+def test_chat_history_retention_days_upper_bound_is_inclusive():
+    assert (
+        Settings(_env_file=None, chat_history_retention_days=3650).chat_history_retention_days
+        == 3650
+    )
+
+
 def test_every_setting_is_documented_in_env_example():
     """ST-02's exit criterion, finally executable.
 

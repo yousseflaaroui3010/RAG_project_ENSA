@@ -16,6 +16,7 @@ MESSAGES: dict[str, str] = {
     "title.report_detail": "Détail du rapport — Sanad",
     "title.passage": "Extrait — Sanad",
     "title.delete": "Supprimer {name} — Sanad",
+    "title.chat_history_delete": "Supprimer mon historique — Sanad",
     "shell.skip": "Aller au contenu",
     "phr.activity.uploaded": "document ajouté",
     "phr.activity.removed_doc": "document retiré",
@@ -104,6 +105,18 @@ MESSAGES: dict[str, str] = {
     "chat.answering_from": "Réponses tirées de",
     "chat.will_pick": "Sanad choisira l’espace dès que vous poserez votre question.",
     "chat.new_conversation": "Nouvelle conversation",
+    "chat.delete_history": "Supprimer mon historique",
+    "chat.history_delete.title": f"Supprimer tout votre historique de conversation{NNBSP}?",
+    "chat.history_delete.body": (
+        "Cela supprime chaque conversation enregistrée pour vous, dans tous les "
+        "espaces de travail, et efface aussi ce qui est actuellement affiché à "
+        "l’écran."
+    ),
+    "chat.history_delete.body_after": (
+        "Cette action est définitive et ne peut pas être annulée."
+    ),
+    "chat.history_delete.yes": "Oui, supprimer mon historique",
+    "chat.history_delete.cancel": "Annuler, conserver mon historique",
     "chat.your_question": "Votre question",
     "chat.placeholder": "Posez une question sur cet espace",
     "chat.send": "Envoyer",

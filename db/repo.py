@@ -887,3 +887,78 @@ def list_activity(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Ro
             (limit,),
         )
     )
+
+
+# --- S6 saved chat history (law 09-08) -------------------------------------
+#
+# Plain operations only -- no retention policy, no notion of "expired", no
+# cutoff arithmetic. What 0 or a negative retention setting MEANS, when a
+# row counts as expired, and how a cutoff timestamp is computed all belong
+# to `chat_history.py`, built on top of this module exactly as `workspaces.py`
+# and `sync.py` are (module docstring above: business logic is not this
+# module's job). A cold review moved this here from four functions that each
+# re-decided the same "retention_days <= 0" rule inline.
+
+
+def upsert_chat_history(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    workspace_id: str,
+    payload: str,
+    updated_at: str,
+) -> None:
+    """Write one person's whole transcript for one workspace, replacing
+    whatever was there. `updated_at` is the caller's to set (`chat_history.py`
+    passes `utc_now()`), never computed here.
+
+    `ON CONFLICT ... DO UPDATE` rather than delete-then-insert, the same
+    reason `upsert_answer_feedback` uses it: this is called on every
+    settled answer, not only the first one for a given (user, workspace),
+    and a plain INSERT would raise on the second call against the
+    PRIMARY KEY."""
+    conn.execute(
+        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
+        "VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, workspace_id) DO UPDATE SET "
+        "payload = excluded.payload, updated_at = excluded.updated_at",
+        (user_id, workspace_id, payload, updated_at),
+    )
+
+
+def get_chat_history(
+    conn: sqlite3.Connection, *, user_id: str, workspace_id: str
+) -> sqlite3.Row | None:
+    """The raw stored row (`payload`, `updated_at`) for this person and
+    workspace, or None. Whether it is too old to use is the caller's call,
+    not this function's."""
+    return conn.execute(
+        "SELECT payload, updated_at FROM chat_history "
+        "WHERE user_id = ? AND workspace_id = ?",
+        (user_id, workspace_id),
+    ).fetchone()
+
+
+def delete_chat_history(conn: sqlite3.Connection, *, user_id: str, workspace_id: str) -> None:
+    """Drop the stored row for just this one (person, workspace) pair."""
+    conn.execute(
+        "DELETE FROM chat_history WHERE user_id = ? AND workspace_id = ?",
+        (user_id, workspace_id),
+    )
+
+
+def delete_chat_history_for_user(conn: sqlite3.Connection, *, user_id: str) -> int:
+    """Every stored conversation belonging to one person, across every
+    workspace. Returns the row count deleted."""
+    cursor = conn.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
+    return cursor.rowcount
+
+
+def delete_chat_history_older_than(conn: sqlite3.Connection, *, cutoff: str) -> int:
+    """Every row whose `updated_at` is at or before `cutoff` (an ISO-8601
+    UTC timestamp the caller computed), gone. Returns the row count
+    deleted. No idea here of what a retention window is or how `cutoff`
+    was chosen -- `chat_history.py` computes it, including the "delete
+    everything" case (retention 0), which it gets by passing `utc_now()`."""
+    cursor = conn.execute("DELETE FROM chat_history WHERE updated_at <= ?", (cutoff,))
+    return cursor.rowcount
