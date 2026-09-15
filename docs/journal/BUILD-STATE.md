@@ -13,7 +13,8 @@ message (no attribution line):
   /favicon.ico), phone notice is the main landmark (Lighthouse 100 at phone
   width, was 98).
 - #133 `9514165` saved chat history per person: survives a restart, expires
-  after CHAT_HISTORY_RETENTION_DAYS (default 30, max 3650), "Delete my saved
+  after CHAT_HISTORY_RETENTION_DAYS (default 30, max 3650, 0 keeps nothing
+  across a restart), "Delete my saved
   history" behind a confirmation page, deleted on admin sign-out-everywhere
   and on admin revoke. Three cold reviews; the one that mattered reproduced a
   deleted transcript being written back by a save in flight, fixed by dropping
@@ -27,15 +28,21 @@ deploy `5ef981be` SUCCESS: health 200 version 3.0.0, `/`, `/workspaces`,
 `/admin`, `/reports`, `/api/v1/workspaces` all 401 without the password.
 
 **Decided, not yet executed: a rewrite of the repository history** (DECISIONS
-2026-09-15). All branches and tags; tooling configuration files removed from
-every commit, commit messages normalised to rule 4, the phase2 rules file and
-the changelog renamed. Proven on a copy: zero matches for the removed names in
-messages, paths and file contents, and the full suite passes on the rewritten
-code (1202 at the copy's point in history). Waiting on the session's permission
-mode being switched out of Auto, because the safety check refuses history
-rewrites and force-pushes there. A full backup of every branch, tag and PR ref
-is at `C:\sanad-backup` on YL's machine. AFTER IT LANDS, MB must take a fresh
+2026-09-15, which lists the three standing rules it sets aside and YL's
+approval of each: the force-push ban, wording-only edits in docs/phase2, and
+GitHub's protect-main ruleset paused for the push only). All branches and tags;
+tooling configuration files removed from every commit, commit messages
+normalised to rule 4, the phase2 rules file and the changelog renamed. Proven
+on a copy: zero matches for the removed names in messages, paths and file
+contents, and the full suite passes on the rewritten code (1202 at the copy's
+point in history). Run by YL's direction, each destructive step approved by YL
+as it happens. The backup at `C:\sanad-backup` on YL's machine is taken AGAIN
+immediately before the push, so nothing merged after this block is missing
+from it. MB is warned before the push. AFTER IT LANDS, MB must take a fresh
 clone; the old one cannot be pulled.
+
+**Commit ids above are pre-rewrite.** Once the rewrite lands, none of the ids
+quoted in this file resolves on GitHub; they resolve in the backup mirror.
 
 **Still human-only:** a hand-run of sign-in and sign-out from the team's own
 account (YL: skipped for now); the six ST-38 screen-reader rows (the automated
