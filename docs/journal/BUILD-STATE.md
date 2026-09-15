@@ -36,8 +36,9 @@ browser sign-in as admin (name, roles, Administration link), sign-out without a
 400, the no-role person gets the 403 ask-an-administrator page; realm survives
 `down`/`up`. Start guard run in a container: nothing set, one setting missing,
 trailing slash each refused with exit 1; complete settings reach Keycloak.
-Mutations: 14 deliberate breakages, each turned a test red. Live: Keycloak
-26.4.7 started; realm, roles, four people, production callback and post-logout
+The suite now runs the guard itself (bash). Mutations: 17 deliberate
+breakages, each turned a test red. Live: the image WITH the start guard was built by Railway's builder (so it
+accepts `COPY --chmod`) and Keycloak 26.4.7 started through the guard; realm, roles, four people, production callback and post-logout
 URIs read back; browser sign-in on the public site as admin reached the admin
 page; admin's old shared password refused, its own accepted, reader unaffected.
 `sanad-web` deploy `04e79052`: health 200, `/` 303 to `/auth/login`, `/auth/login`

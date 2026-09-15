@@ -16,9 +16,13 @@ Sanad.
 """
 
 import json
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 import ui.auth as auth
@@ -200,3 +204,55 @@ def test_the_deployed_keycloak_refuses_to_start_without_a_placeholder_value():
     # Railway's builder runs this on Linux: a CRLF shebang would read as
     # "/bin/bash\r" and the container would not start at all.
     assert b"\r" not in (ROOT / "deploy" / "keycloak" / "start.sh").read_bytes()
+
+
+def _run_guard(environment: dict[str, str]) -> subprocess.CompletedProcess:
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash is not available to run deploy/keycloak/start.sh")
+    guard = (ROOT / "deploy" / "keycloak" / "start.sh").as_posix()
+    # A bare environment on purpose: nothing inherited from this machine
+    # may satisfy a check. PATH only, so bash can find its own tools.
+    return subprocess.run(
+        [bash, guard, "start"],
+        env={"PATH": os.environ.get("PATH", ""), **environment},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+_COMPLETE = {
+    "KEYCLOAK_CLIENT_SECRET": "x",
+    "KEYCLOAK_SEED_PASSWORD": "x",
+    "KEYCLOAK_ADMIN_SEED_PASSWORD": "x",
+    "KEYCLOAK_PUBLIC_APP_URL": "https://sanad.example",
+    "KC_HOSTNAME": "https://keycloak.example",
+    "KC_DB_URL": "jdbc:postgresql://db:5432/keycloak",
+    "KC_DB_USERNAME": "u",
+    "KC_DB_PASSWORD": "p",
+}
+
+
+def test_the_start_guard_really_refuses_each_missing_setting():
+    """The test above reads the files; this one RUNS the guard, so deleting
+    its `-z` check or its `exit 1` turns the suite red (review, 2026-09-15).
+    Each setting is removed on its own, and the refusal must name it."""
+    for name in _COMPLETE:
+        environment = {k: v for k, v in _COMPLETE.items() if k != name}
+
+        result = _run_guard(environment)
+
+        assert result.returncode == 1, (name, result.stderr)
+        assert name in result.stderr, (name, result.stderr)
+        assert "refuses to start" in result.stderr
+
+
+def test_the_start_guard_refuses_a_trailing_slash_and_passes_complete_settings():
+    slash = _run_guard({**_COMPLETE, "KEYCLOAK_PUBLIC_APP_URL": "https://sanad.example/"})
+    complete = _run_guard(_COMPLETE)
+
+    assert slash.returncode == 1 and "must not end with /" in slash.stderr
+    # Complete settings get PAST the guard to `exec kc.sh`, which does not
+    # exist outside the image: whatever happens next, it is not a refusal.
+    assert "refuses to start" not in complete.stderr
