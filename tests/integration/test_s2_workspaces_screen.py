@@ -36,6 +36,15 @@ from tests.fake_encoders import install as install_fake_encoders
 
 WAIT = 10
 
+# Load the document readers NOW, at collection, the way the real server's
+# start-up warm-up does (`sync.warm_up_document_readers`). Without this, a
+# test here run ON ITS OWN paid their ~14 s cold import INSIDE its 10 s wait
+# for a Sync and failed, while the full suite passed only because an earlier
+# test module had already imported them. What these tests prove is the S2
+# screen's states, not how long a cold import takes; the warm-up has its own
+# tests in tests/unit/test_app_warmup.py.
+sync.warm_up_document_readers()
+
 
 def _wait_until(predicate, *, timeout: float = WAIT) -> None:
     deadline = time.monotonic() + timeout
@@ -44,6 +53,24 @@ def _wait_until(predicate, *, timeout: float = WAIT) -> None:
             return
         time.sleep(0.05)
     raise AssertionError(f"condition never became true within {timeout}s")
+
+
+def _wait_for_sync_to_finish(runtime, workspace_id: str) -> None:
+    """Wait for a background Sync to finish, and say so AT ONCE if it died.
+
+    `last_sync_run_id` is set only on success. A Sync that crashes instead
+    records `runtime.sync_errors` and never sets it, so a bare wait on it
+    turned a real crash into "condition never became true within 10s" --
+    the same message as a slow run, with the actual error nowhere in it."""
+
+    def finished() -> bool:
+        if workspace_id in runtime.sync_errors:
+            raise AssertionError(
+                f"the Sync failed instead of finishing: {runtime.sync_errors[workspace_id]}"
+            )
+        return workspace_id in runtime.last_sync_run_id
+
+    _wait_until(finished)
 
 
 ARTICLE = (
@@ -153,7 +180,7 @@ def test_sync_reports_six_statuses_and_a_failed_file_never_blocks_the_batch(
         # before Sync had even started. `last_sync_run_id` is only ever
         # set by `_work`'s own success branch, so waiting on it is waiting
         # on the one fact that means "actually finished".
-        _wait_until(lambda: workspace.id in runtime.last_sync_run_id)
+        _wait_for_sync_to_finish(runtime, workspace.id)
 
         report = app_client.get(f"/workspaces?ws={workspace.id}")
         body = report.text

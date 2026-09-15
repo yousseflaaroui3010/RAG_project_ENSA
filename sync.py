@@ -737,6 +737,27 @@ def _skip_unsupported(
     )
 
 
+def warm_up_document_readers() -> None:
+    """Load the document readers now, so the first Sync does not pay for it.
+
+    `_ingest` imports `conversion` lazily, on the first file it converts,
+    and that stays true: importing `sync` alone never loads the readers,
+    which keeps them out of memory on a process that never converts a file.
+    The price was measured on 2026-09-15, not guessed:
+    `python -X importtime -c "import conversion"` took 13.7 s cold,
+    pymupdf4llm 5.9 s and markitdown 5.6 s of it. A fresh server's FIRST
+    Sync sat on that for about fourteen seconds before touching a file,
+    with nothing on screen to say why. Found because an S2 test that waits
+    10 s for a Sync to finish failed every time it ran on its own and
+    passed in the full suite, where an earlier test had already paid.
+
+    Called from the server's start-up warm-up thread (`app._warm_up_models`),
+    which is already off in evidence-only mode -- the one place the memory
+    this costs would matter, and a place where Sync is refused anyway.
+    Python caches the module, so `_ingest`'s own import then costs nothing."""
+    import conversion  # noqa: F401 -- imported for its load cost, not a name
+
+
 def _ingest(
     client: Any,
     *,
