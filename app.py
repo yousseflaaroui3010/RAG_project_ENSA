@@ -493,8 +493,17 @@ def _signed_in_as(request: Request) -> auth.Principal | None:
 
     `request.state.principal` rather than `principal_of`: the fallback
     there is the unrestricted LOCAL principal, and naming "local" in the
-    header of a single-user desktop app would be noise."""
-    return getattr(request.state, "principal", None)
+    header of a single-user desktop app would be noise.
+
+    The UNRESTRICTED check is what makes that true. `AuthGate` attaches
+    `auth.LOCAL` to every request in the none and password modes, so the
+    bare attribute was never None there: the header named "local", offered
+    a Sign out that signs nobody out, and linked an admin page whose
+    activity log is only ever written with accounts on (`_log_activity`)."""
+    principal = getattr(request.state, "principal", None)
+    if principal is None or principal.unrestricted:
+        return None
+    return principal
 
 
 def _shell_context(runtime: Runtime, request: Request) -> dict:
