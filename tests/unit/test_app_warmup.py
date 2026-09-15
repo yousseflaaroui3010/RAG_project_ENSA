@@ -7,22 +7,41 @@ first search, with the server serving nothing else meanwhile. The fix is a
 a `Runtime` directly and must never download a model), ON only where
 `app.main()` builds the real server's `Runtime`.
 
+The same thread then loads the document readers (`sync.warm_up_document_readers`,
+added 2026-09-15), so the first Sync does not pay their ~14 s cold import.
+
 Nothing here touches a real model. `embeddings.embed_query` and
 `embeddings.embed_sparse_query` are monkeypatched at the module level app.py
 calls them through (`import embeddings; embeddings.embed_query(...)`), so
 patching `embeddings.embed_query` is visible to `app.py` without app.py
-needing to be reloaded."""
+needing to be reloaded. The readers are replaced by a no-op (the autouse
+fixture below) in every test but one: the last test loads the REAL readers,
+in a separate interpreter, because only there can their absence be seen."""
 
 from __future__ import annotations
 
 import logging
+import subprocess
+import sys
 import threading
 import time
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import embeddings
+import sync
 from app import Runtime, create_app
+
+
+@pytest.fixture(autouse=True)
+def _document_readers_are_not_really_loaded(monkeypatch):
+    """Every test here builds a warm-up thread. Left alone, that thread
+    would import the REAL document readers (13.7 s cold) in the background
+    of a test about something else. The tests that are about the readers
+    replace this no-op with a recorder of their own."""
+    monkeypatch.setattr(sync, "warm_up_document_readers", lambda: None)
 
 
 def test_default_runtime_never_calls_the_encoders(tmp_path, monkeypatch):
@@ -48,6 +67,7 @@ def test_default_runtime_never_calls_the_encoders(tmp_path, monkeypatch):
 
     monkeypatch.setattr(embeddings, "embed_query", record_dense)
     monkeypatch.setattr(embeddings, "embed_sparse_query", record_sparse)
+    monkeypatch.setattr(sync, "warm_up_document_readers", called.set)
 
     with TestClient(create_app(Runtime(db_path=db_path))) as client:
         response = client.get("/workspaces")
@@ -191,3 +211,134 @@ def test_starting_the_real_server_turns_warm_up_on(monkeypatch):
     app_module.main()
 
     assert served["app"].state.runtime.warm_up is True
+
+
+def test_warm_up_loads_the_document_readers_on_the_same_background_thread(
+    tmp_path, monkeypatch
+):
+    """Kill test 5: delete the `sync.warm_up_document_readers()` call from
+    `_warm_up_models` and `readers.wait` times out. Move it onto the
+    lifespan thread and the thread-name assertion goes red, for the reason
+    kill test 2 gives."""
+    db_path = tmp_path / "sanad.db"
+    readers = threading.Event()
+    seen: list[str] = []
+
+    monkeypatch.setattr(embeddings, "embed_query", lambda _text: [0.0])
+    monkeypatch.setattr(
+        embeddings,
+        "embed_sparse_query",
+        lambda _text: embeddings.SparseVector(indices=[], values=[]),
+    )
+
+    def record_readers():
+        seen.append(threading.current_thread().name)
+        readers.set()
+
+    monkeypatch.setattr(sync, "warm_up_document_readers", record_readers)
+
+    with TestClient(create_app(Runtime(db_path=db_path, warm_up=True))):
+        assert readers.wait(timeout=5), "the document readers were never warmed"
+
+    assert seen == ["sanad-warmup"]
+
+
+def test_an_encoder_that_cannot_load_does_not_stop_the_readers_warming(
+    tmp_path, monkeypatch, caplog
+):
+    """Kill test 6: put the reader warm-up back inside the encoders' own
+    try (or `return` from the encoders' except, as the code did before the
+    readers existed) and `readers.wait` times out. The two loads fail for
+    unrelated reasons -- no network for a model download says nothing about
+    whether the PDF reader imports -- so one must never cancel the other."""
+    db_path = tmp_path / "sanad.db"
+    readers = threading.Event()
+
+    def broken_dense(_text: str):
+        raise RuntimeError("no network for the first-ever model download")
+
+    monkeypatch.setattr(embeddings, "embed_query", broken_dense)
+    monkeypatch.setattr(sync, "warm_up_document_readers", readers.set)
+
+    with caplog.at_level(logging.ERROR, logger="app"):
+        with TestClient(create_app(Runtime(db_path=db_path, warm_up=True))):
+            assert readers.wait(timeout=5), "an encoder failure skipped the readers"
+
+    assert any("model warm-up failed" in r.message for r in caplog.records)
+
+
+def test_a_failing_reader_warm_up_is_logged_and_does_not_crash_the_server(
+    tmp_path, monkeypatch, caplog
+):
+    """Kill test 7: remove the readers' own try/except and the exception
+    escapes the warm-up thread -- no log line is written, so the final
+    assertion goes red."""
+    db_path = tmp_path / "sanad.db"
+    done = threading.Event()
+
+    monkeypatch.setattr(embeddings, "embed_query", lambda _text: [0.0])
+    monkeypatch.setattr(
+        embeddings,
+        "embed_sparse_query",
+        lambda _text: embeddings.SparseVector(indices=[], values=[]),
+    )
+
+    def broken_readers():
+        done.set()
+        raise ImportError("a reader library is missing from this install")
+
+    monkeypatch.setattr(sync, "warm_up_document_readers", broken_readers)
+
+    def logged() -> bool:
+        return any("document reader warm-up failed" in r.message for r in caplog.records)
+
+    with caplog.at_level(logging.ERROR, logger="app"):
+        with TestClient(create_app(Runtime(db_path=db_path, warm_up=True))) as client:
+            assert done.wait(timeout=5), "reader warm-up never ran"
+            assert client.get("/workspaces").status_code == 200
+            # `done` is set just BEFORE the raise, so the log line lands a
+            # moment later on the warm-up thread; wait for it, bounded.
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and not logged():
+                time.sleep(0.05)
+
+    assert logged()
+
+
+def test_importing_sync_leaves_the_readers_unloaded_until_warmed():
+    """Both halves of the contract, in a FRESH interpreter, because in this
+    one some earlier test has almost certainly imported `conversion`
+    already and an in-process check would pass whatever the code did.
+
+    It checks the HEAVY LIBRARIES, not the name `conversion`. The name alone
+    was a proxy the first review broke: with `chunking.py` importing
+    pymupdf4llm and markitdown at its top, `conversion` was still absent
+    after `import sync` and the test passed, while every process importing
+    `sync` carried the readers anyway. The memory being protected lives in
+    these five modules, so these five are what is asserted.
+
+    Kill test 8: import `conversion` at the top of sync.py -- or the reader
+    libraries anywhere `sync` imports at load time -- and the first
+    assertion goes red. Kill test 9: make `warm_up_document_readers` a
+    no-op and the second goes red."""
+    heavy = ["pymupdf", "pymupdf4llm", "markitdown", "magika", "onnxruntime"]
+    script = "; ".join(
+        [
+            "import sys, sync",
+            f"heavy = {heavy!r}",
+            "early = [m for m in heavy if m in sys.modules]",
+            "assert not early, f'importing sync loaded the readers: {early}'",
+            "sync.warm_up_document_readers()",
+            "missing = [m for m in heavy if m not in sys.modules]",
+            "assert not missing, f'warm-up did not load the readers: {missing}'",
+        ]
+    )
+    repo_root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stderr

@@ -154,3 +154,10 @@ designrag-main/
 # 'README copy.md' is the harness's own README, not Sanad's.
 * copy
 * copy.*
+
+# --- Browser-automation scratch ---
+# The Playwright MCP tool writes a page snapshot and console log here on
+# every step. One `git add -A` on 2026-09-15 committed sixteen of them to a
+# fix branch; their URLs carried two (spent, local) Keycloak sign-in codes.
+# Nothing in here is ever evidence -- ST-38 evidence lives in docs/evidence/.
+.playwright-mcp/
