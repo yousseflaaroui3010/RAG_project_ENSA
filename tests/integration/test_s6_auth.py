@@ -254,6 +254,37 @@ def test_signing_out_also_ends_the_session_at_keycloak(keycloak):
     assert "/auth/login" in response.headers["location"]
 
 
+def test_sign_out_returns_to_the_configured_origin_not_the_one_the_proxy_hid(
+    keycloak, monkeypatch
+):
+    """Found on the published demo, 2026-09-15: Railway ends TLS at its own
+    proxy, so the app sees every request as plain http. The sign-out return
+    address was built from the request and came out `http://...`, which the
+    realm had never registered (only `https://...`), and Keycloak answered
+    400 -- nobody on the demo could sign out. The configured callback URL
+    already carries the right scheme and host, and is the one address the
+    realm is known to trust, so the return address is built from it.
+
+    The fixture uses the same origin for the configured URL and the test
+    client, which is why the old code passed; this test makes them differ,
+    the way a TLS proxy does."""
+    client, _, _, _, sign_in = keycloak
+    sign_in(ADMIN_CLAIMS)
+    # Changed only after signing in: the https callback would make the
+    # sign-in cookie secure, which the plain-http test client never sends
+    # back. Sign-out reads the setting at the moment it runs.
+    behind_proxy = app_module.get_settings().model_copy(
+        update={"keycloak_redirect_url": "https://sanad.example/auth/callback"}
+    )
+    for module in (app_module, ui.auth, ui.auth_gate):
+        monkeypatch.setattr(module, "get_settings", lambda: behind_proxy)
+
+    response = client.post("/auth/logout", follow_redirects=False)
+
+    redirect = parse_qs(urlparse(response.headers["location"]).query)["redirect"][0]
+    assert redirect == "https://sanad.example/auth/login"
+
+
 def test_an_expired_session_is_not_a_session(keycloak):
     client, _, db_path, _, sign_in = keycloak
     sign_in(ADMIN_CLAIMS)
