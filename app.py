@@ -39,7 +39,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, quote, unquote
+from urllib.parse import parse_qsl, quote, unquote, urlsplit, urlunsplit
 
 import jinja2
 import uvicorn
@@ -1538,10 +1538,19 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             max_age=auth.FLOW_MAX_AGE_SECONDS,
             httponly=True,
             samesite="lax",
-            secure=request.url.scheme == "https",
+            secure=_cookies_are_secure(),
             path="/auth",
         )
         return response
+
+    def _cookies_are_secure() -> bool:
+        """`Secure` on the sign-in cookies comes from the CONFIGURED callback,
+        not the request. Seen on the published demo, 2026-09-15: behind a TLS
+        proxy every request looks like plain http, so both cookies went out
+        without `Secure` -- the same root cause as the sign-out 400. The
+        configured address is how people actually reach the app; a plain
+        http one (127.0.0.1) must stay non-Secure or nobody could sign in."""
+        return urlsplit(get_settings().keycloak_redirect_url).scheme == "https"
 
     @app.get("/auth/callback")
     def auth_callback(request: Request) -> Response:
@@ -1604,7 +1613,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             max_age=get_settings().session_ttl_hours * 3600,
             httponly=True,
             samesite="lax",
-            secure=request.url.scheme == "https",
+            secure=_cookies_are_secure(),
             path="/",
         )
         response.delete_cookie(auth.FLOW_COOKIE, path="/auth")
@@ -1636,11 +1645,18 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         # that signs nobody out on the shared demo machine. Where the realm
         # publishes no end-session endpoint, we still land on our own
         # sign-in page, which is the old behaviour.
+        #
+        # The return address comes from the CONFIGURED callback, not from
+        # the request. Found on the published demo, 2026-09-15: behind a
+        # TLS proxy the request looks like plain http, the address came out
+        # `http://...`, the realm only trusts `https://...`, and Keycloak
+        # answered 400 so nobody could sign out. The configured callback is
+        # the one address the realm is known to accept.
         target = "/auth/login"
+        callback = urlsplit(get_settings().keycloak_redirect_url)
+        return_to = urlunsplit((callback.scheme, callback.netloc, "/auth/login", "", ""))
         with contextlib.suppress(oidc.ProviderUnavailableError, AttributeError):
-            end_session = _provider().end_session_url(
-                redirect_uri=str(request.base_url).rstrip("/") + "/auth/login"
-            )
+            end_session = _provider().end_session_url(redirect_uri=return_to)
             target = end_session or target
         response = RedirectResponse(target, status_code=SEE_OTHER)
         response.delete_cookie(auth.SESSION_COOKIE, path="/")
