@@ -1,6 +1,49 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-14, v3.0.0 SHIPPED (read this block first; older headers below are history)
+## STATE AT 2026-09-15, POST-RELEASE FIXES (read this block first; older headers below are history)
+
+**Merged 2026-09-15, in order:** #129 document reader warm-up (`f2648b5`) and
+#130 the ST-38 reader hint / log names / admin header fix (`58508c5`), each after
+a cold review with its findings fixed and CI green; then #131, the docs PR
+carrying this block (cold review: 2 blocking and 4 worth fixing, all fixed).
+Combined code on `main` at `58508c5`: full suite 1202 passed, 2 skipped,
+1 xfailed; ruff clean. Railway deploy `dd974708` SUCCESS: clean start, no
+warm-up (evidence-only), health 200 version 3.0.0, `/`, `/workspaces`,
+`/admin`, `/reports`, `/api/v1/workspaces` all 401 without the password. Each
+merge used an explicit clean `--subject`/`--body`, because the default squash
+message copies commit trailers onto `main`; neither merge commit carries one.
+
+**Checked in a real browser, 2026-09-15, on scratch accounts (not the team's
+own):** login, roles and grants against a real Keycloak 26.4 in Docker. A reader with nothing granted sees no workspace
+name; sign-out ends the realm session too (the next visit asks for a password);
+an admin's grant lets the reader see exactly that workspace and no admin,
+create, Sync or delete controls. The throwaway realm and its data are deleted.
+
+**Unexplained, recorded not fixed:** the dev server crashed twice (Windows
+access violation, exit 139) inside an outbound call to Keycloak, both while a
+full test suite ran alongside with ~2 GB RAM free. Not reproduced in four
+attempts, one under the same load with 40 sign-in calls. If it recurs: run
+`uv run python -X faulthandler app.py` and keep the log (docs/known-issues.md).
+
+**Dropped on evidence:** a streamed-answer fallback (DECISIONS 2026-09-15). The
+provider client already retries opening a stream.
+
+**AI attribution slipped onto `main` (rule 4 broken):** #126, #127 and #128
+carry a `Co-authored-by` line naming the assistant, on top of the four from July
+that were left in place on 2026-07-28. The PR descriptions #126-#130 were edited
+clean on 2026-09-15. Scrubbing `main` needs a force-push, which the git rules
+forbid and which would break MB's clone: a human decision, not taken.
+
+**Still human-only:** a named owner for the law 09-08 personal-data check
+(blocks persisting chat history); a hand-run of sign-in and sign-out from the
+team's own account (the scratch-account check above does not replace it); the
+six ST-38 screen-reader rows (the automated audit in
+docs/evidence/ST-38/lighthouse-2026-09-15.md does not replace them either); 10
+rehearsals and a backup video; the mock defense.
+
+---
+
+## STATE AT 2026-09-14, v3.0.0 SHIPPED (history now)
 
 **v3.0.0 is tagged and published.** Tag `v3.0.0` on `2f02ec7`. The gate on
 merged `main`: G1 38/40 (need 90%), G2 20/20, G3 38/38, `RELEASE GATE: PASS`,
