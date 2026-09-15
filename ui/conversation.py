@@ -231,7 +231,7 @@ class Message:
     partial: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        """ST-51: this message, JSON-safe, for `Conversation.to_payload`.
+        """S6 saved chat history: this message, JSON-safe, for `Conversation.to_payload`.
 
         `kind` is written as its plain string value (StrEnum), never the
         enum repr, so the stored row is ordinary JSON a human or another
@@ -518,6 +518,14 @@ INTERRUPTED_TEXT = (
 )
 
 
+# S6 saved chat history: the shape `Conversation.to_payload` writes and
+# `from_payload` reads. Bump this the day that shape changes; a stored row
+# stamped with any other value is treated as unreadable rather than
+# guessed at (`from_payload` raises), the same as corrupt JSON or an
+# unknown enum value.
+PAYLOAD_VERSION = 1
+
+
 @dataclass
 class Conversation:
     """One S1 conversation: what is on screen, and what is in flight.
@@ -642,8 +650,8 @@ class Conversation:
         Called on every render rather than by the worker thread, so the
         worker only ever writes its own `Run`. That includes the 700ms
         poll while the page is open (`Conversation` docstring), so the
-        return value matters beyond idempotency: ST-51's caller
-        (`app.py::_context`) saves the transcript to storage only when
+        return value matters beyond idempotency: S6 saved chat history's
+        caller (`app.py::_context`) saves the transcript to storage only when
         this returns True, or every poll tick would open a write
         transaction for nothing changed.
 
@@ -708,17 +716,24 @@ class Conversation:
             return True
 
     def to_payload(self) -> dict[str, Any]:
-        """This conversation as JSON-safe data, for ST-51's storage row:
+        """This conversation as JSON-safe data, for S6's storage row:
         `messages`, `summary`, `turns`, `session_id`. NOT `run` (in-flight
         state, meaningless once the process that started it is gone) and
         NOT `pending_clarification` (a clarifying question asked by a dead
         process is not worth resuming into -- the next question starts a
         fresh one, same as today when nothing is stored at all).
 
+        `v` is the payload SHAPE version, stamped `PAYLOAD_VERSION` on
+        every save. A future change to this shape bumps that constant;
+        `from_payload` treats any other value (including a payload with no
+        `v` at all, from before this field existed) as unreadable rather
+        than guessing at a shape it was never written to expect.
+
         Locked, for the same reason `begin`/`settle` are: a poll thread
         could be reading `self.messages` while this copies it."""
         with self._lock:
             return {
+                "v": PAYLOAD_VERSION,
                 "session_id": self.session_id,
                 "summary": self.summary,
                 "turns": [
@@ -732,10 +747,16 @@ class Conversation:
     def from_payload(workspace_id: str, data: Mapping[str, Any]) -> Conversation:
         """The inverse of `to_payload`. Raises on anything unreadable --
         corrupt JSON already failed before this is called
-        (`json.loads`), but a field of the wrong shape or an unknown enum
-        value raises here (KeyError, ValueError, TypeError) -- so the
-        caller (`app.py::Runtime._load_conversation`) can catch it and
-        start an empty conversation instead of crashing the chat screen."""
+        (`json.loads`), but a field of the wrong shape, an unknown enum
+        value, or an unrecognized `v` raises here (KeyError, ValueError,
+        TypeError) -- so the caller (`app.py::Runtime._load_conversation`)
+        can catch it and start an empty conversation instead of crashing
+        the chat screen."""
+        if data.get("v") != PAYLOAD_VERSION:
+            raise ValueError(
+                f"unrecognized chat history payload version {data.get('v')!r}, "
+                f"expected {PAYLOAD_VERSION!r}"
+            )
         messages = [Message.from_dict(item) for item in data["messages"]]
         turns = [
             Turn(question=str(turn["question"]), answer=str(turn["answer"]))

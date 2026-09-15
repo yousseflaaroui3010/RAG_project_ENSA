@@ -21,6 +21,7 @@ from agent.querying import ClarificationContext
 from agent.state import Answer, AnswerKind, Source, Turn
 from agent.trace import StepKind, Trace, TraceStep
 from ui.conversation import (
+    PAYLOAD_VERSION,
     Conversation,
     ErrorDetail,
     Message,
@@ -721,7 +722,7 @@ def test_settling_twice_does_not_double_the_transcript():
     on the redirect and on a refresh. A second call must be a no-op or one
     answer appears three times.
 
-    Also pins ST-51's contract: `settle()` returns True exactly once, the
+    Also pins S6 saved chat history's contract: `settle()` returns True exactly once, the
     call that actually folds the run in -- `app.py::_context` saves to
     storage only on a True, or every poll tick would write for nothing
     changed."""
@@ -756,7 +757,7 @@ def test_a_new_conversation_drops_the_session_so_memory_starts_clean():
     assert abandoned.cancelled is True
 
 
-# --- ST-51 serialization (law 09-08 persisted chat history) ---------------
+# --- S6 saved chat history serialization (law 09-08) ------------------------
 
 
 def _full_message() -> Message:
@@ -810,7 +811,7 @@ def test_message_round_trips_through_to_dict_from_dict():
 
 def test_message_round_trip_survives_a_real_json_hop():
     """`to_dict` alone proves nothing about what actually gets stored --
-    ST-51 writes `json.dumps(...)` and reads back `json.loads(...)`, and
+    S6 saved chat history writes `json.dumps(...)` and reads back `json.loads(...)`, and
     that hop is where a tuple silently becomes a list or an enum member
     silently becomes a plain string. Round-tripping through real JSON is
     the only way either would show up."""
@@ -893,4 +894,20 @@ def test_conversation_from_payload_raises_on_a_missing_messages_key():
     app.py is what decides to fall back to empty, and it must actually
     see the failure to do that."""
     with pytest.raises(KeyError):
-        Conversation.from_payload("ws-1", {"summary": "", "turns": []})
+        Conversation.from_payload("ws-1", {"v": PAYLOAD_VERSION, "summary": "", "turns": []})
+
+
+def test_conversation_from_payload_rejects_an_unrecognized_version():
+    """A row this process does not know how to read (a future format, or
+    one with no `v` at all -- every row saved before this field existed)
+    must be treated as corrupt, not guessed at: `app.py`'s caller starts
+    an empty conversation and logs a warning, the same handling a bad
+    enum or malformed JSON already gets."""
+    good = Conversation(workspace_id="ws-1").to_payload()
+
+    with pytest.raises(ValueError, match="version"):
+        Conversation.from_payload("ws-1", {**good, "v": 99})
+
+    missing = {key: value for key, value in good.items() if key != "v"}
+    with pytest.raises(ValueError, match="version"):
+        Conversation.from_payload("ws-1", missing)

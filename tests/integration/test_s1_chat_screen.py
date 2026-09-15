@@ -916,7 +916,7 @@ def test_a_new_conversation_clears_the_transcript(sanad):
     assert "Every answer carries the sources it was written from." in page
 
 
-# --- ST-51: chat history persisted across a restart (law 09-08) -------
+# --- S6 saved chat history: persisted across a restart (law 09-08) ----
 
 
 def test_a_settled_answer_survives_a_real_restart(sanad):
@@ -937,19 +937,28 @@ def test_a_settled_answer_survives_a_real_restart(sanad):
     assert SOURCE_FILE in page
 
 
-def test_new_conversation_deletes_only_that_workspaces_stored_row(sanad):
+def test_new_conversation_deletes_only_that_workspaces_stored_row(sanad, tmp_path):
+    """A cold review found this test used only ONE workspace, so swapping
+    'New conversation' (scoped to the active workspace) for 'Delete my
+    saved history' (every workspace) would still leave it green -- both
+    routes leave zero rows behind when there is only one to begin with.
+    A second workspace with its own saved row is what makes the two
+    behaviours distinguishable: New conversation must leave it alone."""
     build, workspace, db_path = sanad
     client, runtime = build()
+    other = workspaces.create_workspace(
+        name="Legal", folder_path=str(tmp_path / "legal"), db_path=db_path
+    )
+    other_conversation = runtime.conversation(other.id, "local")
+    other_conversation.messages.append(
+        Message(kind=MessageKind.ANSWER, text="the other workspace's own answer")
+    )
+    runtime.save_conversation("local", other_conversation)
+
     _ask(client)
     _settled(client, runtime, workspace.id)
     with repo.session(db_path) as conn:
-        assert (
-            conn.execute(
-                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
-                (workspace.id,),
-            ).fetchone()[0]
-            == 1
-        )
+        assert conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 2
 
     client.post("/chat/new", follow_redirects=False)
 
@@ -961,6 +970,13 @@ def test_new_conversation_deletes_only_that_workspaces_stored_row(sanad):
             ).fetchone()[0]
             == 0
         )
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
+                (other.id,),
+            ).fetchone()[0]
+            == 1
+        ), "New conversation must not touch a different workspace's saved row"
 
 
 def test_a_get_on_delete_history_never_deletes_anything(sanad):
@@ -984,11 +1000,25 @@ def test_a_get_on_delete_history_never_deletes_anything(sanad):
         )
 
 
-def test_deleting_my_history_removes_every_workspace_for_that_person(sanad):
+def test_deleting_my_history_removes_every_workspace_for_that_person(sanad, tmp_path):
+    """The companion fix to the New-conversation test above: a second
+    workspace's saved row must be gone too after this route, which is
+    what makes it distinguishable from New conversation (scoped to one)."""
     build, workspace, db_path = sanad
     client, runtime = build()
+    other = workspaces.create_workspace(
+        name="Legal", folder_path=str(tmp_path / "legal"), db_path=db_path
+    )
+    other_conversation = runtime.conversation(other.id, "local")
+    other_conversation.messages.append(
+        Message(kind=MessageKind.ANSWER, text="the other workspace's own answer")
+    )
+    runtime.save_conversation("local", other_conversation)
+
     _ask(client)
     _settled(client, runtime, workspace.id)
+    with repo.session(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 2
 
     response = client.post("/chat/history/delete", follow_redirects=False)
 
@@ -996,6 +1026,7 @@ def test_deleting_my_history_removes_every_workspace_for_that_person(sanad):
     with repo.session(db_path) as conn:
         assert conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 0
     assert f"local|{workspace.id}" not in runtime.conversations
+    assert f"local|{other.id}" not in runtime.conversations
 
 
 # --- the shell (UX spec 4) -------------------------------------------

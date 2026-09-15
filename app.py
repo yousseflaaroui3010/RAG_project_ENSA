@@ -58,6 +58,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+import chat_history
 import embeddings
 import recovery
 import sync
@@ -207,6 +208,50 @@ class Runtime:
     # render -- a render can happen many times (the poll) before the
     # operator retries.
     feedback_errors: dict[str, str] = field(default_factory=dict)
+    # S6 saved chat history concurrency (cold review). One lock per person,
+    # never a global one, so two different people's saves never wait on
+    # each other -- created lazily and guarded by `_person_locks_guard`
+    # itself (a dict of locks, guarded by one lock, per `_person_lock`).
+    # `_history_epochs` is the counter every delete for that person bumps;
+    # `save_conversation` reads it before snapshotting and checks it again
+    # under the person's lock before writing, so a save that raced a
+    # concurrent delete can never resurrect what was just removed. See
+    # `_person_lock`, `_history_epoch`, `_bump_history_epoch`.
+    _person_locks: dict[str, threading.Lock] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+    _person_locks_guard: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False
+    )
+    _history_epochs: dict[str, int] = field(default_factory=dict, repr=False, compare=False)
+    # Test-only seam: if set, called between snapshotting a transcript and
+    # taking the person lock to write it, so a test can deterministically
+    # run a delete in that exact gap (a real thread race is not
+    # reproducible on demand). None in every real run.
+    _save_hook: Any = field(default=None, repr=False, compare=False)
+
+    def _person_lock(self, user_id: str) -> threading.Lock:
+        """The one lock for this person's saved-history writes, created on
+        first use. Guarded by `_person_locks_guard` so two threads racing
+        to create the FIRST lock for a brand new user cannot each end up
+        with a different Lock object -- which would make the per-person
+        lock no lock at all."""
+        with self._person_locks_guard:
+            lock = self._person_locks.get(user_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._person_locks[user_id] = lock
+            return lock
+
+    def _history_epoch(self, user_id: str) -> int:
+        return self._history_epochs.get(user_id, 0)
+
+    def _bump_history_epoch(self, user_id: str) -> None:
+        """Called by every delete of this person's saved history (one
+        workspace or all of them), while holding `_person_lock(user_id)`.
+        A save that snapshotted before this runs, and only reaches the
+        lock after, sees a changed epoch and skips its write."""
+        self._history_epochs[user_id] = self._history_epoch(user_id) + 1
 
     @contextlib.contextmanager
     def ports(self) -> Iterator[AgentPorts]:
@@ -395,37 +440,50 @@ class Runtime:
         either half (both are UUIDs or the literal "local", and F-12's
         sentinel), so two different pairs cannot collide on one key.
 
-        ST-51: on a cache miss this now LOADS whatever was stored for this
+        S6: on a cache miss this now LOADS whatever was stored for this
         exact (person, workspace) pair rather than always starting empty --
-        the law 09-08 ruling that a person's transcript survives a
-        restart. Loaded once per process per key; every later call this
-        process makes for the same key returns the same in-memory object,
-        exactly as before this story."""
+        the law 09-08 ruling (DECISIONS 2026-09-15) that a person's
+        transcript survives a restart. Loaded once per process per key;
+        every later call this process makes for the same key returns the
+        same in-memory object, exactly as before this story.
+
+        LOADED UNDER A LOCK, DOUBLE-CHECKED: the fast path (a key already
+        in `self.conversations`) takes no lock at all, but two threads
+        racing on the FIRST call for one key -- both seeing `None` before
+        either has stored anything -- used to both load and both build a
+        `Conversation`, with only one surviving in the dict and the other
+        going on to mutate an object nobody else could ever see again.
+        `_person_lock` serializes exactly that gap; the `get` is repeated
+        once the lock is held in case another thread already finished
+        loading while this one was waiting."""
         key = f"{user_id}|{workspace_id}"
         existing = self.conversations.get(key)
-        if existing is None:
-            existing = self._load_conversation(user_id, workspace_id)
-            self.conversations[key] = existing
-        return existing
+        if existing is not None:
+            return existing
+        with self._person_lock(user_id):
+            existing = self.conversations.get(key)
+            if existing is None:
+                existing = self._load_conversation(user_id, workspace_id)
+                self.conversations[key] = existing
+            return existing
 
     def _load_conversation(self, user_id: str, workspace_id: str) -> Conversation:
         """`conversation`'s cache-miss path: the stored row for this key,
         or a fresh empty `Conversation` when there is none, retention is 0,
         the row has expired, or the payload cannot be read.
 
-        A corrupt or unreadable payload (bad JSON, an unknown enum value --
-        `Conversation.from_payload` raises on either) must not crash the
-        chat screen (task rule): caught here, logged as one line naming
-        only the workspace and the exception TYPE -- never the payload
-        itself, which could hold a question or an answer (core law: never
-        log a full request body)."""
-        with repo.session(self.db_path) as conn:
-            payload = repo.load_chat_history(
-                conn,
-                user_id=user_id,
-                workspace_id=workspace_id,
-                retention_days=get_settings().chat_history_retention_days,
-            )
+        A corrupt or unreadable payload (bad JSON, an unknown enum value,
+        an unknown payload version -- `Conversation.from_payload` raises
+        on any of these) must not crash the chat screen (task rule):
+        caught here, logged as one line naming only the workspace and the
+        exception TYPE -- never the payload itself, which could hold a
+        question or an answer (core law: never log a full request body)."""
+        payload = chat_history.load(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            retention_days=get_settings().chat_history_retention_days,
+            db_path=self.db_path,
+        )
         if payload is None:
             return Conversation(workspace_id=workspace_id)
         try:
@@ -440,30 +498,72 @@ class Runtime:
             return Conversation(workspace_id=workspace_id)
 
     def save_conversation(self, user_id: str, conversation: Conversation) -> None:
-        """Persist one settled transcript (ST-51). Called only when
+        """Persist one settled transcript (S6). Called only when
         `Conversation.settle()` just returned True, from `_context`, so
         this never runs on a no-op render or the 700ms poll's common case
         of nothing having changed.
 
-        `retention_days <= 0` is handled entirely inside
-        `repo.save_chat_history`: it deletes instead of storing, which is
-        what makes "0 = keep nothing" true rather than merely "keep it for
-        an instant"."""
-        with repo.session(self.db_path) as conn:
-            repo.save_chat_history(
-                conn,
+        NEVER for the F-12 routing sentinel: `screen.ROUTE_SENTINEL` is
+        not a real workspace id, and `chat_history` is FK'd to `workspace`
+        (db/schema.sql), so writing it would raise. `settle()` never
+        returns True for that conversation today (`_start_routing` calls
+        `begin_route`, never `begin`, so `run` is never set) -- this is a
+        defensive guard against a future path reaching here anyway,
+        proven by a test that calls this directly rather than trusting
+        that today's routes never do.
+
+        THE RACE THIS CLOSES (cold review): a save that snapshots the
+        transcript, then writes it, has a gap in between where a
+        concurrent "Delete my saved history" or "New conversation" can
+        remove the very rows this save is about to (re)write -- the
+        delete finishes first, then the stale save resurrects what was
+        just deleted. Closed with a per-person lock plus a "history
+        epoch" every delete bumps: the epoch is read before the snapshot,
+        and checked again under the SAME lock a delete uses, right before
+        the write. If it changed, or this `Conversation` is no longer the
+        one live in `self.conversations` (replaced or dropped by that
+        same delete), the write is skipped -- the next settled answer
+        saves fine, but this one does not get to un-delete anything."""
+        if conversation.workspace_id == screen.ROUTE_SENTINEL:
+            return
+        epoch_before = self._history_epoch(user_id)
+        payload = json.dumps(conversation.to_payload())
+        if self._save_hook is not None:
+            self._save_hook()
+        key = f"{user_id}|{conversation.workspace_id}"
+        with self._person_lock(user_id):
+            if self._history_epoch(user_id) != epoch_before:
+                return
+            if self.conversations.get(key) is not conversation:
+                return
+            chat_history.save(
                 user_id=user_id,
                 workspace_id=conversation.workspace_id,
-                payload=json.dumps(conversation.to_payload()),
+                payload=payload,
                 retention_days=get_settings().chat_history_retention_days,
+                db_path=self.db_path,
             )
 
     def delete_conversation_storage(self, user_id: str, workspace_id: str) -> None:
-        """`/chat/new`: New conversation also drops the stored row for
-        just this one (person, workspace) pair, not this person's other
-        workspaces."""
-        with repo.session(self.db_path) as conn:
-            repo.delete_chat_history(conn, user_id=user_id, workspace_id=workspace_id)
+        """Drop the stored row for just this one (person, workspace)
+        pair, and the in-memory copy with it -- used by `/chat/new` (New
+        conversation touches only the active workspace) and by an admin
+        revoking a person's access to one workspace (the stored
+        transcript quotes passages they should no longer hold).
+
+        Bumps this person's history epoch under their lock, same as
+        `delete_all_history`, so a save already in flight for this exact
+        conversation cannot write it back afterwards (see
+        `save_conversation`). Cancels an in-flight run before the
+        `Conversation` is dropped, so a paid answer does not keep writing
+        into an object nobody can reach any more."""
+        with self._person_lock(user_id):
+            self._bump_history_epoch(user_id)
+            chat_history.delete(user_id=user_id, workspace_id=workspace_id, db_path=self.db_path)
+        key = f"{user_id}|{workspace_id}"
+        conversation = self.conversations.pop(key, None)
+        if conversation is not None and conversation.run is not None:
+            conversation.run.cancel()
 
     def forget_conversations(self, user_id: str) -> None:
         """Drop every IN-MEMORY transcript belonging to one person
@@ -475,6 +575,28 @@ class Runtime:
         for key in [k for k in self.conversations if k.startswith(prefix)]:
             self.conversations.pop(key, None)
 
+    def forget_workspace_conversations(self, workspace_id: str) -> None:
+        """Drop every IN-MEMORY conversation for one workspace, whoever it
+        belongs to, and cancel any run still writing into one of them.
+        `db/schema.sql`'s `ON DELETE CASCADE` already takes the STORED
+        rows with the workspace when `sync.delete_workspace` runs; this is
+        the in-memory half.
+
+        Cold review: the old code did
+        `runtime.conversations.pop(workspace_id, None)`, a leftover from
+        before S6 keyed this dict by workspace alone. Since S6 every key
+        is `"{user_id}|{workspace_id}"`, so that pop matched nothing and
+        every signed-in person's conversation for a deleted workspace
+        stayed in memory -- reachable again if the same workspace id were
+        ever reused (uuid4, so vanishingly unlikely, but a leaked
+        reference regardless) and, worse, `Conversation.run` inside it was
+        never cancelled."""
+        suffix = f"|{workspace_id}"
+        for key in [k for k in self.conversations if k.endswith(suffix)]:
+            conversation = self.conversations.pop(key, None)
+            if conversation is not None and conversation.run is not None:
+                conversation.run.cancel()
+
     def delete_all_history(self, user_id: str) -> None:
         """Law 09-08: every stored conversation this person has, in every
         workspace, gone -- plus their in-memory transcripts, so nothing of
@@ -482,9 +604,22 @@ class Runtime:
         person's own "Delete my saved history" control (`/chat/history/
         delete`) and by admin "sign out everywhere" (`admin_sign_out_route`),
         the two places this project has ruled a person's data must be
-        taken out."""
-        with repo.session(self.db_path) as conn:
-            repo.delete_chat_history_for_user(conn, user_id=user_id)
+        taken out.
+
+        Cancels every in-flight run of theirs FIRST, before the
+        conversations holding them are dropped (`forget_conversations`)
+        -- otherwise a question already being answered keeps running, and
+        the paid call it spends writes into a `Conversation` nothing can
+        reach any more (a cold review found this: "delete my history"
+        while an answer is still being written left the run finishing
+        into nothing)."""
+        with self._person_lock(user_id):
+            self._bump_history_epoch(user_id)
+            chat_history.delete_for_user(user_id=user_id, db_path=self.db_path)
+        prefix = f"{user_id}|"
+        for key, conversation in self.conversations.items():
+            if key.startswith(prefix) and conversation.run is not None:
+                conversation.run.cancel()
         self.forget_conversations(user_id)
 
 
@@ -731,9 +866,9 @@ def _context(runtime: Runtime, request: Request) -> dict:
     if active is not None:
         documents = screen.answerable_documents(active.id, db_path=runtime.db_path)
         conversation = runtime.conversation(active.id, principal.id)
-        # ST-51: persist only when settle() actually folded a finished run
-        # into the transcript, not on every render -- this function also
-        # runs on the 700ms poll while the page is open.
+        # S6 saved chat history: persist only when settle() actually folded
+        # a finished run into the transcript, not on every render -- this
+        # function also runs on the 700ms poll while the page is open.
         if conversation.settle():
             runtime.save_conversation(principal.id, conversation)
     elif is_routing:
@@ -1156,15 +1291,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 recovered.evaluation_runs,
             )
 
-        # ST-51 (law 09-08): sweep stored chat history past its retention
+        # S6 (law 09-08): sweep stored chat history past its retention
         # window at every start-up, not only when a row happens to be
         # loaded again -- a workspace nobody reopens must not keep its
         # transcript past `chat_history_retention_days` just because
         # nothing ever read it.
-        with repo.session(runtime.db_path) as conn:
-            swept = repo.sweep_expired_chat_history(
-                conn, retention_days=get_settings().chat_history_retention_days
-            )
+        swept = chat_history.sweep_expired(
+            retention_days=get_settings().chat_history_retention_days,
+            db_path=runtime.db_path,
+        )
         if swept:
             logger.warning("swept %s expired chat history row(s)", swept)
 
@@ -1521,12 +1656,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         for workspace_id in removed:
             _log_activity(runtime, request, admin_screen.REVOKED_ACCESS,
                           workspace_id=workspace_id, detail=user_id)
+            # S6, law 09-08 (cold review): a revoked workspace's stored
+            # transcript quotes passages this person should no longer
+            # hold, so it leaves with the grant -- not just their access.
+            runtime.delete_conversation_storage(user_id, workspace_id)
         return RedirectResponse("/admin", status_code=SEE_OTHER)
 
     @app.post("/admin/people/{user_id}/sign-out")
     def admin_sign_out_route(request: Request, user_id: str) -> Response:
         """End every session this person has, and drop their transcripts,
-        in memory AND stored (ST-51).
+        in memory AND stored (S6 saved chat history).
 
         Also the law 09-08 answer for "take this person's data out of the
         running process": what is left afterwards is their account row and
@@ -1576,16 +1715,17 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         if key is not None:
             principal_id = principal_of(request).id
             runtime.conversation(key, principal_id).reset()
-            # ST-51: a new conversation also drops the stored row for this
-            # one workspace, so it is not silently resurrected on the next
-            # load -- only this workspace's row, never this person's
-            # others (that is `/chat/history/delete`, below).
+            # S6 saved chat history: a new conversation also drops the
+            # stored row for this one workspace, so it is not silently
+            # resurrected on the next load -- only this workspace's row,
+            # never this person's others (that is `/chat/history/delete`,
+            # below).
             runtime.delete_conversation_storage(principal_id, key)
         return RedirectResponse("/", status_code=SEE_OTHER)
 
     @app.get("/chat/history/delete", response_class=HTMLResponse)
     def confirm_delete_history(request: Request) -> Response:
-        """ST-51, law 09-08: the no-JS `ConfirmDialog` (UX spec 5, 7.2)
+        """S6 saved chat history, law 09-08: the no-JS `ConfirmDialog` (UX spec 5, 7.2)
         before wiping every stored conversation this person has, in every
         workspace. Same pattern as `confirm_delete_workspace` and
         `confirm_remove_document` -- a real page, one action, one way
@@ -1896,7 +2036,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             pass
         runtime.sync_errors.pop(workspace_id, None)
         runtime.last_sync_run_id.pop(workspace_id, None)
-        runtime.conversations.pop(workspace_id, None)
+        runtime.forget_workspace_conversations(workspace_id)
         if runtime.active_workspace_id == workspace_id:
             runtime.active_workspace_id = None
         return RedirectResponse("/workspaces", status_code=SEE_OTHER)

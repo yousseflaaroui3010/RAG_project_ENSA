@@ -172,7 +172,7 @@ CREATE TABLE IF NOT EXISTS activity_event (
   created_at     TEXT    NOT NULL
 );
 
--- ST-51 (law 09-08): one person's stored chat transcript for one
+-- S6 saved chat history (law 09-08): one person's stored chat transcript for one
 -- workspace, surviving a server restart. `user_id` is NOT a foreign key
 -- to app_user -- the login-free modes key every conversation "local"
 -- (app.py Runtime.conversation), and that literal is never a row in

@@ -94,6 +94,56 @@ def test_unticking_every_box_takes_the_workspaces_away(keycloak):  # noqa: F811
     assert "revoked access" in _actions(db_path)
 
 
+def test_revoking_access_deletes_that_workspaces_saved_history(keycloak):  # noqa: F811
+    """S6 saved chat history, law 09-08 (cold review): a revoked
+    workspace's stored transcript quotes passages this person should no
+    longer hold, so it must leave with the grant -- and a workspace still
+    granted must keep its own."""
+    client, runtime, db_path, _, sign_in = keycloak
+    hr = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    legal = workspaces.create_workspace(
+        name="Legal", folder_path=str(db_path.parent), db_path=db_path
+    )
+    sign_in(READER_CLAIMS)
+    sign_in(ADMIN_CLAIMS)
+    client.post(
+        "/admin/grants",
+        data={"user_id": "kc-reader", "workspace_id": [hr.id, legal.id]},
+        follow_redirects=False,
+    )
+    hr_conversation = runtime.conversation(hr.id, "kc-reader")
+    hr_conversation.messages.append(Message(kind=MessageKind.ANSWER, text="HR answer"))
+    runtime.save_conversation("kc-reader", hr_conversation)
+    legal_conversation = runtime.conversation(legal.id, "kc-reader")
+    legal_conversation.messages.append(Message(kind=MessageKind.ANSWER, text="Legal answer"))
+    runtime.save_conversation("kc-reader", legal_conversation)
+
+    # Revoke HR only (keep Legal ticked).
+    client.post(
+        "/admin/grants",
+        data={"user_id": "kc-reader", "workspace_id": [legal.id]},
+        follow_redirects=False,
+    )
+
+    with repo.session(db_path) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history "
+                "WHERE user_id = 'kc-reader' AND workspace_id = ?",
+                (hr.id,),
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history "
+                "WHERE user_id = 'kc-reader' AND workspace_id = ?",
+                (legal.id,),
+            ).fetchone()[0]
+            == 1
+        ), "a workspace still granted must keep its saved history"
+
+
 def test_two_ticked_boxes_both_land(keycloak):  # noqa: F811
     """The form decoder used to keep only the last value of a repeated
     field, which would have granted one workspace out of two, silently."""
@@ -148,7 +198,7 @@ def test_signing_a_person_out_everywhere_ends_their_session(keycloak):  # noqa: 
 
 
 def test_signing_a_person_out_everywhere_also_deletes_their_stored_history(keycloak):  # noqa: F811
-    """ST-51, law 09-08: admin "sign out everywhere" is the answer to
+    """S6 saved chat history, law 09-08: admin "sign out everywhere" is the answer to
     "take this person's data out of the running process" -- their stored
     transcripts must go too, in every workspace, and nobody else's row
     may be touched."""

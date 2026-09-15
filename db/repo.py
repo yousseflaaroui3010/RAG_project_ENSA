@@ -21,7 +21,7 @@ import sqlite3
 import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 from config import get_settings
@@ -889,79 +889,58 @@ def list_activity(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Ro
     )
 
 
-# --- ST-51 persisted chat history (law 09-08) -----------------------------
+# --- S6 saved chat history (law 09-08) -------------------------------------
+#
+# Plain operations only -- no retention policy, no notion of "expired", no
+# cutoff arithmetic. What 0 or a negative retention setting MEANS, when a
+# row counts as expired, and how a cutoff timestamp is computed all belong
+# to `chat_history.py`, built on top of this module exactly as `workspaces.py`
+# and `sync.py` are (module docstring above: business logic is not this
+# module's job). A cold review moved this here from four functions that each
+# re-decided the same "retention_days <= 0" rule inline.
 
 
-def _retention_cutoff(retention_days: int) -> str:
-    """Rows with `updated_at` at or before this are expired."""
-    return (datetime.now(UTC) - timedelta(days=retention_days)).isoformat()
-
-
-def save_chat_history(
+def upsert_chat_history(
     conn: sqlite3.Connection,
     *,
     user_id: str,
     workspace_id: str,
     payload: str,
-    retention_days: int,
+    updated_at: str,
 ) -> None:
-    """Persist one person's whole transcript for one workspace.
+    """Write one person's whole transcript for one workspace, replacing
+    whatever was there. `updated_at` is the caller's to set (`chat_history.py`
+    passes `utc_now()`), never computed here.
 
-    `retention_days <= 0` is config.py's "keep nothing between restarts"
-    switch: a save then DELETES any existing row for this key instead of
-    writing one, so a setting of 0 is provably "stores nothing" rather
-    than "stores it, just briefly". `ON CONFLICT ... DO UPDATE` rather than
-    delete-then-insert, the same reason `upsert_answer_feedback` uses it:
-    this is called on every settled answer, not only the first one for a
-    given (user, workspace), and a plain INSERT would raise on the second
-    call against the PRIMARY KEY."""
-    if retention_days <= 0:
-        conn.execute(
-            "DELETE FROM chat_history WHERE user_id = ? AND workspace_id = ?",
-            (user_id, workspace_id),
-        )
-        return
+    `ON CONFLICT ... DO UPDATE` rather than delete-then-insert, the same
+    reason `upsert_answer_feedback` uses it: this is called on every
+    settled answer, not only the first one for a given (user, workspace),
+    and a plain INSERT would raise on the second call against the
+    PRIMARY KEY."""
     conn.execute(
         "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
         "VALUES (?, ?, ?, ?) "
         "ON CONFLICT(user_id, workspace_id) DO UPDATE SET "
         "payload = excluded.payload, updated_at = excluded.updated_at",
-        (user_id, workspace_id, payload, utc_now()),
+        (user_id, workspace_id, payload, updated_at),
     )
 
 
-def load_chat_history(
-    conn: sqlite3.Connection, *, user_id: str, workspace_id: str, retention_days: int
-) -> str | None:
-    """This person's stored payload for this workspace, or None.
-
-    `retention_days <= 0` never even queries storage -- nothing is meant
-    to survive a restart, so there is nothing to check an age against.
-    A row found OLDER than the retention window is expired: deleted here,
-    on read, rather than merely ignored, so an old transcript nobody has
-    swept yet can never come back into memory just because it was asked
-    for before the next start-up sweep runs."""
-    if retention_days <= 0:
-        return None
-    row = conn.execute(
+def get_chat_history(
+    conn: sqlite3.Connection, *, user_id: str, workspace_id: str
+) -> sqlite3.Row | None:
+    """The raw stored row (`payload`, `updated_at`) for this person and
+    workspace, or None. Whether it is too old to use is the caller's call,
+    not this function's."""
+    return conn.execute(
         "SELECT payload, updated_at FROM chat_history "
         "WHERE user_id = ? AND workspace_id = ?",
         (user_id, workspace_id),
     ).fetchone()
-    if row is None:
-        return None
-    if row["updated_at"] <= _retention_cutoff(retention_days):
-        conn.execute(
-            "DELETE FROM chat_history WHERE user_id = ? AND workspace_id = ?",
-            (user_id, workspace_id),
-        )
-        return None
-    return row["payload"]
 
 
 def delete_chat_history(conn: sqlite3.Connection, *, user_id: str, workspace_id: str) -> None:
-    """`New conversation` (app.py `/chat/new`): drop the stored row for
-    just this one (person, workspace) pair."""
+    """Drop the stored row for just this one (person, workspace) pair."""
     conn.execute(
         "DELETE FROM chat_history WHERE user_id = ? AND workspace_id = ?",
         (user_id, workspace_id),
@@ -970,26 +949,16 @@ def delete_chat_history(conn: sqlite3.Connection, *, user_id: str, workspace_id:
 
 def delete_chat_history_for_user(conn: sqlite3.Connection, *, user_id: str) -> int:
     """Every stored conversation belonging to one person, across every
-    workspace -- the law 09-08 answer both the person's own "Delete my
-    saved history" control and the admin "sign out everywhere" action use.
-    Returns the row count deleted, so a caller can tell whether there was
-    ever anything stored (used by tests, not by any route)."""
+    workspace. Returns the row count deleted."""
     cursor = conn.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
     return cursor.rowcount
 
 
-def sweep_expired_chat_history(conn: sqlite3.Connection, *, retention_days: int) -> int:
-    """Every row past the retention window, gone. Called at start-up
-    (app.py lifespan) so a row nobody happens to load stays bounded by
-    the window too, not only rows that get read again. `retention_days
-    <= 0` clears the table outright: the same "keep nothing" rule
-    `save_chat_history` and `load_chat_history` already apply, applied
-    here to whatever a PAST, larger setting may have left behind."""
-    if retention_days <= 0:
-        cursor = conn.execute("DELETE FROM chat_history")
-    else:
-        cursor = conn.execute(
-            "DELETE FROM chat_history WHERE updated_at <= ?",
-            (_retention_cutoff(retention_days),),
-        )
+def delete_chat_history_older_than(conn: sqlite3.Connection, *, cutoff: str) -> int:
+    """Every row whose `updated_at` is at or before `cutoff` (an ISO-8601
+    UTC timestamp the caller computed), gone. Returns the row count
+    deleted. No idea here of what a retention window is or how `cutoff`
+    was chosen -- `chat_history.py` computes it, including the "delete
+    everything" case (retention 0), which it gets by passing `utc_now()`."""
+    cursor = conn.execute("DELETE FROM chat_history WHERE updated_at <= ?", (cutoff,))
     return cursor.rowcount

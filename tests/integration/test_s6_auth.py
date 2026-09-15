@@ -422,7 +422,7 @@ def test_signing_out_forgets_that_person_transcript(keycloak):
 
 
 def test_signing_out_keeps_the_stored_transcript_for_next_time(keycloak):
-    """ST-51: ordinary sign-out clears MEMORY (proven above) but must
+    """S6 saved chat history: ordinary sign-out clears MEMORY (proven above) but must
     leave storage alone -- that is the whole point of a stored transcript,
     it comes back at the next sign-in, unlike admin "sign out everywhere"
     (test_s6_admin.py), which deletes both."""
