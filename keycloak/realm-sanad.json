@@ -1,0 +1,134 @@
+{
+  "realm": "sanad",
+  "displayName": "Sanad",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "loginWithEmailAllowed": false,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": false,
+  "bruteForceProtected": true,
+  "roles": {
+    "realm": [
+      {
+        "name": "sanad-admin",
+        "description": "Sees every workspace, grants and revokes access, reads the activity log."
+      },
+      {
+        "name": "sanad-curator",
+        "description": "Adds and removes documents and runs Sync in the workspaces granted to them."
+      },
+      {
+        "name": "sanad-reader",
+        "description": "Asks questions in the workspaces granted to them. Changes nothing."
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "sanad",
+      "name": "Sanad",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${KEYCLOAK_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "redirectUris": [
+        "http://127.0.0.1:8000/auth/callback",
+        "http://localhost:8000/auth/callback",
+        "${KEYCLOAK_PUBLIC_APP_URL:http://127.0.0.1:8000}/auth/callback"
+      ],
+      "webOrigins": [
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "${KEYCLOAK_PUBLIC_APP_URL:http://127.0.0.1:8000}"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://127.0.0.1:8000/auth/login##http://localhost:8000/auth/login##${KEYCLOAK_PUBLIC_APP_URL:http://127.0.0.1:8000}/auth/login"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "sanad-admin-demo",
+      "firstName": "Amina",
+      "lastName": "Administrator",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_SEED_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "sanad-admin"
+      ],
+      "email": "sanad-admin-demo@sanad.invalid",
+      "requiredActions": []
+    },
+    {
+      "username": "sanad-curator-demo",
+      "firstName": "Karim",
+      "lastName": "Curator",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_SEED_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "sanad-curator"
+      ],
+      "email": "sanad-curator-demo@sanad.invalid",
+      "requiredActions": []
+    },
+    {
+      "username": "sanad-reader-demo",
+      "firstName": "Rita",
+      "lastName": "Reader",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_SEED_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "sanad-reader"
+      ],
+      "email": "sanad-reader-demo@sanad.invalid",
+      "requiredActions": []
+    },
+    {
+      "username": "sanad-norole-demo",
+      "firstName": "Nabil",
+      "lastName": "NoRole",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_SEED_PASSWORD}",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [],
+      "email": "sanad-norole-demo@sanad.invalid",
+      "requiredActions": []
+    }
+  ]
+}

@@ -2,14 +2,25 @@
 #
 #   docker compose -f compose.keycloak.yaml up -d
 #
-# `start-dev` keeps everything in memory: the realm, the users and the
-# client are gone when the container stops. That is deliberate for a demo
-# machine, and it is why no realm file lives in this repository -- a realm
-# export carries the client secret, and the core law forbids a secret in a
-# committed file. docs/design/S6-auth-rbac.md and README.md say which five
-# things to create in the admin console; it takes about three minutes.
+# One command. The realm, the client, the three roles and four demo people
+# are created on first start from keycloak/realm-sanad.json, so nobody has
+# to click through the admin console any more (that used to be five manual
+# steps, and `start-dev` threw the result away on every stop).
 #
-# NOTHING HERE IS A PRODUCTION SETUP: no TLS, no database, no backups,
+# NO SECRET LIVES IN THIS REPOSITORY. The realm file carries `${...}`
+# placeholders; Keycloak replaces them with environment variables at import
+# time (Keycloak 26 "Import Realm during Server Startup"). The two that
+# matter -- KEYCLOAK_CLIENT_SECRET and KEYCLOAK_SEED_PASSWORD -- are
+# required with no default, exactly like the admin pair below.
+#
+# The realm now SURVIVES a restart: `start-dev` keeps its H2 database under
+# /opt/keycloak/data/h2, which is a named volume here. Import skips a realm
+# that already exists, so editing the realm file changes nothing until you
+# wipe the volume:
+#
+#   docker compose -f compose.keycloak.yaml down -v
+#
+# NOTHING HERE IS A PRODUCTION SETUP: no TLS, no real database, no backups,
 # admin credentials from the shell environment. Keycloak's own
 # documentation says the same about `start-dev`.
 
@@ -18,13 +29,37 @@ services:
     # Pinned, not `latest`: a demo that changes under the demo is not a demo.
     image: quay.io/keycloak/keycloak:26.4
     container_name: sanad-keycloak
-    command: ["start-dev", "--http-port=8080"]
+    command: ["start-dev", "--http-port=8080", "--import-realm"]
     environment:
       # Keycloak 26's names (the older KEYCLOAK_ADMIN pair is gone).
       # Required, with no default: a login server whose administrator
       # password came from a compose file is not a login server.
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:?set KEYCLOAK_ADMIN_USER}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
+      # Substituted into keycloak/realm-sanad.json during import. The same
+      # value goes in Sanad's own .env as KEYCLOAK_CLIENT_SECRET, which is
+      # how the two sides agree without either one committing it.
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET}
+      # The password of the four demo people (admin, curator, reader,
+      # no-role). Required too: seeded accounts with a known password are
+      # how a demo realm turns into someone else's open door.
+      KEYCLOAK_SEED_PASSWORD: ${KEYCLOAK_SEED_PASSWORD:?set KEYCLOAK_SEED_PASSWORD}
+      # Only needed when Sanad is not on 127.0.0.1:8000 (a deployed demo).
+      # Adds that origin's callback and post-logout URLs to the client.
+      KEYCLOAK_PUBLIC_APP_URL: ${KEYCLOAK_PUBLIC_APP_URL:-http://127.0.0.1:8000}
+    volumes:
+      # The volume goes on /opt/keycloak/data, NOT on its `h2` subfolder,
+      # and that is not a detail: the image ships /opt/keycloak/data owned
+      # by the keycloak user (uid 1000), so a fresh named volume inherits
+      # that owner and Keycloak can write. `h2` does not exist in the image,
+      # so a volume mounted there is created owned by root and the server
+      # dies on boot with AccessDeniedException on keycloakdb.mv.db --
+      # observed 2026-09-15, which is why this line reads the way it does.
+      - sanad-keycloak-data:/opt/keycloak/data
+      # Mounted on top of that volume, read-only: the container imports
+      # this file, it never writes it. Longer path, so Docker mounts it
+      # after the volume and it stays visible.
+      - ./keycloak:/opt/keycloak/data/import:ro
     ports:
       # 127.0.0.1 only, like Sanad itself (LD-07).
       - "127.0.0.1:8080:8080"
@@ -34,3 +69,6 @@ services:
       timeout: 3s
       start_period: 30s
       retries: 10
+
+volumes:
+  sanad-keycloak-data:

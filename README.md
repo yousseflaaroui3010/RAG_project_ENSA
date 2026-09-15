@@ -135,9 +135,12 @@ The first Sync downloads the embedding model once, then it is cached locally.
 | Task | Command |
 |---|---|
 | Run the app | `uv run python app.py` |
-| Tests | `uv run pytest -q` |
+| Tests | `uv run pytest` |
 | Lint | `uv run ruff check .` |
-| End-to-end | `uv run pytest tests/integration -q` |
+| End-to-end | `uv run pytest tests/integration` |
+
+Do not add `-q`: `pyproject.toml` already sets it, and a second one hides the
+`N passed` summary line that every journal entry has to quote.
 
 New to the project? Start with [docs/START-HERE.md](docs/START-HERE.md).
 
@@ -175,22 +178,45 @@ introspection endpoint. Roles are realm roles named `sanad-admin`,
 Sanad role can sign in and is told to ask an administrator; they see
 nothing else. Non-admins see only the workspaces they were granted.
 
-A realm for development, in five steps (about three minutes):
+A realm for development, in one command. Set four variables in your shell
+(any values you like, but pick them yourself — none has a default):
 
-1. `docker compose -f compose.keycloak.yaml up -d` with `KEYCLOAK_ADMIN_USER`
-   and `KEYCLOAK_ADMIN_PASSWORD` set in your shell.
-2. In the admin console at http://localhost:8080, create a realm `sanad`.
-3. Create a client `sanad`: client authentication ON, standard flow ON,
-   valid redirect URI `http://127.0.0.1:8000/auth/callback`, and valid
-   POST LOGOUT redirect URI `http://127.0.0.1:8000/auth/login` (without
-   that second one Keycloak answers 400 when you sign out).
-4. Realm roles: `sanad-admin`, `sanad-curator`, `sanad-reader`. Create a
-   user and assign one.
-5. Put the client's secret in `.env` as `KEYCLOAK_CLIENT_SECRET`, with
-   `AUTH_MODE=keycloak` and `KEYCLOAK_ISSUER=http://localhost:8080/realms/sanad`.
+```
+KEYCLOAK_ADMIN_USER        the realm administrator's name
+KEYCLOAK_ADMIN_PASSWORD    the realm administrator's password
+KEYCLOAK_CLIENT_SECRET     the shared secret between Sanad and Keycloak
+KEYCLOAK_SEED_PASSWORD     the password of the four demo people below
+```
 
-No realm export ships in this repository on purpose: an export carries the
-client secret, and a secret never goes into a committed file.
+then:
+
+```
+docker compose -f compose.keycloak.yaml up -d
+```
+
+That imports `keycloak/realm-sanad.json`: the realm `sanad`, the confidential
+client `sanad` with both redirect URLs already set, the three realm roles, and
+four people to demonstrate with — `sanad-admin-demo`, `sanad-curator-demo`,
+`sanad-reader-demo`, and `sanad-norole-demo`, who has no role and so sees the
+"ask an administrator" screen. All four use `KEYCLOAK_SEED_PASSWORD`.
+
+Then in `.env`: `AUTH_MODE=keycloak`, the same `KEYCLOAK_CLIENT_SECRET`, and
+`KEYCLOAK_ISSUER=http://localhost:8080/realms/sanad`. Start Sanad and the
+first page redirects you to the realm to sign in.
+
+Two things worth knowing:
+
+- The realm survives a restart (it lives in a named volume). Import SKIPS a
+  realm that already exists, so after editing the realm file you must wipe it:
+  `docker compose -f compose.keycloak.yaml down -v`.
+- Serving Sanad from somewhere other than `http://127.0.0.1:8000`? Set
+  `KEYCLOAK_PUBLIC_APP_URL` to that origin before the first start, and its
+  callback and sign-out URLs are registered too.
+
+**No secret ships in this repository.** The realm file carries `${...}`
+placeholders and Keycloak substitutes them from the environment at import
+time, so the file is safe to commit and the secret never is.
+`tests/unit/test_keycloak_realm.py` fails the suite if a literal one appears.
 
 ## Documentation map
 
