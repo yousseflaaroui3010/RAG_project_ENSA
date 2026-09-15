@@ -1538,10 +1538,19 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             max_age=auth.FLOW_MAX_AGE_SECONDS,
             httponly=True,
             samesite="lax",
-            secure=request.url.scheme == "https",
+            secure=_cookies_are_secure(),
             path="/auth",
         )
         return response
+
+    def _cookies_are_secure() -> bool:
+        """`Secure` on the sign-in cookies comes from the CONFIGURED callback,
+        not the request. Seen on the published demo, 2026-09-15: behind a TLS
+        proxy every request looks like plain http, so both cookies went out
+        without `Secure` -- the same root cause as the sign-out 400. The
+        configured address is how people actually reach the app; a plain
+        http one (127.0.0.1) must stay non-Secure or nobody could sign in."""
+        return urlsplit(get_settings().keycloak_redirect_url).scheme == "https"
 
     @app.get("/auth/callback")
     def auth_callback(request: Request) -> Response:
@@ -1604,7 +1613,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             max_age=get_settings().session_ttl_hours * 3600,
             httponly=True,
             samesite="lax",
-            secure=request.url.scheme == "https",
+            secure=_cookies_are_secure(),
             path="/",
         )
         response.delete_cookie(auth.FLOW_COOKIE, path="/auth")

@@ -285,6 +285,57 @@ def test_sign_out_returns_to_the_configured_origin_not_the_one_the_proxy_hid(
     assert redirect == "https://sanad.example/auth/login"
 
 
+def test_cookies_are_secure_when_the_configured_address_is_https_behind_a_proxy(
+    keycloak, monkeypatch
+):
+    """Seen on the published demo, 2026-09-15: behind Railway's TLS proxy
+    every request looks like plain http, so both sign-in cookies were set
+    WITHOUT `Secure` and a browser would send the session over http too.
+    Same root cause as the sign-out 400. The configured callback's scheme
+    is the truth about how people reach the app, so it decides."""
+    client, _, _, provider, _ = keycloak
+    provider.claims = ADMIN_CLAIMS
+    # Start under the fixture's http settings so the flow cookie is stored
+    # by this plain-http client, then switch to an https deployment.
+    start = client.get("/auth/login", follow_redirects=False)
+    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+    deployed = app_module.get_settings().model_copy(
+        update={"keycloak_redirect_url": "https://sanad.example/auth/callback"}
+    )
+    for module in (app_module, ui.auth, ui.auth_gate):
+        monkeypatch.setattr(module, "get_settings", lambda: deployed)
+
+    # Finish the flow first: starting a new one would replace its cookie.
+    done = client.get(f"/auth/callback?code=abc&state={state}", follow_redirects=False)
+    assert done.status_code == 303, done.text[:200]
+    client.cookies.clear()
+    login = client.get("/auth/login", follow_redirects=False)
+
+    flow_cookie = next(
+        c for c in login.headers.get_list("set-cookie") if c.startswith(auth.FLOW_COOKIE)
+    )
+    session_cookie = next(
+        c for c in done.headers.get_list("set-cookie") if c.startswith(auth.SESSION_COOKIE)
+    )
+    assert "secure" in flow_cookie.lower()
+    assert "secure" in session_cookie.lower()
+
+
+def test_cookies_are_not_secure_on_a_plain_http_machine(keycloak):
+    """The other side, so the test above cannot pass by always setting
+    Secure: on 127.0.0.1 over http a Secure cookie is never sent back and
+    nobody could finish signing in."""
+    client, _, _, provider, _ = keycloak
+    provider.claims = ADMIN_CLAIMS
+
+    login = client.get("/auth/login", follow_redirects=False)
+
+    flow_cookie = next(
+        c for c in login.headers.get_list("set-cookie") if c.startswith(auth.FLOW_COOKIE)
+    )
+    assert "secure" not in flow_cookie.lower()
+
+
 def test_an_expired_session_is_not_a_session(keycloak):
     client, _, db_path, _, sign_in = keycloak
     sign_in(ADMIN_CLAIMS)

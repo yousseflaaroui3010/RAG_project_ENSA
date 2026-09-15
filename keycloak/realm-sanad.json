@@ -65,7 +65,7 @@
       "credentials": [
         {
           "type": "password",
-          "value": "${KEYCLOAK_SEED_PASSWORD}",
+          "value": "${KEYCLOAK_ADMIN_SEED_PASSWORD}",
           "temporary": false
         }
       ],

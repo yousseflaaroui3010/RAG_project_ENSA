@@ -9,9 +9,10 @@
 #
 # NO SECRET LIVES IN THIS REPOSITORY. The realm file carries `${...}`
 # placeholders; Keycloak replaces them with environment variables at import
-# time (Keycloak 26 "Import Realm during Server Startup"). The two that
-# matter -- KEYCLOAK_CLIENT_SECRET and KEYCLOAK_SEED_PASSWORD -- are
-# required with no default, exactly like the admin pair below.
+# time (Keycloak 26 "Import Realm during Server Startup"). The three that
+# matter -- KEYCLOAK_CLIENT_SECRET, KEYCLOAK_SEED_PASSWORD and
+# KEYCLOAK_ADMIN_SEED_PASSWORD -- are required with no default, exactly
+# like the admin pair below.
 #
 # The realm now SURVIVES a restart: `start-dev` keeps its H2 database under
 # /opt/keycloak/data/h2, which is a named volume here. Import skips a realm
@@ -40,10 +41,13 @@ services:
       # value goes in Sanad's own .env as KEYCLOAK_CLIENT_SECRET, which is
       # how the two sides agree without either one committing it.
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET}
-      # The password of the four demo people (admin, curator, reader,
-      # no-role). Required too: seeded accounts with a known password are
-      # how a demo realm turns into someone else's open door.
+      # The password of the three demo people without admin rights
+      # (curator, reader, no-role). Required too: seeded accounts with a
+      # known password are how a demo realm turns into someone else's open door.
       KEYCLOAK_SEED_PASSWORD: ${KEYCLOAK_SEED_PASSWORD:?set KEYCLOAK_SEED_PASSWORD}
+      # The admin demo person's password, separate on purpose: whoever is
+      # handed the reader login for a demo must not also hold the admin one.
+      KEYCLOAK_ADMIN_SEED_PASSWORD: ${KEYCLOAK_ADMIN_SEED_PASSWORD:?set KEYCLOAK_ADMIN_SEED_PASSWORD}
       # Only needed when Sanad is not on 127.0.0.1:8000 (a deployed demo).
       # Adds that origin's callback and post-logout URLs to the client.
       KEYCLOAK_PUBLIC_APP_URL: ${KEYCLOAK_PUBLIC_APP_URL:-http://127.0.0.1:8000}

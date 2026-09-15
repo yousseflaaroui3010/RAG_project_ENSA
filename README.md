@@ -168,8 +168,8 @@ tessdata ships there).
 | `AUTH_MODE` | What it is |
 |---|---|
 | `none` (default) | local-first: no login, everything allowed, exactly as before (ADR-13) |
-| `password` | one shared password for the whole instance (`ACCESS_PASSWORD`), used by the published demo |
-| `keycloak` | named people with roles: **admin**, **curator**, **reader** |
+| `password` | one shared password for the whole instance (`ACCESS_PASSWORD`) |
+| `keycloak` | named people with roles: **admin**, **curator**, **reader**; used by the published demo since 2026-09-15 |
 
 With `keycloak`, Sanad never sees a password: it redirects to your realm,
 exchanges the code server-to-server, and reads the roles from Keycloak's
@@ -178,14 +178,15 @@ introspection endpoint. Roles are realm roles named `sanad-admin`,
 Sanad role can sign in and is told to ask an administrator; they see
 nothing else. Non-admins see only the workspaces they were granted.
 
-A realm for development, in one command. Set four variables in your shell
+A realm for development, in one command. Set five variables in your shell
 (any values you like, but pick them yourself — none has a default):
 
 ```
-KEYCLOAK_ADMIN_USER        the realm administrator's name
-KEYCLOAK_ADMIN_PASSWORD    the realm administrator's password
-KEYCLOAK_CLIENT_SECRET     the shared secret between Sanad and Keycloak
-KEYCLOAK_SEED_PASSWORD     the password of the four demo people below
+KEYCLOAK_ADMIN_USER            the realm administrator's name
+KEYCLOAK_ADMIN_PASSWORD        the realm administrator's password
+KEYCLOAK_CLIENT_SECRET         the shared secret between Sanad and Keycloak
+KEYCLOAK_SEED_PASSWORD         the curator, reader and no-role demo people
+KEYCLOAK_ADMIN_SEED_PASSWORD   the admin demo person (kept separate on purpose)
 ```
 
 then:
@@ -198,20 +199,29 @@ That imports `keycloak/realm-sanad.json`: the realm `sanad`, the confidential
 client `sanad` with both redirect URLs already set, the three realm roles, and
 four people to demonstrate with — `sanad-admin-demo`, `sanad-curator-demo`,
 `sanad-reader-demo`, and `sanad-norole-demo`, who has no role and so sees the
-"ask an administrator" screen. All four use `KEYCLOAK_SEED_PASSWORD`.
+"ask an administrator" screen. The admin uses `KEYCLOAK_ADMIN_SEED_PASSWORD`,
+the other three `KEYCLOAK_SEED_PASSWORD`, so handing someone the reader
+login for a demo never hands them the admin one.
 
 Then in `.env`: `AUTH_MODE=keycloak`, the same `KEYCLOAK_CLIENT_SECRET`, and
 `KEYCLOAK_ISSUER=http://localhost:8080/realms/sanad`. Start Sanad and the
 first page redirects you to the realm to sign in.
 
-Two things worth knowing:
+Three things worth knowing:
 
 - The realm survives a restart (it lives in a named volume). Import SKIPS a
   realm that already exists, so after editing the realm file you must wipe it:
   `docker compose -f compose.keycloak.yaml down -v`.
 - Serving Sanad from somewhere other than `http://127.0.0.1:8000`? Set
   `KEYCLOAK_PUBLIC_APP_URL` to that origin before the first start, and its
-  callback and sign-out URLs are registered too.
+  callback and sign-out URLs are registered too. Two rules: no trailing
+  slash (`https://example.org`, not `https://example.org/`), and Sanad's
+  `KEYCLOAK_REDIRECT_URL` must be that same origin plus `/auth/callback`.
+  Sanad takes the HTTPS-ness of its cookies and its sign-out return address
+  from `KEYCLOAK_REDIRECT_URL`, so behind an HTTPS proxy it must say `https`.
+- The published demo's own Keycloak is built from `deploy/keycloak/Dockerfile`
+  with the same realm file; the settings it needs are listed at the top of
+  that file, and it refuses to start without them.
 
 **No secret ships in this repository.** The realm file carries `${...}`
 placeholders and Keycloak substitutes them from the environment at import

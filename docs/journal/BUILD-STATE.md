@@ -1,6 +1,67 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-15, HISTORY REWRITE LANDED (read this block first; older headers below are history)
+## STATE AT 2026-09-15, KEYCLOAK LIVE ON THE DEMO (read this block first; older headers below are history)
+
+**The published demo now signs in through Keycloak, and only Keycloak** (YL's
+choice, DECISIONS 2026-09-15 "ST-52 Keycloak on the published demo"). On
+Railway: a `keycloak` service built from `deploy/keycloak/Dockerfile`, its own
+Postgres (`Postgres-rBAK`), `AUTH_MODE=keycloak` on `sanad-web`, and
+`ACCESS_PASSWORD` deleted. Keycloak: https://keycloak-production-7371.up.railway.app.
+
+**Nothing was missing from `main`.** Login/logout, header, upload, PPTX reading
+and the admin view were all merged through #125 (the closed #120, #122, #124
+were bundled into it). No hamburger menu or footer exists on any branch, and
+the signed UX spec asks for neither. The 26 old squash-merged branches were
+deleted from GitHub; all remain in the backup mirror.
+
+**What changed in the repository (ST-52, PR #136):**
+- `keycloak/realm-sanad.json`: realm, confidential client, three roles, four
+  demo people. Every secret is a bare `${...}` placeholder. The admin demo
+  person has a separate password from the other three.
+- `compose.keycloak.yaml`: one command; imports the realm; the realm survives
+  a restart (volume on `/opt/keycloak/data`, not `.../h2`, which boots as root
+  and crashes).
+- `deploy/keycloak/Dockerfile` + `start.sh`: the demo image. The guard refuses
+  to start with any placeholder value, the database settings or the public URL
+  missing, or with a trailing slash on it.
+- `app.py`: cookie `Secure` and the sign-out return address come from
+  `KEYCLOAK_REDIRECT_URL`. Behind Railway's TLS proxy the request looks like
+  http, which gave a sign-out 400 and cookies without `Secure` -- both seen live.
+- README runbook, new `docs/START-HERE.md` (the README linked to it, it did not
+  exist), README no longer suggests `pytest -q`.
+
+**Proof, 2026-09-15.** Local, real Keycloak 26.4: realm imported; right client
+secret accepted and a wrong one refused; four people with the right roles;
+browser sign-in as admin (name, roles, Administration link), sign-out without a
+400, the no-role person gets the 403 ask-an-administrator page; realm survives
+`down`/`up`. Start guard run in a container: nothing set, one setting missing,
+trailing slash each refused with exit 1; complete settings reach Keycloak.
+Mutations: 14 deliberate breakages, each turned a test red. Live: Keycloak
+26.4.7 started; realm, roles, four people, production callback and post-logout
+URIs read back; browser sign-in on the public site as admin reached the admin
+page; admin's old shared password refused, its own accepted, reader unaffected.
+`sanad-web` deploy `04e79052`: health 200, `/` 303 to `/auth/login`, `/auth/login`
+303 to the Keycloak host, no password popup.
+
+**NOT verified live yet (needs #136 merged, which redeploys `sanad-web`):**
+sign-out on the public site (it answered 400 before the fix) and `Secure` on
+the live cookies (absent before the fix).
+
+**Demo accounts:** `sanad-admin-demo`, `sanad-curator-demo`,
+`sanad-reader-demo`, `sanad-norole-demo`. Passwords are set on the Railway
+`keycloak` service (`KEYCLOAK_ADMIN_SEED_PASSWORD` for the admin,
+`KEYCLOAK_SEED_PASSWORD` for the others) and are never written here.
+
+**Traps (also in `docs/known-issues.md`):** the `keycloak` service is not linked
+to GitHub, and changing one of its variables without `--skip-deploys`
+redeploys the plain image, which only prints help: upload again with
+`railway up`. Deleting a variable on `sanad-web` did not redeploy it;
+`railway redeploy` was needed. An empty, stopped `Postgres` service is an
+accidental duplicate from 2026-09-15; the CLI cannot delete services.
+
+---
+
+## STATE AT 2026-09-15, HISTORY REWRITE LANDED (history now)
 
 **The repository history was rewritten and pushed on 2026-09-15** (DECISIONS
 2026-09-15, "Repository history rewrite"). The 27 branches and 4 tags on GitHub

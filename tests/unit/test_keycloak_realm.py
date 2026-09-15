@@ -60,13 +60,28 @@ def test_client_is_confidential_and_matches_the_configured_callback():
 def test_no_secret_and_no_password_is_committed_in_the_realm():
     """The core law forbids a secret in a committed file, and this file is
     an export-shaped thing, which is exactly where one hides. Every secret
-    must be a `${...}` placeholder Keycloak fills from the environment."""
-    placeholder = re.compile(r"^\$\{[A-Z_]+(:.*)?\}$")
+    must be a `${...}` placeholder Keycloak fills from the environment --
+    and a BARE one: `${KEYCLOAK_SEED_PASSWORD:hunter2}` is a placeholder
+    with a committed password as its default, and must fail here too."""
+    placeholder = re.compile(r"^\$\{[A-Z_]+\}$")
 
     assert placeholder.match(_client()["secret"])
     for user in REALM["users"]:
         for credential in user["credentials"]:
             assert placeholder.match(credential["value"]), user["username"]
+
+
+def test_the_admin_demo_person_has_a_password_of_their_own():
+    """Review, 2026-09-15: all four demo people shared one password, so
+    whoever was handed the reader login for a demo also held the admin one
+    on a public site."""
+    passwords = {
+        u["username"]: u["credentials"][0]["value"] for u in REALM["users"]
+    }
+    admin = passwords.pop("sanad-admin-demo")
+
+    assert admin == "${KEYCLOAK_ADMIN_SEED_PASSWORD}"
+    assert admin not in passwords.values()
 
 
 def test_every_seeded_person_can_actually_reach_sanad():
@@ -111,7 +126,7 @@ def test_compose_imports_the_realm_and_can_write_its_database():
 
 def test_compose_demands_every_secret_instead_of_defaulting_one():
     """A demo realm whose admin password or client secret came from a
-    committed default is someone else's open door. Each of these four uses
+    committed default is someone else's open door. Each of these uses
     compose's `:?` form, which refuses to start when the variable is unset."""
     environment = KEYCLOAK["environment"]
 
@@ -120,6 +135,7 @@ def test_compose_demands_every_secret_instead_of_defaulting_one():
         "KC_BOOTSTRAP_ADMIN_PASSWORD",
         "KEYCLOAK_CLIENT_SECRET",
         "KEYCLOAK_SEED_PASSWORD",
+        "KEYCLOAK_ADMIN_SEED_PASSWORD",
     ):
         assert ":?" in environment[name], name
 
@@ -157,3 +173,30 @@ def test_the_deployed_keycloak_starts_and_imports_the_same_realm():
     assert "start" in command and "--import-realm" in command
     # `start`, never `start-dev`: production mode on a public address.
     assert "start-dev" not in command
+
+
+def test_the_deployed_keycloak_refuses_to_start_without_a_placeholder_value():
+    """Review, 2026-09-15: the dev compose refuses to start with a secret
+    unset, but the deployed image had no such check. Recreated with an empty
+    database and one variable missing, the one-time import could make a
+    public account's password the literal placeholder text readable in this
+    repository. The start guard must name every placeholder the realm uses,
+    and the image must actually go through it. (The guard itself was run in
+    a container on 2026-09-15: missing value, trailing slash and complete
+    settings each behaved as written.)"""
+    dockerfile = (ROOT / "deploy" / "keycloak" / "Dockerfile").read_text(encoding="utf-8")
+    guard = (ROOT / "deploy" / "keycloak" / "start.sh").read_text(encoding="utf-8")
+    required = set(
+        re.search(r"required=\((.*?)\)", guard, re.DOTALL).group(1).split()
+    )
+    realm_text = (ROOT / "keycloak" / "realm-sanad.json").read_text(encoding="utf-8")
+    placeholders = set(re.findall(r"\$\{([A-Z_]+)", realm_text))
+
+    assert placeholders, "the realm is expected to carry placeholders"
+    assert placeholders <= required, placeholders - required
+    assert 'ENTRYPOINT ["/opt/keycloak/bin/sanad-start.sh"]' in dockerfile
+    assert "deploy/keycloak/start.sh /opt/keycloak/bin/sanad-start.sh" in dockerfile
+    assert 'exec /opt/keycloak/bin/kc.sh "$@"' in guard
+    # Railway's builder runs this on Linux: a CRLF shebang would read as
+    # "/bin/bash\r" and the container would not start at all.
+    assert b"\r" not in (ROOT / "deploy" / "keycloak" / "start.sh").read_bytes()
