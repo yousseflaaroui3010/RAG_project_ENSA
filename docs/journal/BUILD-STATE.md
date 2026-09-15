@@ -2,14 +2,18 @@
 
 ## STATE AT 2026-09-15, POST-RELEASE FIXES (read this block first; older headers below are history)
 
-**Open PRs, each reviewed cold and green:** #129 document reader warm-up (full
-suite 1198 passed); the ST-38 reader hint / log names / admin header fix (full
-suite 1198 passed); this journal and known-issues correction. WAITING ON A
-HUMAN "merge" in the session that merges them (rule: approval does not carry
-across sessions).
+**Open PRs, merge in THIS order:** #129 document reader warm-up (cold review
+done, its 3 findings fixed; full suite 1198 passed; CI green); #130 the ST-38
+reader hint / log names / admin header fix (cold review done, its 4 findings
+fixed; full suite 1198 passed; CI green); then the docs PR carrying this block
+(cold review done, its 2 blocking and 4 worth-fixing findings fixed). The docs
+PR describes code from #129 and #130, so it merges LAST. WAITING ON A HUMAN
+"merge" in the session that merges them (approval does not carry across
+sessions). Merge each with an explicit clean `--subject`/`--body`: the default
+squash message copies commit trailers onto `main`.
 
-**Proven in a real browser, 2026-09-15:** login, roles and grants against a
-real Keycloak 26.4 in Docker. A reader with nothing granted sees no workspace
+**Checked in a real browser, 2026-09-15, on scratch accounts (not the team's
+own):** login, roles and grants against a real Keycloak 26.4 in Docker. A reader with nothing granted sees no workspace
 name; sign-out ends the realm session too (the next visit asks for a password);
 an admin's grant lets the reader see exactly that workspace and no admin,
 create, Sync or delete controls. The throwaway realm and its data are deleted.
@@ -23,9 +27,18 @@ attempts, one under the same load with 40 sign-in calls. If it recurs: run
 **Dropped on evidence:** a streamed-answer fallback (DECISIONS 2026-09-15). The
 provider client already retries opening a stream.
 
+**AI attribution slipped onto `main` (rule 4 broken):** #126, #127 and #128
+carry a `Co-authored-by` line naming the assistant, on top of the four from July
+that were left in place on 2026-07-28. The PR descriptions #126-#130 were edited
+clean on 2026-09-15. Scrubbing `main` needs a force-push, which the git rules
+forbid and which would break MB's clone: a human decision, not taken.
+
 **Still human-only:** a named owner for the law 09-08 personal-data check
-(blocks persisting chat history); the six ST-38 screen-reader rows; 10 rehearsals
-and a backup video; the mock defense.
+(blocks persisting chat history); a hand-run of sign-in and sign-out from the
+team's own account (the scratch-account check above does not replace it); the
+six ST-38 screen-reader rows (the automated audit in
+docs/evidence/ST-38/lighthouse-2026-09-15.md does not replace them either); 10
+rehearsals and a backup video; the mock defense.
 
 ---
 
