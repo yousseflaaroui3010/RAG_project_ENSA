@@ -1,8 +1,0 @@
-- generic [ref=f11e3]:
-  - banner [ref=f11e4]:
-    - generic [ref=f11e5]: sanad
-  - main [ref=f11e6]:
-    - heading "Logging out" [level=1] [ref=f11e8]
-    - generic [ref=f11e10]:
-      - paragraph [ref=f11e11]: Do you want to log out?
-      - button "Logout" [ref=f11e15]
