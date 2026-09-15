@@ -1,0 +1,101 @@
+- generic [active] [ref=f9e1]:
+  - link "Aller au contenu" [ref=f9e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=f9e3]:
+    - generic [ref=f9e4]:
+      - link "Sanad" [ref=f9e5] [cursor=pointer]:
+        - /url: /
+        - generic [aria-hidden] [ref=f9e6]: س
+        - text: Sanad
+      - generic [ref=f9e7]:
+        - generic [ref=f9e8]: Espace actif
+        - combobox "Espace actif" [disabled] [ref=f9e9]:
+          - option "Aucun espace pour l’instant" [selected]
+      - navigation "Écrans" [ref=f9e10]:
+        - generic "Créez un espace de travail avant de poser une question" [ref=f9e11]: Assistant
+        - link "Espaces" [ref=f9e14] [cursor=pointer]:
+          - /url: /workspaces
+        - link "Rapports" [ref=f9e17] [cursor=pointer]:
+          - /url: /reports
+        - link "Administration" [ref=f9e20] [cursor=pointer]:
+          - /url: /admin
+      - button "Thème sombre" [ref=f9e23] [cursor=pointer]
+      - generic [ref=f9e27]:
+        - 'generic "Rôles : admin" [ref=f9e28]': Amina Test
+        - button "Se déconnecter" [ref=f9e29] [cursor=pointer]
+      - navigation "Langue" [ref=f9e30]:
+        - link "Français" [ref=f9e31] [cursor=pointer]:
+          - /url: /admin?lang=fr
+          - text: FR
+        - link "العربية" [ref=f9e33] [cursor=pointer]:
+          - /url: /admin?lang=ar
+          - text: ع
+        - link "English" [ref=f9e35] [cursor=pointer]:
+          - /url: /admin?lang=en
+          - text: EN
+  - main [ref=f9e37]:
+    - generic [ref=f9e38]:
+      - heading "Administration" [level=1] [ref=f9e39]
+      - paragraph [ref=f9e40]: Qui peut utiliser Sanad, sur quels espaces, et ce qui a été fait.
+    - region [ref=f9e41]:
+      - heading "Personnes" [level=2] [ref=f9e42]
+      - table [ref=f9e44]:
+        - caption [ref=f9e45]: Comptes connus
+        - rowgroup [ref=f9e46]:
+          - row [ref=f9e47]:
+            - columnheader "Personne" [ref=f9e48]
+            - columnheader "Rôles" [ref=f9e49]
+            - columnheader "Dernière connexion" [ref=f9e50]
+            - columnheader "Espaces autorisés" [ref=f9e51]
+            - columnheader "Actions" [ref=f9e52]
+        - rowgroup [ref=f9e53]:
+          - row [ref=f9e54]:
+            - cell "Amina Test amina" [ref=f9e55]:
+              - text: Amina Test
+              - generic [ref=f9e56]: amina
+            - cell "admin" [ref=f9e57]
+            - cell "15 sept. 2026, 02:03 UTC" [ref=f9e58]
+            - cell "Tous les espaces (rôle administrateur)" [ref=f9e59]
+            - cell [ref=f9e60]:
+              - button "Déconnecter partout" [ref=f9e62] [cursor=pointer]
+          - row [ref=f9e63]:
+            - cell "Omar Test omar" [ref=f9e64]:
+              - text: Omar Test
+              - generic [ref=f9e65]: omar
+            - cell "reader" [ref=f9e66]
+            - cell "15 sept. 2026, 02:02 UTC" [ref=f9e67]
+            - cell "Ressources humaines Enregistrer les accès" [ref=f9e68]:
+              - generic [ref=f9e69]:
+                - generic [ref=f9e70]:
+                  - checkbox "Ressources humaines" [ref=f9e71]
+                  - generic [ref=f9e72]: Ressources humaines
+                - button "Enregistrer les accès" [ref=f9e73] [cursor=pointer]
+            - cell [ref=f9e74]:
+              - button "Déconnecter partout" [ref=f9e76] [cursor=pointer]
+    - region [ref=f9e77]:
+      - heading "Journal d’activité" [level=2] [ref=f9e78]
+      - paragraph [ref=f9e79]: Ce qui a été fait et par qui. Jamais le contenu d’une question.
+      - table [ref=f9e81]:
+        - caption [ref=f9e82]: 3 derniers événements
+        - rowgroup [ref=f9e83]:
+          - row [ref=f9e84]:
+            - columnheader "Quand" [ref=f9e85]
+            - columnheader "Qui" [ref=f9e86]
+            - columnheader "Quoi" [ref=f9e87]
+            - columnheader "Espace" [ref=f9e88]
+        - rowgroup [ref=f9e89]:
+          - row [ref=f9e90]:
+            - cell "15 sept. 2026, 02:03 UTC" [ref=f9e91]
+            - cell "amina" [ref=f9e92]
+            - cell "connexion" [ref=f9e93]
+            - cell "—" [ref=f9e94]
+          - row [ref=f9e95]:
+            - cell "15 sept. 2026, 02:02 UTC" [ref=f9e96]
+            - cell "omar" [ref=f9e97]
+            - cell "déconnexion" [ref=f9e98]
+            - cell "—" [ref=f9e99]
+          - row [ref=f9e100]:
+            - cell "15 sept. 2026, 02:02 UTC" [ref=f9e101]
+            - cell "omar" [ref=f9e102]
+            - cell "connexion" [ref=f9e103]
+            - cell "—" [ref=f9e104]

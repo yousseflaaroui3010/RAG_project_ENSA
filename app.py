@@ -1057,8 +1057,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             )
 
         # ST-39: on the real server only (see `Runtime.warm_up`), load both
-        # search encoders on a background thread now rather than paying for
-        # it on the first real question. Daemon and fire-and-forget --
+        # search encoders, then the document readers, on a background thread
+        # now rather than paying for them on the first real question or
+        # Sync. Daemon and fire-and-forget --
         # nothing here waits on it, which is what keeps start-up at ~2s.
         if runtime.warm_up:
             threading.Thread(

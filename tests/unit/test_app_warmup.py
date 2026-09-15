@@ -7,11 +7,16 @@ first search, with the server serving nothing else meanwhile. The fix is a
 a `Runtime` directly and must never download a model), ON only where
 `app.main()` builds the real server's `Runtime`.
 
+The same thread then loads the document readers (`sync.warm_up_document_readers`,
+added 2026-09-15), so the first Sync does not pay their ~14 s cold import.
+
 Nothing here touches a real model. `embeddings.embed_query` and
 `embeddings.embed_sparse_query` are monkeypatched at the module level app.py
 calls them through (`import embeddings; embeddings.embed_query(...)`), so
 patching `embeddings.embed_query` is visible to `app.py` without app.py
-needing to be reloaded."""
+needing to be reloaded. The readers are replaced by a no-op (the autouse
+fixture below) in every test but one: the last test loads the REAL readers,
+in a separate interpreter, because only there can their absence be seen."""
 
 from __future__ import annotations
 
@@ -305,16 +310,27 @@ def test_importing_sync_leaves_the_readers_unloaded_until_warmed():
     one some earlier test has almost certainly imported `conversion`
     already and an in-process check would pass whatever the code did.
 
-    Kill test 8: import `conversion` at the top of sync.py and the first
-    assertion goes red -- the laziness that keeps the readers out of a
-    process that never converts a file is gone. Kill test 9: make
-    `warm_up_document_readers` a no-op and the second goes red."""
+    It checks the HEAVY LIBRARIES, not the name `conversion`. The name alone
+    was a proxy the first review broke: with `chunking.py` importing
+    pymupdf4llm and markitdown at its top, `conversion` was still absent
+    after `import sync` and the test passed, while every process importing
+    `sync` carried the readers anyway. The memory being protected lives in
+    these five modules, so these five are what is asserted.
+
+    Kill test 8: import `conversion` at the top of sync.py -- or the reader
+    libraries anywhere `sync` imports at load time -- and the first
+    assertion goes red. Kill test 9: make `warm_up_document_readers` a
+    no-op and the second goes red."""
+    heavy = ["pymupdf", "pymupdf4llm", "markitdown", "magika", "onnxruntime"]
     script = "; ".join(
         [
             "import sys, sync",
-            "assert 'conversion' not in sys.modules, 'importing sync loaded the readers'",
+            f"heavy = {heavy!r}",
+            "early = [m for m in heavy if m in sys.modules]",
+            "assert not early, f'importing sync loaded the readers: {early}'",
             "sync.warm_up_document_readers()",
-            "assert 'conversion' in sys.modules, 'warm-up did not load the readers'",
+            "missing = [m for m in heavy if m not in sys.modules]",
+            "assert not missing, f'warm-up did not load the readers: {missing}'",
         ]
     )
     repo_root = Path(__file__).resolve().parents[2]

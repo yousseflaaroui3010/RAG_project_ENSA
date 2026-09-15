@@ -36,14 +36,22 @@ from tests.fake_encoders import install as install_fake_encoders
 
 WAIT = 10
 
-# Load the document readers NOW, at collection, the way the real server's
-# start-up warm-up does (`sync.warm_up_document_readers`). Without this, a
-# test here run ON ITS OWN paid their ~14 s cold import INSIDE its 10 s wait
-# for a Sync and failed, while the full suite passed only because an earlier
-# test module had already imported them. What these tests prove is the S2
-# screen's states, not how long a cold import takes; the warm-up has its own
-# tests in tests/unit/test_app_warmup.py.
-sync.warm_up_document_readers()
+@pytest.fixture(scope="module", autouse=True)
+def _document_readers_loaded():
+    """Load the document readers BEFORE any test here starts a clock, the way
+    the real server's start-up warm-up does (`sync.warm_up_document_readers`).
+
+    Without this, a test here run ON ITS OWN paid their ~14 s cold import
+    INSIDE its 10 s wait for a Sync and failed, while the full suite passed
+    only because an earlier module had already imported them. These tests
+    prove the S2 screen's states, not how long a cold import takes; the
+    warm-up has its own tests in tests/unit/test_app_warmup.py.
+
+    A module fixture, not a call at import: collecting this file (a
+    `--collect-only`, or a `-k` that deselects every test here) must not pay
+    15 s, and a broken reader library must fail as a test error with its
+    reason, not as a file that cannot be collected at all."""
+    sync.warm_up_document_readers()
 
 
 def _wait_until(predicate, *, timeout: float = WAIT) -> None:

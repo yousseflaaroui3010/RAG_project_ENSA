@@ -738,7 +738,14 @@ def _skip_unsupported(
 
 
 def warm_up_document_readers() -> None:
-    """Load the document readers now, so the first Sync does not pay for it.
+    """Load the document readers now, so a Sync started later does not pay.
+
+    LATER is the honest word, not "first": the server warms the search
+    encoders first (~23 s) and these after (~14 s), so a Sync started in
+    roughly the first 37 s after start-up still loads them itself or waits
+    behind the warm-up. Encoders first is deliberate -- a question is the
+    commoner first act -- but it is a limit, stated here rather than
+    promised away.
 
     `_ingest` imports `conversion` lazily, on the first file it converts,
     and that stays true: importing `sync` alone never loads the readers,

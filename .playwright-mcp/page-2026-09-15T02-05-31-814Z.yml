@@ -1,0 +1,58 @@
+- generic [active] [ref=f13e1]:
+  - link "Aller au contenu" [ref=f13e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=f13e3]:
+    - generic [ref=f13e4]:
+      - link "Sanad" [ref=f13e5] [cursor=pointer]:
+        - /url: /
+        - generic [aria-hidden] [ref=f13e6]: س
+        - text: Sanad
+      - generic [ref=f13e7]:
+        - generic [ref=f13e8]: Espace actif
+        - combobox "Espace actif" [ref=f13e9]:
+          - option "Ressources humaines" [selected]
+      - navigation "Écrans" [ref=f13e10]:
+        - link "Assistant" [ref=f13e11] [cursor=pointer]:
+          - /url: /
+        - link "Espaces" [ref=f13e14] [cursor=pointer]:
+          - /url: /workspaces
+        - link "Rapports" [ref=f13e17] [cursor=pointer]:
+          - /url: /reports
+      - button "Thème sombre" [ref=f13e20] [cursor=pointer]
+      - generic [ref=f13e24]:
+        - 'generic "Rôles : reader" [ref=f13e25]': Omar Test
+        - button "Se déconnecter" [ref=f13e26] [cursor=pointer]
+      - navigation "Langue" [ref=f13e27]:
+        - link "Français" [ref=f13e28] [cursor=pointer]:
+          - /url: /?lang=fr
+          - text: FR
+        - link "العربية" [ref=f13e30] [cursor=pointer]:
+          - /url: /?lang=ar
+          - text: ع
+        - link "English" [ref=f13e32] [cursor=pointer]:
+          - /url: /?lang=en
+          - text: EN
+  - main [ref=f13e34]:
+    - generic [ref=f13e35]:
+      - generic [ref=f13e36]:
+        - heading "Assistant" [level=1] [ref=f13e37]
+        - paragraph [ref=f13e38]:
+          - text: Réponses tirées de
+          - strong [ref=f13e39]: Ressources humaines
+        - button "Nouvelle conversation" [ref=f13e41] [cursor=pointer]
+      - region "Conversation" [ref=f13e42]:
+        - generic [ref=f13e43]:
+          - heading "Rien à consulter pour l’instant" [level=2] [ref=f13e44]
+          - paragraph [ref=f13e45]: Ressources humaines ne contient aucun document synchronisé, Sanad n’a donc rien à lire. Associez l’espace à un dossier puis lancez la synchronisation.
+          - paragraph [ref=f13e46]:
+            - link "Lancer la synchronisation dans l’écran Espaces" [ref=f13e47] [cursor=pointer]:
+              - /url: /workspaces?ws=90b3c7f7-3567-44c8-9fce-2332ab8490aa
+            - text: .
+        - list
+      - generic [ref=f13e48]:
+        - generic [ref=f13e49]: Votre question
+        - generic [ref=f13e50]:
+          - textbox "Votre question" [disabled] [ref=f13e51]:
+            - /placeholder: Posez une question sur cet espace
+          - button "Envoyer" [disabled] [ref=f13e52]
+        - paragraph [ref=f13e53]: "Cet espace ne contient encore aucun document synchronisé : il n’y a rien à consulter. Ajoutez un dossier puis lancez la synchronisation dans l’écran Espaces."

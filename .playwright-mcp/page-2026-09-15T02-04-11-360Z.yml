@@ -1,0 +1,106 @@
+- generic [active] [ref=f10e1]:
+  - link "Aller au contenu" [ref=f10e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=f10e3]:
+    - generic [ref=f10e4]:
+      - link "Sanad" [ref=f10e5] [cursor=pointer]:
+        - /url: /
+        - generic [aria-hidden] [ref=f10e6]: س
+        - text: Sanad
+      - generic [ref=f10e7]:
+        - generic [ref=f10e8]: Espace actif
+        - combobox "Espace actif" [disabled] [ref=f10e9]:
+          - option "Aucun espace pour l’instant" [selected]
+      - navigation "Écrans" [ref=f10e10]:
+        - generic "Créez un espace de travail avant de poser une question" [ref=f10e11]: Assistant
+        - link "Espaces" [ref=f10e14] [cursor=pointer]:
+          - /url: /workspaces
+        - link "Rapports" [ref=f10e17] [cursor=pointer]:
+          - /url: /reports
+        - link "Administration" [ref=f10e20] [cursor=pointer]:
+          - /url: /admin
+      - button "Thème sombre" [ref=f10e23] [cursor=pointer]
+      - generic [ref=f10e27]:
+        - 'generic "Rôles : admin" [ref=f10e28]': Amina Test
+        - button "Se déconnecter" [ref=f10e29] [cursor=pointer]
+      - navigation "Langue" [ref=f10e30]:
+        - link "Français" [ref=f10e31] [cursor=pointer]:
+          - /url: /admin?lang=fr
+          - text: FR
+        - link "العربية" [ref=f10e33] [cursor=pointer]:
+          - /url: /admin?lang=ar
+          - text: ع
+        - link "English" [ref=f10e35] [cursor=pointer]:
+          - /url: /admin?lang=en
+          - text: EN
+  - main [ref=f10e37]:
+    - generic [ref=f10e38]:
+      - heading "Administration" [level=1] [ref=f10e39]
+      - paragraph [ref=f10e40]: Qui peut utiliser Sanad, sur quels espaces, et ce qui a été fait.
+    - region [ref=f10e41]:
+      - heading "Personnes" [level=2] [ref=f10e42]
+      - table [ref=f10e44]:
+        - caption [ref=f10e45]: Comptes connus
+        - rowgroup [ref=f10e46]:
+          - row [ref=f10e47]:
+            - columnheader "Personne" [ref=f10e48]
+            - columnheader "Rôles" [ref=f10e49]
+            - columnheader "Dernière connexion" [ref=f10e50]
+            - columnheader "Espaces autorisés" [ref=f10e51]
+            - columnheader "Actions" [ref=f10e52]
+        - rowgroup [ref=f10e53]:
+          - row [ref=f10e54]:
+            - cell "Amina Test amina" [ref=f10e55]:
+              - text: Amina Test
+              - generic [ref=f10e56]: amina
+            - cell "admin" [ref=f10e57]
+            - cell "15 sept. 2026, 02:03 UTC" [ref=f10e58]
+            - cell "Tous les espaces (rôle administrateur)" [ref=f10e59]
+            - cell [ref=f10e60]:
+              - button "Déconnecter partout" [ref=f10e62] [cursor=pointer]
+          - row [ref=f10e63]:
+            - cell "Omar Test omar" [ref=f10e64]:
+              - text: Omar Test
+              - generic [ref=f10e65]: omar
+            - cell "reader" [ref=f10e66]
+            - cell "15 sept. 2026, 02:02 UTC" [ref=f10e67]
+            - cell "Ressources humaines Enregistrer les accès" [ref=f10e68]:
+              - generic [ref=f10e69]:
+                - generic [ref=f10e70]:
+                  - checkbox "Ressources humaines" [checked] [ref=f10e71]
+                  - generic [ref=f10e72]: Ressources humaines
+                - button "Enregistrer les accès" [ref=f10e73] [cursor=pointer]
+            - cell [ref=f10e74]:
+              - button "Déconnecter partout" [ref=f10e76] [cursor=pointer]
+    - region [ref=f10e77]:
+      - heading "Journal d’activité" [level=2] [ref=f10e78]
+      - paragraph [ref=f10e79]: Ce qui a été fait et par qui. Jamais le contenu d’une question.
+      - table [ref=f10e81]:
+        - caption [ref=f10e82]: 4 derniers événements
+        - rowgroup [ref=f10e83]:
+          - row [ref=f10e84]:
+            - columnheader "Quand" [ref=f10e85]
+            - columnheader "Qui" [ref=f10e86]
+            - columnheader "Quoi" [ref=f10e87]
+            - columnheader "Espace" [ref=f10e88]
+        - rowgroup [ref=f10e89]:
+          - row [ref=f10e90]:
+            - cell "15 sept. 2026, 02:04 UTC" [ref=f10e91]
+            - cell "amina" [ref=f10e92]
+            - cell "accès accordé 6fb523a6-decc-4511-b548-23bcfcec984e" [ref=f10e93]
+            - cell "Ressources humaines" [ref=f10e94]
+          - row [ref=f10e95]:
+            - cell "15 sept. 2026, 02:03 UTC" [ref=f10e96]
+            - cell "amina" [ref=f10e97]
+            - cell "connexion" [ref=f10e98]
+            - cell "—" [ref=f10e99]
+          - row [ref=f10e100]:
+            - cell "15 sept. 2026, 02:02 UTC" [ref=f10e101]
+            - cell "omar" [ref=f10e102]
+            - cell "déconnexion" [ref=f10e103]
+            - cell "—" [ref=f10e104]
+          - row [ref=f10e105]:
+            - cell "15 sept. 2026, 02:02 UTC" [ref=f10e106]
+            - cell "omar" [ref=f10e107]
+            - cell "connexion" [ref=f10e108]
+            - cell "—" [ref=f10e109]

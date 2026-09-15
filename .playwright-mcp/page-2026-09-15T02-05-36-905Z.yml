@@ -1,0 +1,48 @@
+- generic [active] [ref=f14e1]:
+  - link "Aller au contenu" [ref=f14e2] [cursor=pointer]:
+    - /url: "#main"
+  - banner [ref=f14e3]:
+    - generic [ref=f14e4]:
+      - link "Sanad" [ref=f14e5] [cursor=pointer]:
+        - /url: /
+        - generic [aria-hidden] [ref=f14e6]: س
+        - text: Sanad
+      - generic [ref=f14e7]:
+        - generic [ref=f14e8]: Espace actif
+        - combobox "Espace actif" [ref=f14e9]:
+          - option "Ressources humaines" [selected]
+      - navigation "Écrans" [ref=f14e10]:
+        - link "Assistant" [ref=f14e11] [cursor=pointer]:
+          - /url: /
+        - link "Espaces" [ref=f14e14] [cursor=pointer]:
+          - /url: /workspaces
+        - link "Rapports" [ref=f14e17] [cursor=pointer]:
+          - /url: /reports
+      - button "Thème sombre" [ref=f14e20] [cursor=pointer]
+      - generic [ref=f14e24]:
+        - 'generic "Rôles : reader" [ref=f14e25]': Omar Test
+        - button "Se déconnecter" [ref=f14e26] [cursor=pointer]
+      - navigation "Langue" [ref=f14e27]:
+        - link "Français" [ref=f14e28] [cursor=pointer]:
+          - /url: /workspaces?lang=fr
+          - text: FR
+        - link "العربية" [ref=f14e30] [cursor=pointer]:
+          - /url: /workspaces?lang=ar
+          - text: ع
+        - link "English" [ref=f14e32] [cursor=pointer]:
+          - /url: /workspaces?lang=en
+          - text: EN
+  - main [ref=f14e34]:
+    - generic [ref=f14e35]:
+      - complementary "Espaces de travail" [ref=f14e36]:
+        - heading "Espaces de travail" [level=1] [ref=f14e37]
+        - paragraph [ref=f14e38]: "Surveillance des nouveaux fichiers : désactivée"
+        - list [ref=f14e39]:
+          - listitem [ref=f14e40]:
+            - link "Ressources humaines" [ref=f14e41] [cursor=pointer]:
+              - /url: /workspaces?ws=90b3c7f7-3567-44c8-9fce-2332ab8490aa
+              - generic [aria-hidden] [ref=f14e42]: R
+      - region "Détail de l’espace" [ref=f14e44]:
+        - heading "Ressources humaines" [level=2] [ref=f14e46]
+        - paragraph [ref=f14e47]: C:/Users/lenovo/AppData/Local/Temp/claude/c--Users-lenovo-OneDrive-Documents-Projects-RAG-project-ENSA/a07fce80-963e-4d92-a01d-b8e38487cfff/scratchpad/kc-data/corpus
+        - paragraph [ref=f14e48]: Cet espace n’a pas encore été synchronisé.
