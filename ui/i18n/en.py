@@ -82,6 +82,9 @@ MESSAGES: dict[str, str] = {
     "shell.nav_label": "Screens",
     "shell.nav.chat": "Chat",
     "shell.nav.chat_disabled_title": "Create a workspace before asking questions",
+    "shell.nav.chat_disabled_title_no_access": (
+        "No workspace is shared with you: ask an administrator for access"
+    ),
     "shell.nav.workspaces": "Workspaces",
     "shell.nav.reports": "Reports",
     "shell.dark_theme": "Dark theme",

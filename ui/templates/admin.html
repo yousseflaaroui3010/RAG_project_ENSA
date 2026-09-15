@@ -104,7 +104,7 @@
             <tr>
               <td class="num">{{ event.created_at | when }}</td>
               <td class="mono">{{ event.username }}</td>
-              <td>{{ tx(event.action) }}{% if event.detail %} <span class="mono">{{ event.detail }}</span>{% endif %}</td>
+              <td>{{ tx(event.action) }}{% if event.detail %} <span class="mono">{{ event.detail }}</span>{% endif %}{% if event.person_id and event.person_id != event.detail %} <span class="muted mono">{{ event.person_id }}</span>{% endif %}</td>
               <td><bdi{% if event.workspace_name and is_arabic(event.workspace_name) %} lang="ar"{% endif %}>{{ event.workspace_name or '—' }}</bdi></td>
             </tr>
           {% endfor %}

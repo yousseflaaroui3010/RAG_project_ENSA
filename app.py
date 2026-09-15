@@ -982,7 +982,7 @@ _WARM_UP_TEXT = "warm-up"
 
 
 def _warm_up_models() -> None:
-    """Load both search encoders once, off the request path.
+    """Load both search encoders, then the document readers, off the request path.
 
     THE LIVE RUN, 2026-08-30 (BUILD-STATE): a fresh process's first
     question paid 23s loading `sentence-transformers` (dense E5) and
@@ -1010,8 +1010,24 @@ def _warm_up_models() -> None:
         logger.exception(
             "model warm-up failed; the first question will load it instead"
         )
+    else:
+        logger.info("model warm-up ready in %.1fs", time.monotonic() - started)
+
+    # The document readers, AFTER the encoders and in their OWN try: a model
+    # that cannot download (no network on a first run) says nothing about
+    # whether the PDF and Word readers load, so one failing must not skip
+    # the other. Encoders first because a question is the common first act
+    # and their 23 s is the bigger wait; the readers' ~14 s follows. See
+    # `sync.warm_up_document_readers` for the measurement.
+    started = time.monotonic()
+    try:
+        sync.warm_up_document_readers()
+    except Exception:  # noqa: BLE001 -- warm-up must never crash the server
+        logger.exception(
+            "document reader warm-up failed; the first Sync will load them instead"
+        )
         return
-    logger.info("model warm-up ready in %.1fs", time.monotonic() - started)
+    logger.info("document reader warm-up ready in %.1fs", time.monotonic() - started)
 
 
 def create_app(runtime: Runtime | None = None) -> FastAPI:
@@ -1041,8 +1057,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             )
 
         # ST-39: on the real server only (see `Runtime.warm_up`), load both
-        # search encoders on a background thread now rather than paying for
-        # it on the first real question. Daemon and fire-and-forget --
+        # search encoders, then the document readers, on a background thread
+        # now rather than paying for them on the first real question or
+        # Sync. Daemon and fire-and-forget --
         # nothing here waits on it, which is what keeps start-up at ~2s.
         if runtime.warm_up:
             threading.Thread(
@@ -1357,6 +1374,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             "admin.html",
             {
                 **_shell_context(runtime, request),
+                # NOT the shell context's empty list: that exists for pages
+                # with nobody signed in. Seen in a real browser, 2026-09-15:
+                # an admin on this page, with a workspace existing, got a
+                # header saying "no workspace yet", a disabled selector and
+                # a disabled Chat link telling them to create one.
+                "workspaces": visible_options(runtime, request),
+                "active": _active(runtime, request),
                 "current_screen": "admin",
                 "people": admin_screen.people(db_path=runtime.db_path),
                 "activity": admin_screen.activity(db_path=runtime.db_path),
@@ -1377,12 +1401,14 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         added, removed = admin_screen.set_grants(
             user_id=user_id, workspace_ids=wanted, db_path=runtime.db_path
         )
+        # The action names come from admin_screen, which resolves `detail`
+        # to a username for exactly these: one list, not two in step by hand.
         for workspace_id in added:
-            _log_activity(runtime, request, "granted access", workspace_id=workspace_id,
-                          detail=user_id)
+            _log_activity(runtime, request, admin_screen.GRANTED_ACCESS,
+                          workspace_id=workspace_id, detail=user_id)
         for workspace_id in removed:
-            _log_activity(runtime, request, "revoked access", workspace_id=workspace_id,
-                          detail=user_id)
+            _log_activity(runtime, request, admin_screen.REVOKED_ACCESS,
+                          workspace_id=workspace_id, detail=user_id)
         return RedirectResponse("/admin", status_code=SEE_OTHER)
 
     @app.post("/admin/people/{user_id}/sign-out")
@@ -1397,7 +1423,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         with repo.session(runtime.db_path) as conn:
             repo.delete_sessions_for_user(conn, user_id)
         runtime.forget_conversations(user_id)
-        _log_activity(runtime, request, "signed a person out everywhere", detail=user_id)
+        _log_activity(runtime, request, admin_screen.SIGNED_OUT_EVERYWHERE, detail=user_id)
         return RedirectResponse("/admin", status_code=SEE_OTHER)
 
     @app.get("/chat/messages", response_class=HTMLResponse)
