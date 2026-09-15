@@ -19,6 +19,12 @@
   <title>{% block title %}{{ t('title.app') }}{% endblock %}</title>
   <link rel="stylesheet" href="{{ static_url('sanad.css') }}">
   {#
+    The tab icon, inline, so the browser never asks for /favicon.ico: that
+    request answered 404 on every page (and a redirect to sign-in when
+    signed out). The same seen-letter mark as the header, in the accent ink.
+  #}
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231D4E78'/%3E%3Ctext x='16' y='22' font-size='18' text-anchor='middle' fill='%23ffffff' font-family='serif'%3E%D8%B3%3C/text%3E%3C/svg%3E">
+  {#
     THE NO-JAVASCRIPT LOADING PATH. While a question is in flight the page
     re-fetches itself so the stage hint stays true (UX spec 6.3). Inside
     <noscript> on purpose: with scripting on, sanad.js polls
@@ -157,10 +163,16 @@
     targets a desktop browser. Do not build a phone layout." The notice is
     always in the markup and the stylesheet decides which of the two is
     visible, so there is no width sniffing and no second render path.
+
+    role="main" because on a phone this notice IS the page: the real <main>
+    below is hidden there, which left a screen reader no main landmark to
+    jump to (Lighthouse landmark-one-main, 2026-09-15). Whichever of the
+    two the stylesheet hides is out of the accessibility tree, so a reader
+    only ever finds one main at a time.
   #}
-  <p class="desktop-only">
-    {{ t('shell.desktop_only') }}
-  </p>
+  <div class="desktop-only" role="main">
+    <p class="desktop-only__text">{{ t('shell.desktop_only') }}</p>
+  </div>
 
   <main id="main" class="main">
     {% block main %}{% endblock %}

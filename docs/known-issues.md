@@ -43,8 +43,6 @@ breaks a signed gate (G1-G3 pass on the golden set).
 |---|---|
 | Answer traces are shown per answer (F-10) but not persisted (issue #51) | A trace lives as long as the conversation on screen (DECISIONS 2026-09-12) |
 | Sample questions show file names rather than questions | Cosmetic |
-| No tab icon: every page logs a 404 for `/favicon.ico` in the browser console | Cosmetic, but visible to anyone who opens developer tools during a demo |
-| Below 768 px the desktop-only notice is not a main landmark | The signed layout hides the app below 768 px and shows a notice; a phone screen-reader user has no main landmark to jump to (Lighthouse landmark-one-main, both languages, docs/evidence/ST-38/lighthouse-2026-09-15.md). Desktop screens score 100 |
 | The six ST-38 screen-reader rows | Open until the human Narrator pass |
 
 
