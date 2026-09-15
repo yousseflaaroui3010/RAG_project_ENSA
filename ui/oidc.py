@@ -3,7 +3,7 @@
 Three calls, and nothing else about the provider reaches the rest of the
 app:
 
-    authorization_url(state, nonce, redirect_uri) -> str
+    authorization_url(state, nonce, redirect_uri, ui_locales) -> str
     exchange_code(code, redirect_uri)             -> dict   (tokens)
     introspect(access_token)                      -> dict   (claims)
 
@@ -47,7 +47,9 @@ class ProviderUnavailableError(Exception):
 
 
 class Provider(Protocol):
-    def authorization_url(self, *, state: str, nonce: str, redirect_uri: str) -> str: ...
+    def authorization_url(
+        self, *, state: str, nonce: str, redirect_uri: str, ui_locales: str = ""
+    ) -> str: ...
 
     def exchange_code(self, *, code: str, redirect_uri: str) -> dict[str, Any]: ...
 
@@ -80,17 +82,23 @@ class KeycloakProvider:
                 ) from exc
         return self._endpoints
 
-    def authorization_url(self, *, state: str, nonce: str, redirect_uri: str) -> str:
-        query = urllib.parse.urlencode(
-            {
-                "client_id": self.client_id,
-                "response_type": "code",
-                "scope": "openid profile email",
-                "redirect_uri": redirect_uri,
-                "state": state,
-                "nonce": nonce,
-            }
-        )
+    def authorization_url(
+        self, *, state: str, nonce: str, redirect_uri: str, ui_locales: str = ""
+    ) -> str:
+        params = {
+            "client_id": self.client_id,
+            "response_type": "code",
+            "scope": "openid profile email",
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "nonce": nonce,
+        }
+        # OIDC Core 3.1.2.1 `ui_locales`: the sign-in and sign-up pages open
+        # in the language Sanad is showing, not the browser's. Seen
+        # 2026-09-15: French Sanad, English Keycloak pages.
+        if ui_locales:
+            params["ui_locales"] = ui_locales
+        query = urllib.parse.urlencode(params)
         return f"{self._discover()['authorization']}?{query}"
 
     def exchange_code(self, *, code: str, redirect_uri: str) -> dict[str, Any]:
@@ -115,16 +123,19 @@ class KeycloakProvider:
             },
         )
 
-    def end_session_url(self, *, redirect_uri: str) -> str:
+    def end_session_url(self, *, redirect_uri: str, ui_locales: str = "") -> str:
         """Where to send the browser so Keycloak forgets it too. Empty when
         the realm publishes no such endpoint -- the local session is still
         deleted, and the caller simply lands back on Sanad."""
         endpoint = self._discover().get("end_session", "")
         if not endpoint:
             return ""
-        query = urllib.parse.urlencode(
-            {"client_id": self.client_id, "post_logout_redirect_uri": redirect_uri}
-        )
+        params = {"client_id": self.client_id, "post_logout_redirect_uri": redirect_uri}
+        # The confirmation page in Sanad's language too (RP-Initiated Logout
+        # 1.0 `ui_locales`); without it, it followed the browser's.
+        if ui_locales:
+            params["ui_locales"] = ui_locales
+        query = urllib.parse.urlencode(params)
         return f"{endpoint}?{query}"
 
 

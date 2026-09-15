@@ -3,13 +3,21 @@
   "displayName": "Sanad",
   "enabled": true,
   "sslRequired": "external",
-  "registrationAllowed": false,
+  "registrationAllowed": true,
   "resetPasswordAllowed": false,
   "rememberMe": false,
   "loginWithEmailAllowed": false,
   "duplicateEmailsAllowed": false,
   "verifyEmail": false,
   "bruteForceProtected": true,
+  "passwordPolicy": "length(10) and notUsername and notEmail",
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "fr",
+    "ar",
+    "en"
+  ],
+  "defaultLocale": "fr",
   "roles": {
     "realm": [
       {
@@ -23,8 +31,39 @@
       {
         "name": "sanad-reader",
         "description": "Asks questions in the workspaces granted to them. Changes nothing."
+      },
+      {
+        "name": "offline_access",
+        "description": "${role_offline-access}",
+        "composite": false
+      },
+      {
+        "name": "uma_authorization",
+        "description": "${role_uma_authorization}",
+        "composite": false
+      },
+      {
+        "name": "default-roles-sanad",
+        "description": "Given to everyone who signs up: the reader role, which sees no workspace until an administrator grants one.",
+        "composite": true,
+        "composites": {
+          "realm": [
+            "offline_access",
+            "uma_authorization",
+            "sanad-reader"
+          ],
+          "client": {
+            "account": [
+              "view-profile",
+              "manage-account"
+            ]
+          }
+        }
       }
     ]
+  },
+  "defaultRole": {
+    "name": "default-roles-sanad"
   },
   "clients": [
     {

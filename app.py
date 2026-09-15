@@ -1528,6 +1528,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 state=state,
                 nonce=nonce,
                 redirect_uri=get_settings().keycloak_redirect_url,
+                ui_locales=context_language(request),
             )
         except oidc.ProviderUnavailableError as exc:
             return _login_failed(request, str(exc))
@@ -1656,7 +1657,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         callback = urlsplit(get_settings().keycloak_redirect_url)
         return_to = urlunsplit((callback.scheme, callback.netloc, "/auth/login", "", ""))
         with contextlib.suppress(oidc.ProviderUnavailableError, AttributeError):
-            end_session = _provider().end_session_url(redirect_uri=return_to)
+            end_session = _provider().end_session_url(
+                redirect_uri=return_to, ui_locales=context_language(request)
+            )
             target = end_session or target
         response = RedirectResponse(target, status_code=SEE_OTHER)
         response.delete_cookie(auth.SESSION_COOKIE, path="/")
