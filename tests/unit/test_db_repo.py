@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -655,3 +656,141 @@ def test_writer_contention_waits_for_the_timeout_instead_of_failing_instantly(
         f"configured -- that is sqlite3's own default, so `timeout` is not "
         f"reaching sqlite3.connect()"
     )
+
+
+# --- S6 saved chat history: plain CRUD, no policy (law 09-08) -------------
+#
+# db/repo.py carries no retention rule any more (a cold review moved it to
+# chat_history.py -- see tests/unit/test_chat_history.py for the policy:
+# what 0 means, when a row is expired, how a cutoff is computed). These
+# tests exercise exactly the five plain operations that are left: upsert,
+# get, delete one, delete all for a user, delete older than a given cutoff.
+
+
+def test_upsert_then_get_chat_history_round_trips(conn):
+    ws_id = repo.create_workspace(conn, name="ws-history", folder_path="/tmp/wsh")
+    conn.commit()
+
+    repo.upsert_chat_history(
+        conn,
+        user_id="local",
+        workspace_id=ws_id,
+        payload='{"messages": []}',
+        updated_at=repo.utc_now(),
+    )
+    conn.commit()
+
+    row = repo.get_chat_history(conn, user_id="local", workspace_id=ws_id)
+    assert row["payload"] == '{"messages": []}'
+
+
+def test_upsert_replaces_rather_than_raising_on_a_second_call(conn):
+    """Two settled answers in the same conversation both upsert; the
+    second must update the one row, not collide on the PRIMARY KEY."""
+    ws_id = repo.create_workspace(conn, name="ws-upsert", folder_path="/tmp/wsu")
+    conn.commit()
+
+    repo.upsert_chat_history(
+        conn, user_id="local", workspace_id=ws_id, payload="first", updated_at=repo.utc_now()
+    )
+    conn.commit()
+    repo.upsert_chat_history(
+        conn, user_id="local", workspace_id=ws_id, payload="second", updated_at=repo.utc_now()
+    )
+    conn.commit()
+
+    row = repo.get_chat_history(conn, user_id="local", workspace_id=ws_id)
+    assert row["payload"] == "second"
+    assert conn.execute(
+        "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?", (ws_id,)
+    ).fetchone()[0] == 1
+
+
+def test_get_chat_history_returns_none_for_an_unknown_pair(conn):
+    ws_id = repo.create_workspace(conn, name="ws-empty", folder_path="/tmp/wse2")
+    conn.commit()
+
+    assert repo.get_chat_history(conn, user_id="local", workspace_id=ws_id) is None
+
+
+def test_delete_chat_history_removes_only_that_one_workspace(conn):
+    ws1 = repo.create_workspace(conn, name="ws-del-a", folder_path="/tmp/wsda")
+    ws2 = repo.create_workspace(conn, name="ws-del-b", folder_path="/tmp/wsdb")
+    conn.commit()
+    repo.upsert_chat_history(
+        conn, user_id="local", workspace_id=ws1, payload="a", updated_at=repo.utc_now()
+    )
+    repo.upsert_chat_history(
+        conn, user_id="local", workspace_id=ws2, payload="b", updated_at=repo.utc_now()
+    )
+    conn.commit()
+
+    repo.delete_chat_history(conn, user_id="local", workspace_id=ws1)
+    conn.commit()
+
+    assert repo.get_chat_history(conn, user_id="local", workspace_id=ws1) is None
+    assert repo.get_chat_history(conn, user_id="local", workspace_id=ws2)["payload"] == "b"
+
+
+def test_delete_chat_history_for_user_leaves_other_people_alone(conn):
+    ws_id = repo.create_workspace(conn, name="ws-two-people", folder_path="/tmp/wstp")
+    conn.commit()
+    repo.upsert_chat_history(
+        conn, user_id="alice", workspace_id=ws_id, payload="alice's", updated_at=repo.utc_now()
+    )
+    repo.upsert_chat_history(
+        conn, user_id="bob", workspace_id=ws_id, payload="bob's", updated_at=repo.utc_now()
+    )
+    conn.commit()
+
+    removed = repo.delete_chat_history_for_user(conn, user_id="alice")
+    conn.commit()
+
+    assert removed == 1
+    assert repo.get_chat_history(conn, user_id="alice", workspace_id=ws_id) is None
+    assert repo.get_chat_history(conn, user_id="bob", workspace_id=ws_id)["payload"] == "bob's"
+
+
+def test_delete_chat_history_older_than_removes_rows_at_or_before_the_cutoff(conn):
+    """A plain timestamp comparison, no notion of 'retention days' here --
+    that arithmetic belongs to chat_history.py, which computes the cutoff
+    this function is handed."""
+    ws_id = repo.create_workspace(conn, name="ws-cutoff", folder_path="/tmp/wsco")
+    conn.commit()
+    older = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    newer = datetime.now(UTC).isoformat()
+    conn.execute(
+        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
+        "VALUES ('old-user', ?, 'old', ?)",
+        (ws_id, older),
+    )
+    conn.execute(
+        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
+        "VALUES ('new-user', ?, 'new', ?)",
+        (ws_id, newer),
+    )
+    conn.commit()
+
+    removed = repo.delete_chat_history_older_than(conn, cutoff=cutoff)
+    conn.commit()
+
+    assert removed == 1
+    assert repo.get_chat_history(conn, user_id="old-user", workspace_id=ws_id) is None
+    assert repo.get_chat_history(conn, user_id="new-user", workspace_id=ws_id)["payload"] == "new"
+
+
+def test_deleting_a_workspace_cascades_to_its_stored_chat_history(conn):
+    ws_id = repo.create_workspace(conn, name="ws-cascade-history", folder_path="/tmp/wsch")
+    conn.commit()
+    repo.upsert_chat_history(
+        conn, user_id="local", workspace_id=ws_id, payload="gone soon", updated_at=repo.utc_now()
+    )
+    conn.commit()
+
+    repo.delete_workspace(conn, ws_id)
+    conn.commit()
+
+    assert conn.execute(
+        "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?", (ws_id,)
+    ).fetchone()[0] == 0

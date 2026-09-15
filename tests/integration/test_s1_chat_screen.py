@@ -916,6 +916,119 @@ def test_a_new_conversation_clears_the_transcript(sanad):
     assert "Every answer carries the sources it was written from." in page
 
 
+# --- S6 saved chat history: persisted across a restart (law 09-08) ----
+
+
+def test_a_settled_answer_survives_a_real_restart(sanad):
+    """The literal exit-gate proof, end to end through the real app: a
+    fresh `Runtime` (and a fresh `TestClient` around it) sharing only the
+    database file sees the same answer, source card included -- not just
+    the raw JSON round trip the unit tests already cover."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+
+    restarted_client, restarted_runtime = build()
+    page = restarted_client.get("/").text
+
+    assert restarted_runtime is not runtime
+    assert WRITTEN_ANSWER in _visible(page)
+    assert SOURCE_FILE in page
+
+
+def test_new_conversation_deletes_only_that_workspaces_stored_row(sanad, tmp_path):
+    """A cold review found this test used only ONE workspace, so swapping
+    'New conversation' (scoped to the active workspace) for 'Delete my
+    saved history' (every workspace) would still leave it green -- both
+    routes leave zero rows behind when there is only one to begin with.
+    A second workspace with its own saved row is what makes the two
+    behaviours distinguishable: New conversation must leave it alone."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    other = workspaces.create_workspace(
+        name="Legal", folder_path=str(tmp_path / "legal"), db_path=db_path
+    )
+    other_conversation = runtime.conversation(other.id, "local")
+    other_conversation.messages.append(
+        Message(kind=MessageKind.ANSWER, text="the other workspace's own answer")
+    )
+    runtime.save_conversation("local", other_conversation)
+
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    with repo.session(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 2
+
+    client.post("/chat/new", follow_redirects=False)
+
+    with repo.session(db_path) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
+                (workspace.id,),
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
+                (other.id,),
+            ).fetchone()[0]
+            == 1
+        ), "New conversation must not touch a different workspace's saved row"
+
+
+def test_a_get_on_delete_history_never_deletes_anything(sanad):
+    """UX spec 5/7.2: the confirmation page is a real GET, and a GET must
+    never be the thing that deletes -- only the form's POST does."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+
+    page = client.get("/chat/history/delete")
+
+    assert page.status_code == 200
+    with repo.session(db_path) as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
+                (workspace.id,),
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_deleting_my_history_removes_every_workspace_for_that_person(sanad, tmp_path):
+    """The companion fix to the New-conversation test above: a second
+    workspace's saved row must be gone too after this route, which is
+    what makes it distinguishable from New conversation (scoped to one)."""
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    other = workspaces.create_workspace(
+        name="Legal", folder_path=str(tmp_path / "legal"), db_path=db_path
+    )
+    other_conversation = runtime.conversation(other.id, "local")
+    other_conversation.messages.append(
+        Message(kind=MessageKind.ANSWER, text="the other workspace's own answer")
+    )
+    runtime.save_conversation("local", other_conversation)
+
+    _ask(client)
+    _settled(client, runtime, workspace.id)
+    with repo.session(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 2
+
+    response = client.post("/chat/history/delete", follow_redirects=False)
+
+    assert response.status_code == 303
+    with repo.session(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 0
+    assert f"local|{workspace.id}" not in runtime.conversations
+    assert f"local|{other.id}" not in runtime.conversations
+
+
 # --- the shell (UX spec 4) -------------------------------------------
 
 

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ t('title.chat_history_delete') }}{% endblock %}
+
+{#
+  S6 saved chat history, law 09-08: the person's own control over their stored chat
+  history. Same no-JS `ConfirmDialog` pattern as workspace_delete_confirm.html
+  and document_remove_confirm.html -- a real page, one action, one way
+  back. Unlike those two there is no single `target`: this removes EVERY
+  stored conversation this person has, across every workspace, and clears
+  what this process currently holds in memory for them too.
+#}
+{% block main %}
+<dialog class="panel panel--error" open data-confirm-dialog data-return-url="/">
+  <h1>{{ t('chat.history_delete.title') }}</h1>
+  <p>{{ t('chat.history_delete.body') }}</p>
+  <p>{{ t('chat.history_delete.body_after') }}</p>
+  <form method="post" action="/chat/history/delete">
+    <button class="btn btn--primary" type="submit">{{ t('chat.history_delete.yes') }}</button>
+  </form>
+  <p><a href="/" autofocus>{{ t('chat.history_delete.cancel') }}</a></p>
+</dialog>
+{% endblock %}

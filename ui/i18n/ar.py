@@ -14,6 +14,7 @@ MESSAGES: dict[str, str] = {
     "title.report_detail": "تفاصيل التقرير — سند",
     "title.passage": "مقتطف — سند",
     "title.delete": "حذف {name} — سند",
+    "title.chat_history_delete": "حذف سجلي — سند",
     "shell.skip": "الانتقال إلى المحتوى",
     "phr.activity.uploaded": "إضافة وثيقة",
     "phr.activity.removed_doc": "إزالة وثيقة",
@@ -90,6 +91,15 @@ MESSAGES: dict[str, str] = {
     "chat.answering_from": "الإجابة من",
     "chat.will_pick": "سيختار سند الفضاء المناسب بمجرد طرح سؤالك.",
     "chat.new_conversation": "محادثة جديدة",
+    "chat.delete_history": "حذف سجل محادثاتي المحفوظ",
+    "chat.history_delete.title": "حذف كل سجل محادثاتك المحفوظ؟",
+    "chat.history_delete.body": (
+        "يحذف هذا كل محادثة مخزّنة باسمك، في جميع فضاءات العمل، ويمسح أيضًا ما "
+        "هو معروض على الشاشة حاليًا."
+    ),
+    "chat.history_delete.body_after": "لا يمكن التراجع عن هذا الإجراء.",
+    "chat.history_delete.yes": "نعم، احذف سجلي",
+    "chat.history_delete.cancel": "إلغاء، الاحتفاظ بسجلي",
     "chat.your_question": "سؤالك",
     "chat.placeholder": "اطرح سؤالًا حول هذا الفضاء",
     "chat.send": "إرسال",

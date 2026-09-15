@@ -29,6 +29,7 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 from agent.querying import ClarificationContext
 from agent.state import Answer, AnswerKind, Source, Turn
@@ -77,6 +78,13 @@ class Segment:
     text: str
     cited: bool
 
+    def to_dict(self) -> dict[str, Any]:
+        return {"text": self.text, "cited": self.cited}
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> Segment:
+        return Segment(text=str(data["text"]), cited=bool(data["cited"]))
+
 
 @dataclass(frozen=True)
 class Passage:
@@ -96,6 +104,23 @@ class Passage:
     def text(self) -> str:
         return "".join(segment.text for segment in self.segments)
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "file_name": self.file_name,
+            "section_label": self.section_label,
+            "segments": [segment.to_dict() for segment in self.segments],
+            "highlighted": self.highlighted,
+        }
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> Passage:
+        return Passage(
+            file_name=str(data["file_name"]),
+            section_label=data["section_label"],
+            segments=tuple(Segment.from_dict(item) for item in data["segments"]),
+            highlighted=bool(data["highlighted"]),
+        )
+
 
 @dataclass(frozen=True)
 class SourceCard:
@@ -111,6 +136,23 @@ class SourceCard:
     section_label: str | None
     passages: tuple[Passage, ...]
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "index": self.index,
+            "file_name": self.file_name,
+            "section_label": self.section_label,
+            "passages": [passage.to_dict() for passage in self.passages],
+        }
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> SourceCard:
+        return SourceCard(
+            index=int(data["index"]),
+            file_name=str(data["file_name"]),
+            section_label=data["section_label"],
+            passages=tuple(Passage.from_dict(item) for item in data["passages"]),
+        )
+
 
 @dataclass(frozen=True)
 class ErrorDetail:
@@ -121,6 +163,23 @@ class ErrorDetail:
     attempted: str
     value: str
     hint: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "sentence": self.sentence,
+            "attempted": self.attempted,
+            "value": self.value,
+            "hint": self.hint,
+        }
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> ErrorDetail:
+        return ErrorDetail(
+            sentence=str(data["sentence"]),
+            attempted=str(data["attempted"]),
+            value=str(data["value"]),
+            hint=str(data["hint"]),
+        )
 
 
 @dataclass(frozen=True)
@@ -170,6 +229,71 @@ class Message:
     # (rendered like an answer, marked incomplete, no sources), not
     # Sanad's fixed INTERRUPTED_TEXT sentence.
     partial: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        """S6 saved chat history: this message, JSON-safe, for `Conversation.to_payload`.
+
+        `kind` is written as its plain string value (StrEnum), never the
+        enum repr, so the stored row is ordinary JSON a human or another
+        tool could read. `id` is written as-is rather than regenerated --
+        it is F-15's feedback key, and a restored message must keep the
+        same one or a stored verdict silently stops matching anything."""
+        return {
+            "kind": self.kind.value,
+            "text": self.text,
+            "sources": [card.to_dict() for card in self.sources],
+            "searched": list(self.searched),
+            "files_consulted": list(self.files_consulted),
+            "retries": self.retries,
+            "disclaimer": self.disclaimer,
+            "error": self.error.to_dict() if self.error is not None else None,
+            "choices": list(self.choices),
+            "has_trace": self.has_trace,
+            "route_question": self.route_question,
+            "route_candidates": [
+                {
+                    "workspace_id": candidate.workspace_id,
+                    "name": candidate.name,
+                    "score": candidate.score,
+                }
+                for candidate in self.route_candidates
+            ],
+            "id": self.id,
+            "partial": self.partial,
+        }
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> Message:
+        """The inverse of `to_dict`. Raises (KeyError, ValueError, ...) on
+        anything unreadable -- a missing field, an unknown `kind` -- so the
+        caller (`app.py::Runtime._load_conversation`) can catch it and
+        start an empty conversation rather than crash the chat screen."""
+        error_data = data.get("error")
+        return Message(
+            kind=MessageKind(data["kind"]),
+            text=str(data["text"]),
+            sources=tuple(
+                SourceCard.from_dict(item) for item in data.get("sources", ())
+            ),
+            searched=tuple(data.get("searched", ())),
+            files_consulted=tuple(data.get("files_consulted", ())),
+            retries=int(data.get("retries", 0)),
+            disclaimer=bool(data.get("disclaimer", False)),
+            error=ErrorDetail.from_dict(error_data) if error_data is not None else None,
+            choices=tuple(data.get("choices", ())),
+            has_trace=bool(data.get("has_trace", False)),
+            route_question=str(data.get("route_question", "")),
+            route_candidates=tuple(
+                RouteCandidate(
+                    workspace_id=str(candidate["workspace_id"]),
+                    name=str(candidate["name"]),
+                    score=float(candidate["score"]),
+                )
+                for candidate in data.get("route_candidates", ())
+            ),
+            id=str(data["id"]),
+            partial=bool(data.get("partial", False)),
+        )
 
 
 def merge_spans(spans: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -394,6 +518,14 @@ INTERRUPTED_TEXT = (
 )
 
 
+# S6 saved chat history: the shape `Conversation.to_payload` writes and
+# `from_payload` reads. Bump this the day that shape changes; a stored row
+# stamped with any other value is treated as unreadable rather than
+# guessed at (`from_payload` raises), the same as corrupt JSON or an
+# unknown enum value.
+PAYLOAD_VERSION = 1
+
+
 @dataclass
 class Conversation:
     """One S1 conversation: what is on screen, and what is in flight.
@@ -510,11 +642,18 @@ class Conversation:
         with self._lock:
             self.messages.append(message)
 
-    def settle(self) -> None:
-        """Fold a finished run into the transcript.
+    def settle(self) -> bool:
+        """Fold a finished run into the transcript. Returns whether it
+        actually did -- False on every no-op call (no run, or one still in
+        flight).
 
         Called on every render rather than by the worker thread, so the
-        worker only ever writes its own `Run`.
+        worker only ever writes its own `Run`. That includes the 700ms
+        poll while the page is open (`Conversation` docstring), so the
+        return value matters beyond idempotency: S6 saved chat history's
+        caller (`app.py::_context`) saves the transcript to storage only when
+        this returns True, or every poll tick would open a write
+        transaction for nothing changed.
 
         IDEMPOTENT UNDER CONCURRENCY, not merely on a second sequential
         call. The run is detached under the lock BEFORE anything is
@@ -527,7 +666,7 @@ class Conversation:
         with self._lock:
             run = self.run
             if run is None or not run.done:
-                return
+                return False
             self.run = None
 
             answer = run.answer
@@ -560,7 +699,7 @@ class Conversation:
                     self.turns.append(
                         Turn(question=run.question_for_agent, answer=answer.text)
                     )
-                return
+                return True
             if run.clarification_context is not None:
                 self.pending_clarification = run.clarification_context
             error = run.error
@@ -571,6 +710,63 @@ class Conversation:
                     if partial
                     else Message(kind=MessageKind.INTERRUPTED, text=INTERRUPTED_TEXT)
                 )
-                return
+                return True
             if error is not None:
                 self.messages.append(error_message(error, run.question))
+            return True
+
+    def to_payload(self) -> dict[str, Any]:
+        """This conversation as JSON-safe data, for S6's storage row:
+        `messages`, `summary`, `turns`, `session_id`. NOT `run` (in-flight
+        state, meaningless once the process that started it is gone) and
+        NOT `pending_clarification` (a clarifying question asked by a dead
+        process is not worth resuming into -- the next question starts a
+        fresh one, same as today when nothing is stored at all).
+
+        `v` is the payload SHAPE version, stamped `PAYLOAD_VERSION` on
+        every save. A future change to this shape bumps that constant;
+        `from_payload` treats any other value (including a payload with no
+        `v` at all, from before this field existed) as unreadable rather
+        than guessing at a shape it was never written to expect.
+
+        Locked, for the same reason `begin`/`settle` are: a poll thread
+        could be reading `self.messages` while this copies it."""
+        with self._lock:
+            return {
+                "v": PAYLOAD_VERSION,
+                "session_id": self.session_id,
+                "summary": self.summary,
+                "turns": [
+                    {"question": turn.question, "answer": turn.answer}
+                    for turn in self.turns
+                ],
+                "messages": [message.to_dict() for message in self.messages],
+            }
+
+    @staticmethod
+    def from_payload(workspace_id: str, data: Mapping[str, Any]) -> Conversation:
+        """The inverse of `to_payload`. Raises on anything unreadable --
+        corrupt JSON already failed before this is called
+        (`json.loads`), but a field of the wrong shape, an unknown enum
+        value, or an unrecognized `v` raises here (KeyError, ValueError,
+        TypeError) -- so the caller (`app.py::Runtime._load_conversation`)
+        can catch it and start an empty conversation instead of crashing
+        the chat screen."""
+        if data.get("v") != PAYLOAD_VERSION:
+            raise ValueError(
+                f"unrecognized chat history payload version {data.get('v')!r}, "
+                f"expected {PAYLOAD_VERSION!r}"
+            )
+        messages = [Message.from_dict(item) for item in data["messages"]]
+        turns = [
+            Turn(question=str(turn["question"]), answer=str(turn["answer"]))
+            for turn in data["turns"]
+        ]
+        session_id = data.get("session_id")
+        return Conversation(
+            workspace_id=workspace_id,
+            session_id=str(session_id) if session_id is not None else None,
+            messages=messages,
+            summary=str(data.get("summary", "")),
+            turns=turns,
+        )

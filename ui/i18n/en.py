@@ -17,6 +17,7 @@ MESSAGES: dict[str, str] = {
     "title.report_detail": "Report detail — Sanad",
     "title.passage": "Passage — Sanad",
     "title.delete": "Delete {name} — Sanad",
+    "title.chat_history_delete": "Delete my history — Sanad",
     "shell.skip": "Skip to content",
     "phr.activity.uploaded": "uploaded a document",
     "phr.activity.removed_doc": "removed a document",
@@ -105,6 +106,15 @@ MESSAGES: dict[str, str] = {
     "chat.answering_from": "Answering from",
     "chat.will_pick": "Sanad will pick the workspace once you ask.",
     "chat.new_conversation": "New conversation",
+    "chat.delete_history": "Delete my saved history",
+    "chat.history_delete.title": "Delete all your saved conversation history?",
+    "chat.history_delete.body": (
+        "This deletes every conversation stored for you, in every workspace, "
+        "and clears what is currently on screen too."
+    ),
+    "chat.history_delete.body_after": "This cannot be undone.",
+    "chat.history_delete.yes": "Yes, delete my history",
+    "chat.history_delete.cancel": "Cancel, keep my history",
     "chat.your_question": "Your question",
     "chat.placeholder": "Ask a question about this workspace",
     "chat.send": "Send",

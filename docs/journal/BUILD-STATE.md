@@ -34,12 +34,12 @@ that were left in place on 2026-07-28. The PR descriptions #126-#130 were edited
 clean on 2026-09-15. Scrubbing `main` needs a force-push, which the git rules
 forbid and which would break MB's clone: a human decision, not taken.
 
-**Still human-only:** a named owner for the law 09-08 personal-data check
-(blocks persisting chat history); a hand-run of sign-in and sign-out from the
-team's own account (the scratch-account check above does not replace it); the
-six ST-38 screen-reader rows (the automated audit in
+**Still human-only:** a hand-run of sign-in and sign-out from the team's own
+account (the scratch-account check above does not replace it); the six ST-38
+screen-reader rows (the automated audit in
 docs/evidence/ST-38/lighthouse-2026-09-15.md does not replace them either); 10
-rehearsals and a backup video; the mock defense.
+rehearsals and a backup video; the mock defense. The law 09-08 personal-data
+owner is named: YL (DECISIONS 2026-09-15).
 
 ---
 
@@ -65,11 +65,10 @@ row dated today.
 Reports dashboard, #123 demo script, #125 upload + Keycloak login + roles +
 admin view, #126 the release, #127 the review fixes the squash dropped.
 
-**Still human-only, and now the only things left:** a named owner for the law
-09-08 personal-data check (which blocks persisting chat history across a
-restart), and a hand-run of sign-in/sign-out from the team's own account --
-the dev Keycloak keeps its realm in memory, so that needs the five-step realm
-setup in README.md first.
+**Still human-only, and now the only things left:** a hand-run of
+sign-in/sign-out from the team's own account -- the dev Keycloak keeps its
+realm in memory, so that needs the five-step realm setup in README.md first.
+The law 09-08 personal-data owner is named: YL (DECISIONS 2026-09-15).
 
 ---
 
