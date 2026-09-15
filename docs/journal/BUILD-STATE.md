@@ -1,6 +1,35 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-14, v3.0.0 SHIPPED (read this block first; older headers below are history)
+## STATE AT 2026-09-15, POST-RELEASE FIXES (read this block first; older headers below are history)
+
+**Open PRs, each reviewed cold and green:** #129 document reader warm-up (full
+suite 1198 passed); the ST-38 reader hint / log names / admin header fix (full
+suite 1198 passed); this journal and known-issues correction. WAITING ON A
+HUMAN "merge" in the session that merges them (rule: approval does not carry
+across sessions).
+
+**Proven in a real browser, 2026-09-15:** login, roles and grants against a
+real Keycloak 26.4 in Docker. A reader with nothing granted sees no workspace
+name; sign-out ends the realm session too (the next visit asks for a password);
+an admin's grant lets the reader see exactly that workspace and no admin,
+create, Sync or delete controls. The throwaway realm and its data are deleted.
+
+**Unexplained, recorded not fixed:** the dev server crashed twice (Windows
+access violation, exit 139) inside an outbound call to Keycloak, both while a
+full test suite ran alongside with ~2 GB RAM free. Not reproduced in four
+attempts, one under the same load with 40 sign-in calls. If it recurs: run
+`uv run python -X faulthandler app.py` and keep the log (docs/known-issues.md).
+
+**Dropped on evidence:** a streamed-answer fallback (DECISIONS 2026-09-15). The
+provider client already retries opening a stream.
+
+**Still human-only:** a named owner for the law 09-08 personal-data check
+(blocks persisting chat history); the six ST-38 screen-reader rows; 10 rehearsals
+and a backup video; the mock defense.
+
+---
+
+## STATE AT 2026-09-14, v3.0.0 SHIPPED (history now)
 
 **v3.0.0 is tagged and published.** Tag `v3.0.0` on `2f02ec7`. The gate on
 merged `main`: G1 38/40 (need 90%), G2 20/20, G3 38/38, `RELEASE GATE: PASS`,

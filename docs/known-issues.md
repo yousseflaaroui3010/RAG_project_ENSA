@@ -43,6 +43,7 @@ breaks a signed gate (G1-G3 pass on the golden set).
 |---|---|
 | Answer traces are shown per answer (F-10) but not persisted (issue #51) | A trace lives as long as the conversation on screen (DECISIONS 2026-09-12) |
 | Sample questions show file names rather than questions | Cosmetic |
+| No tab icon: every page logs a 404 for `/favicon.ico` in the browser console | Cosmetic, but visible to anyone who opens developer tools during a demo |
 | The six ST-38 screen-reader rows | Open until the human Narrator pass |
 
 
@@ -51,7 +52,9 @@ breaks a signed gate (G1-G3 pass on the golden set).
 | Issue | Effect | Why it waits |
 |---|---|---|
 | A streamed answer is held back for its first 40 characters | The bubble stays empty a beat longer than the model's first word | It is the price of never showing `NOT_COVERED` typing itself out before an honest refusal (DECISIONS 2026-09-13) |
-| A provider failure in the MIDDLE of a stream is not retried | The answer fails with the named "unreachable" error and a Retry, where a whole call would have been retried by the client | Retrying a half-delivered stream means deciding what to do with the words already shown |
+| A stream that breaks AFTER it has started is not retried | Opening a streamed answer -- connecting, and waiting for the first reply -- IS retried by the Gemini client exactly like a normal call (google-genai sends a streamed request through the same retry wrapper, checked 2026-09-15). Only a break once text is flowing ends the answer with the named "unreachable" error and a Retry. In strict-local (Ollama) mode nothing is retried, streamed or not | A fallback to a non-streamed call was built, tested and DROPPED on 2026-09-15 after review: it repeated retries the client already makes, roughly doubled the wait before an outage is reported (about 3 minutes to about 6 on Gemini), and would start a paid call after a Cancel -- all to cover the first second or so of an answer (DECISIONS 2026-09-15) |
+| The dev server crashed twice, cause unknown | On 2026-09-15 the local server died (Windows access violation, exit 139) twice, both times inside an ordinary outbound call to Keycloak (`ui/oidc.py` `_read`, opening a socket), both while a full test suite ran on the same machine with about 2 GB of 15.8 GB memory free. The whole process stops and must be restarted | Not reproduced in four later attempts, including one under the same load with 40 sign-in calls. Ruled out by isolated runs: every warm-up load (both encoders, the document readers, all together) followed by the same call, six combinations, all clean. With no reproduction there is nothing to fix yet. If it happens again, start the server with `uv run python -X faulthandler app.py` and keep the log: it names the thread and line |
+| A Sync started in the first ~37 s after start-up still waits for the document readers | The server warms the search models first (~23 s), then the PDF, Word and PowerPoint readers (~14 s). A Sync started before that finishes loads them itself or waits behind the warm-up, with nothing on screen to say why | Models first is deliberate: a question is the commoner first act. Stated in `sync.warm_up_document_readers` |
 | Sign-out shows Keycloak's own "Do you want to log out?" page | One extra click when signing out | Skipping it means keeping the id token, which is keeping a credential for cosmetics |
 | The realm must list the post-logout URI | Otherwise Keycloak answers 400 on sign-out | It is one line in the client configuration; the README says so |
 | `/api/v1` is administrators-only when `AUTH_MODE=keycloak` | A curator or reader cannot use the machine API | The signed contract has no notion of who is asking; per-route permissions are a separate change (DECISIONS 2026-09-14) |
