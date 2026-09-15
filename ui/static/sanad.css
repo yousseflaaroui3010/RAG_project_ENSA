@@ -1540,6 +1540,9 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 /* "Below 768px the app shows a plain notice that Sanad targets a desktop
    browser. Do not build a phone layout." */
 .desktop-only { display: none; }
+/* The notice became a landmark wrapping its paragraph; the paragraph keeps
+   no margin of its own, so the notice sits exactly where it did. */
+.desktop-only__text { margin: 0; }
 @media (max-width: 767px) {
   .shell__nav, .main, .shell__workspace { display: none; }
   .desktop-only {
