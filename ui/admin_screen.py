@@ -62,20 +62,40 @@ def _workspace_names(conn: sqlite3.Connection) -> dict[str, str]:
     return {row["id"]: row["name"] for row in conn.execute("SELECT id, name FROM workspace")}
 
 
+# Actions whose `detail` is the id of the PERSON acted on (app.py writes
+# `detail=user_id` for exactly these). Nothing else is resolved: a refused
+# action's detail is a URL path, and guessing at it would be wrong.
+_PERSON_ACTIONS = frozenset(
+    {"granted access", "revoked access", "signed a person out everywhere"}
+)
+
+
 def activity(*, limit: int = 200, db_path: str | Path | None = None) -> list[ActivityRow]:
     """The log, newest first, with workspace ids resolved to names.
 
     A workspace that has since been deleted leaves its id unresolved and
     the row shows no name rather than a dangling identifier: the event
-    still happened, and hiding it would be the worse lie."""
+    still happened, and hiding it would be the worse lie.
+
+    The person a grant, revoke or forced sign-out was ABOUT is shown by
+    username too. The log STORES their id, and keeps doing so -- an id is
+    the stable fact an audit trail needs, where a username can change -- but
+    an administrator reading "access granted 6fb523a6-decc-..." cannot tell
+    who that was (seen in a real browser, 2026-09-15). An id that no longer
+    resolves is shown as stored, for the same reason as a deleted workspace."""
     with repo.session(db_path) as conn:
         names = _workspace_names(conn)
+        usernames = {row["id"]: row["username"] for row in repo.list_users(conn)}
         return [
             ActivityRow(
                 created_at=row["created_at"],
                 username=row["username"],
                 action=row["action"],
-                detail=row["detail"],
+                detail=(
+                    usernames.get(row["detail"], row["detail"])
+                    if row["action"] in _PERSON_ACTIONS
+                    else row["detail"]
+                ),
                 workspace_name=names.get(row["workspace_id"]),
             )
             for row in repo.list_activity(conn, limit)

@@ -198,3 +198,98 @@ def test_a_workspace_id_that_does_not_exist_grants_nothing_and_breaks_nothing(ke
     assert response.status_code == 303
     with repo.session(db_path) as conn:
         assert repo.granted_workspace_ids(conn, "kc-reader") == {real.id}
+
+
+CREATE_HINT = 'title="Create a workspace before asking questions"'
+ASK_ADMIN_HINT = 'title="No workspace is shared with you: ask an administrator for access"'
+
+
+def test_the_disabled_chat_link_gives_each_person_a_reason_they_can_act_on(keycloak):  # noqa: F811
+    """Seen in a real browser, 2026-09-15: Omar, a reader with nothing
+    granted, hovered the greyed-out Chat link and was told to "create a
+    workspace" -- which no control on his page lets him do.
+
+    Kill test: put back the single title and the reader assertion goes red.
+    Kill test: flip the condition and BOTH go red. The admin half is what
+    stops a blanket "ask an administrator" from passing: an admin with no
+    workspace is the one person who CAN create one. The login-free mode is
+    pinned separately in test_s1_chat_screen.py and test_s2_workspaces_screen.py."""
+    client, _, _, _, sign_in = keycloak
+
+    sign_in(READER_CLAIMS)
+    reader_page = client.get("/workspaces").text
+    assert ASK_ADMIN_HINT in reader_page
+    assert CREATE_HINT not in reader_page
+
+    sign_in(ADMIN_CLAIMS)
+    admin_page = client.get("/workspaces").text
+    assert CREATE_HINT in admin_page
+    assert ASK_ADMIN_HINT not in admin_page
+
+
+def _detail_for(rows, action: str) -> str | None:
+    matches = [row.detail for row in rows if row.action == action]
+    assert matches, f"no {action!r} event was logged, so this proves nothing"
+    return matches[0]
+
+
+def test_the_log_names_the_person_acted_on_but_still_stores_their_id(keycloak):  # noqa: F811
+    """Seen in a real browser, 2026-09-15: "access granted 6fb523a6-decc-..."
+    -- an administrator cannot tell who that was. Shown by username now.
+
+    Kill test: drop the username lookup in `admin_screen.activity` and the
+    three display assertions go red. Kill test: resolve at WRITE time
+    instead (store the username) and the storage assertion goes red -- the
+    audit trail must keep the stable id, since a username can change."""
+    client, _, db_path, _, sign_in = keycloak
+    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(READER_CLAIMS)
+    sign_in(ADMIN_CLAIMS)
+
+    client.post("/admin/grants", data={"user_id": "kc-reader", "workspace_id": [ws.id]})
+    client.post("/admin/grants", data={"user_id": "kc-reader"})
+    client.post("/admin/people/kc-reader/sign-out")
+
+    rows = admin_screen.activity(db_path=db_path)
+    assert _detail_for(rows, "granted access") == "omar"
+    assert _detail_for(rows, "revoked access") == "omar"
+    assert _detail_for(rows, "signed a person out everywhere") == "omar"
+
+    with repo.session(db_path) as conn:
+        stored = {row["action"]: row["detail"] for row in repo.list_activity(conn)}
+    assert stored["granted access"] == "kc-reader"
+
+
+def test_only_person_events_are_resolved_and_an_unknown_id_is_shown_as_stored(keycloak):  # noqa: F811
+    """A refused action's detail is a URL path: it must never be looked up
+    as a person. And an id with no account behind it is shown as stored,
+    for the same reason a deleted workspace's events stay readable.
+
+    Kill test: resolve `detail` for EVERY action and the refused row reads
+    "pathname" instead of "/admin". That is FORCED here: an account whose id
+    is literally "/admin" exists, so the lookup has something to wrongly
+    find -- without it, resolving everything would still leave "/admin" and
+    this could not fail. Kill test: drop the fallback in `.get(id, id)` and
+    the unknown id shows as None."""
+    client, _, db_path, _, sign_in = keycloak
+    sign_in(
+        {
+            "sub": "/admin",
+            "preferred_username": "pathname",
+            "name": "Path Name",
+            "realm_access": {"roles": ["sanad-reader"]},
+        }
+    )
+    sign_in(ADMIN_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.record_activity(
+            conn, user_id="kc-admin", username="amina", action="refused", detail="/admin"
+        )
+        repo.record_activity(
+            conn, user_id="kc-admin", username="amina", action="granted access", detail="kc-gone"
+        )
+
+    rows = admin_screen.activity(db_path=db_path)
+
+    assert _detail_for(rows, "refused") == "/admin"
+    assert _detail_for(rows, "granted access") == "kc-gone"

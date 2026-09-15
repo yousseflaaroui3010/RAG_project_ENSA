@@ -70,6 +70,7 @@ MESSAGES: dict[str, str] = {
     "shell.nav_label": "الشاشات",
     "shell.nav.chat": "المساعد",
     "shell.nav.chat_disabled_title": "أنشئ فضاء عمل قبل طرح الأسئلة",
+    "shell.nav.chat_disabled_title_no_access": "لم يُمنح لك أي فضاء عمل: اطلب الوصول من المسؤول",
     "shell.nav.workspaces": "الفضاءات",
     "shell.nav.reports": "التقارير",
     "shell.dark_theme": "الوضع الداكن",
