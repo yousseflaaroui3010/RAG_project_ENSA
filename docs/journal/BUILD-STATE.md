@@ -51,7 +51,8 @@ not before); in a browser on the public site, `sanad-reader-demo` signed in
 until an admin grants one) and signed out: the return address is `https://`
 and the browser lands back on the sign-in page, where it answered 400
 before. Keycloak: 0 memory kills in its log after these sign-ins. Branches
-on GitHub: `main` only.
+on GitHub: `main` only, once this journal PR's own branch is deleted
+after it merges.
 
 **Demo accounts:** `sanad-admin-demo`, `sanad-curator-demo`,
 `sanad-reader-demo`, `sanad-norole-demo`. Passwords are set on the Railway
