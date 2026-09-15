@@ -212,18 +212,16 @@ class Runtime:
     # never a global one, so two different people's saves never wait on
     # each other -- created lazily and guarded by `_person_locks_guard`
     # itself (a dict of locks, guarded by one lock, per `_person_lock`).
-    # `_history_epochs` is the counter every delete for that person bumps;
-    # `save_conversation` reads it before snapshotting and checks it again
-    # under the person's lock before writing, so a save that raced a
-    # concurrent delete can never resurrect what was just removed. See
-    # `_person_lock`, `_history_epoch`, `_bump_history_epoch`.
+    # The guard against a save resurrecting a concurrent delete is NOT a
+    # counter: every delete drops the in-memory `Conversation` inside this
+    # lock, and a save writes only if the object it snapshotted is still
+    # the live one (see `save_conversation`).
     _person_locks: dict[str, threading.Lock] = field(
         default_factory=dict, repr=False, compare=False
     )
     _person_locks_guard: threading.Lock = field(
         default_factory=threading.Lock, repr=False, compare=False
     )
-    _history_epochs: dict[str, int] = field(default_factory=dict, repr=False, compare=False)
     # Test-only seam: if set, called between snapshotting a transcript and
     # taking the person lock to write it, so a test can deterministically
     # run a delete in that exact gap (a real thread race is not
@@ -248,21 +246,6 @@ class Runtime:
                 lock = threading.Lock()
                 self._person_locks[user_id] = lock
             return lock
-
-    def _history_epoch(self, scope: str) -> int:
-        return self._history_epochs.get(scope, 0)
-
-    def _bump_history_epoch(self, scope: str) -> None:
-        """Called by every delete of saved history, while holding that
-        person's `_person_lock`. `scope` is the person's id for "delete all
-        of mine", or `"{user_id}|{workspace_id}"` for one workspace.
-
-        SCOPED, not per person (second cold review): a per-person counter
-        made "New conversation" in workspace A silently skip an unrelated
-        save already in flight for workspace B, so B's latest answer was
-        not on disk until the next one. A save checks its own workspace's
-        counter and its person's counter, never another workspace's."""
-        self._history_epochs[scope] = self._history_epoch(scope) + 1
 
     @contextlib.contextmanager
     def ports(self) -> Iterator[AgentPorts]:
@@ -528,23 +511,27 @@ class Runtime:
         concurrent "Delete my saved history" or "New conversation" can
         remove the very rows this save is about to (re)write -- the
         delete finishes first, then the stale save resurrects what was
-        just deleted. Closed with a per-person lock plus a "history
-        epoch" every delete bumps: the epoch is read before the snapshot,
-        and checked again under the SAME lock a delete uses, right before
-        the write. If it changed, or this `Conversation` is no longer the
-        one live in `self.conversations` (replaced or dropped by that
-        same delete), the write is skipped -- the next settled answer
-        saves fine, but this one does not get to un-delete anything."""
+        just deleted. Closed by ONE check, made under the same per-person
+        lock every delete holds: the write happens only if this
+        `Conversation` is still the one live in `self.conversations`.
+        Every delete drops that object inside the lock, in the same step
+        as the stored rows, and nothing ever puts the same object back --
+        so a save that snapshotted before a delete, or arrives while one
+        runs, finds it gone and skips. The next settled answer saves fine;
+        this one does not get to un-delete anything.
+
+        (A per-person "delete counter" used to sit beside this check. A
+        cold review removed it and every test still passed: once the
+        in-memory drop moved inside the lock it guarded nothing, and a
+        comment crediting it could have led someone to weaken the real
+        guard. It is gone.)"""
         if conversation.workspace_id == screen.ROUTE_SENTINEL:
             return
         key = f"{user_id}|{conversation.workspace_id}"
-        epochs_before = (self._history_epoch(user_id), self._history_epoch(key))
-        payload = json.dumps(conversation.to_payload())
+        payload = conversation.to_payload()
         if self._save_hook is not None:
             self._save_hook()
         with self._person_lock(user_id):
-            if (self._history_epoch(user_id), self._history_epoch(key)) != epochs_before:
-                return
             if self.conversations.get(key) is not conversation:
                 return
             # A FAILED SAVE MUST NOT FAIL THE PAGE (second cold review).
@@ -552,13 +539,18 @@ class Runtime:
             # answer is already on screen; a busy database or a workspace
             # deleted a moment ago used to turn that render into a 500.
             # The answer stays on screen and is saved with the next one.
-            # Logged with the workspace and the error TYPE only -- never
-            # the transcript.
+            # Logged with the workspace, the error type AND the traceback,
+            # so a save that fails EVERY time (a read-only or full disk, a
+            # renamed argument) is diagnosable rather than a quiet warning
+            # (third review). Never the transcript: the payload is not in
+            # the message, and a traceback carries code lines, not locals.
+            # `json.dumps` is inside the try too, so an unserialisable
+            # transcript cannot fail the page either.
             try:
                 chat_history.save(
                     user_id=user_id,
                     workspace_id=conversation.workspace_id,
-                    payload=payload,
+                    payload=json.dumps(payload),
                     retention_days=get_settings().chat_history_retention_days,
                     db_path=self.db_path,
                 )
@@ -567,6 +559,7 @@ class Runtime:
                     "could not save chat history for workspace %s (%s)",
                     conversation.workspace_id,
                     type(exc).__name__,
+                    exc_info=True,
                 )
 
     def delete_conversation_storage(self, user_id: str, workspace_id: str) -> None:
@@ -576,19 +569,18 @@ class Runtime:
         revoking a person's access to one workspace (the stored
         transcript quotes passages they should no longer hold).
 
-        Bumps this person's history epoch under their lock, same as
-        `delete_all_history`, so a save already in flight for this exact
-        conversation cannot write it back afterwards (see
-        `save_conversation`). Cancels an in-flight run before the
-        `Conversation` is dropped, so a paid answer does not keep writing
-        into an object nobody can reach any more."""
+        Under this person's lock it deletes the stored row AND drops the
+        in-memory `Conversation`, in one step, so a save already in flight
+        for this conversation finds it gone and cannot write it back (see
+        `save_conversation`). Any run still being written is cancelled
+        AFTER the lock is released, so the lock is never held while a
+        run's own lock is taken."""
         key = f"{user_id}|{workspace_id}"
         # The in-memory copy is dropped INSIDE the lock, in the same step
         # as the stored row (second cold review). Dropping it after the
         # lock was released left a gap where a fresh save still found this
         # conversation live and wrote the deleted transcript back.
         with self._person_lock(user_id):
-            self._bump_history_epoch(key)
             chat_history.delete(user_id=user_id, workspace_id=workspace_id, db_path=self.db_path)
             conversation = self.conversations.pop(key, None)
             if self._delete_hook is not None:
@@ -641,19 +633,18 @@ class Runtime:
         the two places this project has ruled a person's data must be
         taken out.
 
-        Cancels every in-flight run of theirs FIRST, before the
-        conversations holding them are dropped (`forget_conversations`)
-        -- otherwise a question already being answered keeps running, and
-        the paid call it spends writes into a `Conversation` nothing can
-        reach any more (a cold review found this: "delete my history"
-        while an answer is still being written left the run finishing
-        into nothing)."""
+        Under this person's lock it deletes every stored row AND drops
+        every in-memory conversation of theirs, in one step, so no save in
+        flight can write one back (see `save_conversation`). Every run of
+        theirs still being written is then cancelled, after the lock is
+        released -- otherwise a question already being answered keeps
+        running and spends a paid call writing into a `Conversation`
+        nothing can reach any more (a cold review found this)."""
         prefix = f"{user_id}|"
         # Stored rows AND in-memory copies go in one locked step (second
         # cold review): removing memory after releasing the lock let a
         # fresh save find a conversation still live and write it back.
         with self._person_lock(user_id):
-            self._bump_history_epoch(user_id)
             chat_history.delete_for_user(user_id=user_id, db_path=self.db_path)
             dropped = [
                 self.conversations.pop(key, None)

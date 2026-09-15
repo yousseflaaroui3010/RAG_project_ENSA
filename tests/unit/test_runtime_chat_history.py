@@ -398,7 +398,7 @@ def test_forget_workspace_conversations_removes_every_persons_key_and_cancels_ru
 def test_a_save_racing_a_delete_does_not_resurrect_deleted_history(tmp_path):
     """Reproduced deterministically with `_save_hook`, the test-only seam
     that runs between the snapshot and the write lock -- a real thread
-    race is not reproducible on demand. Before the epoch/lock fix, this
+    race is not reproducible on demand. Before the lock/live-check fix, this
     save would write the row back after the delete removed it."""
     db_path = tmp_path / "sanad.db"
     repo.ensure_schema(db_path)
@@ -494,6 +494,22 @@ def test_two_concurrent_first_loads_create_only_one_conversation_object(tmp_path
 # --- the gap a SECOND cold review reproduced --------------------------------
 
 
+def _save_in_thread(runtime, conversation, errors: list) -> threading.Thread:
+    """Start `save_conversation` on its own thread and RECORD any exception.
+    An exception on a plain thread never reaches the test, so a save that
+    crashed would leave the row count at 0 and pass (third review)."""
+
+    def run() -> None:
+        try:
+            runtime.save_conversation("alice", conversation)
+        except BaseException as exc:  # noqa: BLE001 -- surfaced by the assert
+            errors.append(exc)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    return thread
+
+
 def _stored_rows(db_path, user_id: str) -> int:
     with repo.session(db_path) as conn:
         return conn.execute(
@@ -524,17 +540,18 @@ def test_delete_all_leaves_nothing_of_the_person_before_its_lock_opens(tmp_path)
 
     seen: dict[str, object] = {}
     saver: list[threading.Thread] = []
+    errors: list[BaseException] = []
 
     def at_the_last_locked_moment() -> None:
         seen["rows"] = _stored_rows(db_path, "alice")
         seen["in_memory"] = f"alice|{ws_id}" in runtime.conversations
-        thread = threading.Thread(target=runtime.save_conversation, args=("alice", conversation))
-        thread.start()
-        saver.append(thread)
+        saver.append(_save_in_thread(runtime, conversation, errors))
 
     runtime._delete_hook = at_the_last_locked_moment
     runtime.delete_all_history("alice")
     saver[0].join(timeout=5)
+    assert not saver[0].is_alive(), "the save never finished"
+    assert errors == [], f"the save crashed instead of skipping: {errors!r}"
 
     assert seen["rows"] == 0
     assert seen["in_memory"] is False, "the in-memory copy outlived the lock"
@@ -554,28 +571,27 @@ def test_a_per_workspace_delete_leaves_nothing_before_its_lock_opens(tmp_path):
 
     seen: dict[str, object] = {}
     saver: list[threading.Thread] = []
+    errors: list[BaseException] = []
 
     def at_the_last_locked_moment() -> None:
         seen["in_memory"] = f"alice|{ws_id}" in runtime.conversations
-        thread = threading.Thread(target=runtime.save_conversation, args=("alice", conversation))
-        thread.start()
-        saver.append(thread)
+        saver.append(_save_in_thread(runtime, conversation, errors))
 
     runtime._delete_hook = at_the_last_locked_moment
     runtime.delete_conversation_storage("alice", ws_id)
     saver[0].join(timeout=5)
+    assert not saver[0].is_alive(), "the save never finished"
+    assert errors == [], f"the save crashed instead of skipping: {errors!r}"
 
     assert seen["in_memory"] is False, "the in-memory copy outlived the lock"
     assert _stored_rows(db_path, "alice") == 0, "a save after the delete wrote it back"
 
 
 def test_a_delete_in_one_workspace_does_not_skip_a_save_in_another(tmp_path):
-    """The delete counter is scoped (second cold review): a per-person counter
-    made "New conversation" in workspace A silently skip a save already in
-    flight for workspace B, so B's newest answer never reached disk.
-
-    Kill test: bump the PERSON's counter in `delete_conversation_storage`
-    instead of that workspace's and B's row is missing."""
+    """A delete in workspace A must never make a save in flight for workspace
+    B skip (second cold review: a per-person skip did exactly that, so B's
+    newest answer never reached disk). Kill test: make `save_conversation`
+    skip whenever ANY delete ran for the person and B's row is missing."""
     db_path = tmp_path / "sanad.db"
     repo.ensure_schema(db_path)
     ws_a = _workspace(db_path, "A")
@@ -629,3 +645,7 @@ def test_a_save_that_fails_does_not_fail_the_page_and_logs_no_chat_text(
     assert lines, "a failed save must be logged"
     assert "OperationalError" in lines[0]
     assert "a private answer" not in " ".join(messages)
+    # The traceback is logged too (so a save failing every time is
+    # diagnosable); it must not carry the transcript either.
+    assert caplog.records[-1].exc_info is not None
+    assert "a private answer" not in caplog.text

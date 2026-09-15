@@ -9,11 +9,11 @@ no business logic; a cold review found four chat-history functions there
 had grown exactly that (retention_days branches, cutoff arithmetic, an
 expiry decision, all inline in the SQL layer). This module is the fix.
 
-Concurrency is NOT this module's job. The per-person lock and "history
-epoch" that stop a save from resurrecting a concurrent delete
-(app.py Runtime) are in-process state; this module has none and is safe
-to call from any thread as long as the caller serializes its own writes
-the way Runtime does.
+Concurrency is NOT this module's job. The per-person lock and the
+"is this still the live conversation?" check that stop a save from
+resurrecting a concurrent delete (app.py Runtime) are in-process state;
+this module has none and is safe to call from any thread as long as the
+caller serializes its own writes the way Runtime does.
 """
 
 from __future__ import annotations
