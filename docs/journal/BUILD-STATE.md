@@ -3,8 +3,11 @@
 ## STATE AT 2026-09-15, HISTORY REWRITE LANDED (read this block first; older headers below are history)
 
 **The repository history was rewritten and pushed on 2026-09-15** (DECISIONS
-2026-09-15, "Repository history rewrite"). All 27 branches and 4 tags on GitHub
-now carry the rewritten history; `main` is `d4bb884`. Order of operations, each
+2026-09-15, "Repository history rewrite"). The 27 branches and 4 tags on GitHub
+at push time were replaced with the rewritten history; `main` is `d4bb884`.
+Afterwards, the same day and on purpose, the 26 old branches (each already
+squash-merged into `main`) were deleted from GitHub; all of them remain in the
+backup mirror below and in `C:\sanad-rewrite`. Order of operations, each
 step watched: full suite on the rewritten code 1265 passed, 2 skipped,
 1 xfailed, ruff clean; protect-main paused; branches then tags force-pushed
 from the rewritten copy; protect-main back to `active` and read back with all
@@ -18,7 +21,8 @@ the new `main`: health 200; `/`, `/workspaces`, `/admin`, `/reports`,
 `/api/v1/workspaces` all 401 without the password.
 
 **Known leftover, not fixable by a push:** GitHub keeps hidden pull-request
-refs (`refs/pull/*`, 130 of them) that a normal `git clone` never downloads
+refs (`refs/pull/*`, 130 at push time, all from PRs opened before the
+rewrite; every new PR adds its own, which are clean) that a normal `git clone` never downloads
 but that still point at the old commits. Old commits therefore stay reachable
 by their id from old PR pages until GitHub support purges them. That request
 has NOT been made yet.
@@ -26,7 +30,8 @@ has NOT been made yet.
 **Commit ids quoted in older blocks below are pre-rewrite.** None of them
 resolves on GitHub any more; they resolve in the backup mirror
 `C:\sanad-backup\RAG_project_ENSA-before-scrub-2026-09-15.git` on YL's machine
-(old `main` = `d32fb2f`, taken after #134).
+only (old `main` = `d32fb2f`, taken after #134). From any other machine, an
+old id quoted below cannot be looked up; ask YL.
 
 **MB must take a fresh clone.** The old clone cannot be pulled: its history and
 GitHub's no longer share a single commit. The local tooling files are no longer
