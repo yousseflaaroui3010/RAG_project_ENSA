@@ -37,3 +37,19 @@ Narrator.
 Reports were written to the session scratch folder, not committed: each
 HTML report is several hundred kilobytes and the table above is what they
 say.
+
+## Re-check after the fix (PR #132, same day)
+
+Run against branch `fix/S6-ST-38-polish`, login-free mode, scratch data,
+after the phone notice gained `role="main"` and the page gained an inline
+tab icon.
+
+| Screen | Device | Accessibility | Best practices | SEO |
+|---|---|---|---|---|
+| Workspaces, Arabic `?lang=ar` | mobile | **100** (was 98) | 100 | 90 |
+| Workspaces `/workspaces` | desktop | **100** | 100 | 90 |
+
+`landmark-one-main` no longer fails. The server's own request log for that
+browser session shows 4 page loads and 0 requests for `/favicon.ico`,
+where every page load had produced one. The remaining SEO item is still
+`meta-description`, for the reason given above.
