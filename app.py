@@ -1357,6 +1357,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             "admin.html",
             {
                 **_shell_context(runtime, request),
+                # NOT the shell context's empty list: that exists for pages
+                # with nobody signed in. Seen in a real browser, 2026-09-15:
+                # an admin on this page, with a workspace existing, got a
+                # header saying "no workspace yet", a disabled selector and
+                # a disabled Chat link telling them to create one.
+                "workspaces": visible_options(runtime, request),
+                "active": _active(runtime, request),
                 "current_screen": "admin",
                 "people": admin_screen.people(db_path=runtime.db_path),
                 "activity": admin_screen.activity(db_path=runtime.db_path),
@@ -1377,12 +1384,14 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         added, removed = admin_screen.set_grants(
             user_id=user_id, workspace_ids=wanted, db_path=runtime.db_path
         )
+        # The action names come from admin_screen, which resolves `detail`
+        # to a username for exactly these: one list, not two in step by hand.
         for workspace_id in added:
-            _log_activity(runtime, request, "granted access", workspace_id=workspace_id,
-                          detail=user_id)
+            _log_activity(runtime, request, admin_screen.GRANTED_ACCESS,
+                          workspace_id=workspace_id, detail=user_id)
         for workspace_id in removed:
-            _log_activity(runtime, request, "revoked access", workspace_id=workspace_id,
-                          detail=user_id)
+            _log_activity(runtime, request, admin_screen.REVOKED_ACCESS,
+                          workspace_id=workspace_id, detail=user_id)
         return RedirectResponse("/admin", status_code=SEE_OTHER)
 
     @app.post("/admin/people/{user_id}/sign-out")
@@ -1397,7 +1406,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         with repo.session(runtime.db_path) as conn:
             repo.delete_sessions_for_user(conn, user_id)
         runtime.forget_conversations(user_id)
-        _log_activity(runtime, request, "signed a person out everywhere", detail=user_id)
+        _log_activity(runtime, request, admin_screen.SIGNED_OUT_EVERYWHERE, detail=user_id)
         return RedirectResponse("/admin", status_code=SEE_OTHER)
 
     @app.get("/chat/messages", response_class=HTMLResponse)

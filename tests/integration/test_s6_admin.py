@@ -212,7 +212,10 @@ def test_the_disabled_chat_link_gives_each_person_a_reason_they_can_act_on(keycl
     Kill test: put back the single title and the reader assertion goes red.
     Kill test: flip the condition and BOTH go red. The admin half is what
     stops a blanket "ask an administrator" from passing: an admin with no
-    workspace is the one person who CAN create one. The login-free mode is
+    workspace is the one person who CAN create one. The CURATOR half is what
+    stops the check drifting to `is_curator` (review of this change: that
+    edit passed a reader-and-admin-only version of this test) -- a curator
+    manages documents but cannot create a workspace. The login-free mode is
     pinned separately in test_s1_chat_screen.py and test_s2_workspaces_screen.py."""
     client, _, _, _, sign_in = keycloak
 
@@ -220,6 +223,11 @@ def test_the_disabled_chat_link_gives_each_person_a_reason_they_can_act_on(keycl
     reader_page = client.get("/workspaces").text
     assert ASK_ADMIN_HINT in reader_page
     assert CREATE_HINT not in reader_page
+
+    sign_in(CURATOR_CLAIMS)
+    curator_page = client.get("/workspaces").text
+    assert ASK_ADMIN_HINT in curator_page
+    assert CREATE_HINT not in curator_page
 
     sign_in(ADMIN_CLAIMS)
     admin_page = client.get("/workspaces").text
@@ -233,14 +241,17 @@ def _detail_for(rows, action: str) -> str | None:
     return matches[0]
 
 
-def test_the_log_names_the_person_acted_on_but_still_stores_their_id(keycloak):  # noqa: F811
+def test_the_log_names_the_person_acted_on_beside_their_stored_id(keycloak):  # noqa: F811
     """Seen in a real browser, 2026-09-15: "access granted 6fb523a6-decc-..."
-    -- an administrator cannot tell who that was. Shown by username now.
+    -- an administrator cannot tell who that was. Shown by username now,
+    WITH the id beside it: `app_user.username` is overwritten at each
+    sign-in and is not unique, so a name alone would let a renamed account
+    rewrite who past events appear to be about (review of this change).
 
-    Kill test: drop the username lookup in `admin_screen.activity` and the
-    three display assertions go red. Kill test: resolve at WRITE time
-    instead (store the username) and the storage assertion goes red -- the
-    audit trail must keep the stable id, since a username can change."""
+    Kill test: drop the username lookup and the name assertions go red.
+    Kill test: drop the id from the template and the page assertion goes
+    red. Kill test: store the username at WRITE time and the storage
+    assertion goes red -- the audit trail keeps the stable id."""
     client, _, db_path, _, sign_in = keycloak
     ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
     sign_in(READER_CLAIMS)
@@ -251,13 +262,47 @@ def test_the_log_names_the_person_acted_on_but_still_stores_their_id(keycloak): 
     client.post("/admin/people/kc-reader/sign-out")
 
     rows = admin_screen.activity(db_path=db_path)
-    assert _detail_for(rows, "granted access") == "omar"
-    assert _detail_for(rows, "revoked access") == "omar"
-    assert _detail_for(rows, "signed a person out everywhere") == "omar"
+    for action in admin_screen.PERSON_ACTIONS:
+        assert _detail_for(rows, action) == "omar"
+        assert [r.person_id for r in rows if r.action == action][0] == "kc-reader"
+
+    # On the page, in the LOG section only: the people table above it
+    # carries "kc-reader" in a hidden form field whatever the log shows.
+    page = client.get("/admin").text
+    log = page[page.index('id="admin-activity"'):]
+    assert "omar" in log
+    assert '<span class="muted mono">kc-reader</span>' in log
 
     with repo.session(db_path) as conn:
-        stored = {row["action"]: row["detail"] for row in repo.list_activity(conn)}
-    assert stored["granted access"] == "kc-reader"
+        stored = [
+            row["detail"]
+            for row in repo.list_activity(conn)
+            if row["action"] == admin_screen.GRANTED_ACCESS
+        ]
+    assert stored == ["kc-reader"]
+
+
+def test_the_admin_page_header_lists_the_workspaces_that_exist(keycloak):  # noqa: F811
+    """Seen in a real browser, 2026-09-15: on /admin, with a workspace
+    existing, the header said "no workspace yet", disabled the selector and
+    disabled the Chat link. The page borrowed the sign-in page's context,
+    whose workspace list is empty on purpose (nobody is signed in there).
+
+    Kill test: remove the `workspaces` override in `admin_route` and all
+    three assertions go red."""
+    client, _, db_path, _, sign_in = keycloak
+    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(ADMIN_CLAIMS)
+
+    page = client.get("/admin").text
+
+    # `<option value=` and the disabled span's class, not `value="{id}"` or
+    # `href="/"`: a grant checkbox can carry the same value, and the Sanad
+    # logo is `href="/"` on every page, so either would pass whatever the
+    # header showed.
+    assert f'<option value="{ws.id}"' in page, "the header selector does not offer the workspace"
+    assert 'class="shell__link is-disabled"' not in page, "the Chat link is still disabled"
+    assert CREATE_HINT not in page
 
 
 def test_only_person_events_are_resolved_and_an_unknown_id_is_shown_as_stored(keycloak):  # noqa: F811
