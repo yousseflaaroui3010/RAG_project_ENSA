@@ -1,6 +1,41 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-15, v3 FEATURE-COMPLETE ON MAIN (read this block first; older headers below are history)
+## STATE AT 2026-09-15, HISTORY REWRITE LANDED (read this block first; older headers below are history)
+
+**The repository history was rewritten and pushed on 2026-09-15** (DECISIONS
+2026-09-15, "Repository history rewrite"). All 27 branches and 4 tags on GitHub
+now carry the rewritten history; `main` is `d4bb884`. Order of operations, each
+step watched: full suite on the rewritten code 1265 passed, 2 skipped,
+1 xfailed, ruff clean; protect-main paused; branches then tags force-pushed
+from the rewritten copy; protect-main back to `active` and read back with all
+five rules (deletion, non_fast_forward, pull_request, required_status_checks,
+required_linear_history). Proof after the push: `git ls-remote` heads and tags
+identical to the rewritten copy (31 of 31 refs); a fresh clone's branches and
+tags have 0 commit messages and 0 file paths matching the removed names; old
+`main` `d32fb2f` reachable from 0 branches. PR titles, bodies, issues and
+comments: 33 items reworded, re-check 0. Railway deploy `6f8d6b02` SUCCESS from
+the new `main`: health 200; `/`, `/workspaces`, `/admin`, `/reports`,
+`/api/v1/workspaces` all 401 without the password.
+
+**Known leftover, not fixable by a push:** GitHub keeps hidden pull-request
+refs (`refs/pull/*`, 130 of them) that a normal `git clone` never downloads
+but that still point at the old commits. Old commits therefore stay reachable
+by their id from old PR pages until GitHub support purges them. That request
+has NOT been made yet.
+
+**Commit ids quoted in older blocks below are pre-rewrite.** None of them
+resolves on GitHub any more; they resolve in the backup mirror
+`C:\sanad-backup\RAG_project_ENSA-before-scrub-2026-09-15.git` on YL's machine
+(old `main` = `d32fb2f`, taken after #134).
+
+**MB must take a fresh clone.** The old clone cannot be pulled: its history and
+GitHub's no longer share a single commit. The local tooling files are no longer
+tracked; each machine keeps its own copy and lists them in
+`.git/info/exclude`.
+
+---
+
+## STATE AT 2026-09-15, v3 FEATURE-COMPLETE ON MAIN (history now)
 
 **Everything built is on `main` and live.** Merged 2026-09-15, each after a cold
 review with its findings fixed and CI green, each with an explicit clean merge
