@@ -37,10 +37,13 @@ def test_compose_keeps_the_app_local_and_persists_product_data():
 
 
 def test_railway_json_declares_the_health_gate_on_a_path_both_gates_open():
-    """This file DECLARES a health gate; whether Railway applies it is
-    unconfirmed (docs/known-issues.md). What this test owns is the part
-    that is ours: if the platform does read it, the path must be one a
-    container can actually answer.
+    """This file DECLARES a health gate. Railway did not apply its deploy
+    settings on `sanad-web` -- the gate that is live there was typed into
+    the dashboard by hand (docs/known-issues.md, 2026-09-16) -- so this
+    file is the reviewable record of what the deployment should be, not a
+    description of what the platform did. What this test owns is the part
+    that is ours: the path must be one a container can actually answer, so
+    that the dashboard value and this file cannot drift apart.
 
     So the path is checked against BOTH gates. `AccessGate` decides in
     password mode, `AuthGate` in keycloak mode -- which is what the

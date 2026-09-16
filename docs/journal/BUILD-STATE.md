@@ -32,14 +32,17 @@ Two throwaway accounts made while testing were deleted.
 
 **The old demo in MB's workspace: its Keycloak answers 404, so nobody can
 sign in there. Its APP KEPT COMING BACK, and whether it still does is the
-next merge's answer.** YL was asked to disconnect it from GitHub on
-2026-09-16; that cannot be confirmed from the CLI, which sees only the last
-deployment's metadata (still `repo=yousseflaaroui3010/RAG_project_ENSA,
-branch=main`). The proof is simple and costs nothing: after the next merge,
-check `https://sanad-web-production-3416.up.railway.app/api/v1/health`. A
-404 means the link is gone. A 200 means it is not.
+next merge's answer.** The service lives in MB's project, and YL said on
+2026-09-16 that its GitHub link was disconnected; nothing here can confirm
+that -- the CLI sees only the last deployment's metadata, still
+`repo=yousseflaaroui3010/RAG_project_ENSA, branch=main`. One check answers
+it, and only in one direction: after the next merge has finished deploying,
+`https://sanad-web-production-3416.up.railway.app/api/v1/health` answering
+**200 proves the link is still live**. A 404 proves nothing on its own --
+a stopped service, a failed build, a deploy still running and a deleted
+service all answer 404, and that URL answers 404 today.
 
-Until that check: It was stopped twice
+The history, which is why this is written down at all: It was stopped twice
 on 2026-09-16 and both times the next merge to `main` redeployed it -- it is
 still linked to GitHub, so `railway down` only removes the container that is
 running, not the link. Between a merge and somebody noticing, a second public
@@ -50,18 +53,22 @@ a service in someone else's project is not something to do unasked. Until
 then, there are two public Sanads after every merge, and only this one
 works.
 
-**Production settings added (SUPERSEDED by the correction below -- read
-both):** `railway.json` declares a health gate on `/api/v1/health` and a
+**Production settings added (SUPERSEDED by the SETTLED paragraph below --
+read both):** `railway.json` declares a health gate on `/api/v1/health` and a
 restart policy.
 
-**SETTLED, 2026-09-16, and the answer is no: Railway does not apply that
-file.** YL opened the service's settings and the Healthcheck Path section
-showed an empty "+ Healthcheck Path" button -- nothing set -- while the file
-in the repository declared one, and two deploys carrying it reported
-`healthcheckPath None`. YL then set `/api/v1/health` by hand, and the
-manifest now reports `healthcheckPath /api/v1/health` with
-`restartPolicy ON_FAILURE 10`. **So the health gate IS now in force, and it
-is in force because of a dashboard setting, not because of the file.** Why
+**SETTLED, 2026-09-16: Railway did not apply this file's deploy settings
+on `sanad-web`.** That is the whole claim -- one file, one service, the
+`deploy` block; why is unknown, and `build.builder` was never tested. Two
+fields show it. YL opened the service's settings and the Healthcheck Path
+section showed an empty "+ Healthcheck Path" button -- nothing set -- while
+the committed file declared `/api/v1/health`; and the manifest after the
+deploy carrying that file reported `healthcheckTimeout None` where the file
+says `300`. YL then set `/api/v1/health` by hand, and the manifest now
+reports it. **So the health gate IS now in force, and it is in force because
+of a dashboard setting, not because of the file.** The manifest's
+`restartPolicy ON_FAILURE 10` matches the file but proves nothing either
+way: it was already there before the file existed. Why
 the file is ignored is unknown; the service was created from the CLI with
 `railway add --repo`. The same doubt applies to
 `deploy/keycloak/railway.json`, whose result is equally explained by that
