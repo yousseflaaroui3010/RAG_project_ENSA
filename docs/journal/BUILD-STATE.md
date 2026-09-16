@@ -38,12 +38,20 @@ Sanad.
 **Production settings added, landing with this merge (so the first deploy
 after it is the one that proves them):** `railway.json` states the health
 gate in the repository -- Railway waits for `/api/v1/health` before sending
-traffic to a new deploy, and restarts a failed container. Read back from
-Railway on 2026-09-16, `sanad-web`'s manifest already said
-`restartPolicy ON_FAILURE 10` and `healthcheckPath None`: so the restart
-half changes nothing and the HEALTH GATE is the whole point of the file.
-Without it a container that boots and immediately fails still becomes the
-live site. `deploy/keycloak/railway.json` ships
+traffic to a new deploy, and restarts a failed container.
+
+**CORRECTION, same day, and it is the honest one:** that file is DECLARED,
+not proven to be in force. After `3b56c35` -- the first deploy that carried
+it -- `sanad-web`'s manifest still reported `healthcheckPath None`
+(`restartPolicy ON_FAILURE 10` was already there before the file, so it
+changes nothing). Railway's documentation says a root config file is picked
+up automatically and that the deployment details page marks settings that
+came from one with a file icon; nobody has opened that page. The same
+correction applies to `deploy/keycloak/railway.json`: the manifest after
+that upload is equally explained by the service's own
+`RAILWAY_DOCKERFILE_PATH` variable. The files are right either way and cost
+nothing; the claim that they are ACTIVE is what was not earned. Recorded in
+docs/known-issues.md so it cannot be quietly forgotten. `deploy/keycloak/railway.json` ships
 inside the Keycloak bundle for one reason: the root file health-checks
 Sanad's route, and if it ever reached the Keycloak service that deploy would
 be polled on a 404 and rolled back, taking sign-in down (caught in review

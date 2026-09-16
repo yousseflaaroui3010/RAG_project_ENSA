@@ -20,12 +20,18 @@
 # this image from the repository root instead of a bundle would watch the
 # deploy be polled on a 404 and rolled back, taking sign-in down.
 #
-# PROVEN, 2026-09-16, not assumed: after an upload of exactly this bundle,
-# Railway's own deployment manifest for the service read
-# `builder DOCKERFILE, dockerfilePath deploy/keycloak/Dockerfile,
-# healthcheckPath None, restartPolicy ON_FAILURE 10` -- the bundle's
-# values, not the repository's -- and the service reached SUCCESS with the
-# realm answering 200.
+# NOT PROVEN, and the first version of this comment claimed it was.
+# After an upload of exactly this bundle the service deployed fine and the
+# realm answered 200, and Railway's manifest read `dockerfilePath
+# deploy/keycloak/Dockerfile, healthcheckPath None, restartPolicy
+# ON_FAILURE 10`. That is consistent with this file being used -- but it is
+# ALSO exactly what the service's own `RAILWAY_DOCKERFILE_PATH` variable
+# and Railway's defaults produce, so the manifest cannot tell the two
+# apart. Railway's documentation says a config file at the deployed root is
+# picked up automatically, and the deployment details page marks settings
+# that came from one with a file icon; that page is the only place the
+# question can be settled, and nobody has looked yet. Keep the file: it is
+# correct either way and costs nothing.
 #
 # TRAP: on that service, changing ANY variable without `--skip-deploys`
 # makes Railway redeploy the plain published image, which has no start
