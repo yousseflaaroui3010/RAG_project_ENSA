@@ -32,15 +32,14 @@ Two throwaway accounts made while testing were deleted.
 
 **The old demo in MB's workspace: its Keycloak answers 404, so nobody can
 sign in there. Its APP KEPT COMING BACK, and whether it still does is the
-next merge's answer.** The service lives in MB's project, and YL said on
-2026-09-16 that its GitHub link was disconnected; nothing here can confirm
-that -- the CLI sees only the last deployment's metadata, still
-`repo=yousseflaaroui3010/RAG_project_ENSA, branch=main`. One check answers
-it, and only in one direction: after the next merge has finished deploying,
-`https://sanad-web-production-3416.up.railway.app/api/v1/health` answering
-**200 proves the link is still live**. A 404 proves nothing on its own --
-a stopped service, a failed build, a deploy still running and a deleted
-service all answer 404, and that URL answers 404 today.
+next merge's answer.** **CONFIRMED STOPPED, 2026-09-16.** YL disconnected it from GitHub, and the
+next merge (#143) proved it in the one way that carries: `sanad-web` in
+YL's project deployed at 11:48 for that merge, and MB's project produced NO
+deployment at all -- its most recent is still the 11:14 one, already
+removed. Every earlier merge had created one there. Its health route
+answers 404. (The check named here before was weaker: a 404 alone proves
+nothing, because a stopped or failed service answers 404 too. The absence
+of a deployment for a merge is the fact that settles it.)
 
 The history, which is why this is written down at all: It was stopped twice
 on 2026-09-16 and both times the next merge to `main` redeployed it -- it is
