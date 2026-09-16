@@ -51,7 +51,7 @@ def test_railway_waits_for_health_and_restarts_a_failed_deploy():
 
     assert config["build"]["builder"] == "DOCKERFILE"
     assert path == access_gate._HEALTH_PATH
-    assert (auth_gate._HEALTH[0], path) == auth_gate._HEALTH
+    assert auth_gate._HEALTH == ("GET", path)
     assert config["deploy"]["restartPolicyType"] == "ON_FAILURE"
     assert config["deploy"]["restartPolicyMaxRetries"] >= 1
     # A sanity band, not a pin: long enough for a cold start's model

@@ -1,8 +1,27 @@
 # The Keycloak that the published demo signs people in against.
 #
-# Built from the repository root as its context, selected on Railway with
-# the service variable RAILWAY_DOCKERFILE_PATH=deploy/keycloak/Dockerfile,
-# and uploaded with `railway up` (the service is not linked to GitHub).
+# The Keycloak service is NOT linked to GitHub. It is uploaded from a
+# four-file bundle, and this is the whole procedure (run from the
+# repository root, with <bundle> any empty directory):
+#
+#     mkdir -p <bundle>/deploy/keycloak <bundle>/keycloak
+#     cp deploy/keycloak/railway.json <bundle>/railway.json
+#     cp deploy/keycloak/Dockerfile deploy/keycloak/start.sh <bundle>/deploy/keycloak/
+#     cp keycloak/realm-sanad.json <bundle>/keycloak/
+#     railway up <bundle> --path-as-root --service keycloak --ci
+#
+# `railway.json` MUST sit at the bundle's root: that is the copy Railway
+# reads, and it is what keeps the REPOSITORY's root railway.json -- which
+# health-checks `/api/v1/health`, Sanad's route and not Keycloak's -- from
+# ever applying here. Without it a Keycloak deploy would be polled on a
+# 404 and rolled back, taking sign-in down with it.
+#
+# PROVEN, 2026-09-16, not assumed: after an upload of exactly this bundle,
+# Railway's own deployment manifest for the service read
+# `builder DOCKERFILE, dockerfilePath deploy/keycloak/Dockerfile,
+# healthcheckPath None, restartPolicy ON_FAILURE 10` -- the bundle's
+# values, not the repository's -- and the service reached SUCCESS with the
+# realm answering 200.
 #
 # TRAP: on that service, changing ANY variable without `--skip-deploys`
 # makes Railway redeploy the plain published image, which has no start

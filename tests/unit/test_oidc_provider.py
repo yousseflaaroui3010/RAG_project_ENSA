@@ -79,6 +79,9 @@ def test_the_realm_is_read_once_per_process_not_once_per_request(monkeypatch):
     )
     monkeypatch.setattr(oidc, "get_settings", lambda: settings)
     oidc._provider.cache_clear()
+    # Cleared AFTER as well: the cache is module level, so a provider
+    # pointing at keycloak.test would otherwise outlive this test and be
+    # handed to whatever runs next (review, 2026-09-16).
     fetched: list[str] = []
 
     def fake_get_json(url: str) -> dict:
@@ -98,3 +101,4 @@ def test_the_realm_is_read_once_per_process_not_once_per_request(monkeypatch):
         )
 
     assert len(fetched) == 1, f"one discovery call expected, made {len(fetched)}"
+    oidc._provider.cache_clear()

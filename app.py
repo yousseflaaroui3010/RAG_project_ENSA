@@ -1802,7 +1802,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     @app.post("/chat/history/delete")
     def delete_history_route(request: Request) -> Response:
         """The person's own law 09-08 control: every stored conversation
-        they have, gone, plus what is currently in memory."""
+        they have, gone, plus what is currently in memory.
+
+        Guarded like its confirmation page: a no-role account has nothing
+        to delete, so this is consistency rather than a hole -- and "the
+        confirmation page is guarded" is exactly the reasoning that leaves
+        an action unguarded (review, 2026-09-16)."""
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
         runtime.delete_all_history(principal_of(request).id)
         return RedirectResponse("/", status_code=SEE_OTHER)
 

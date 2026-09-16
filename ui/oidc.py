@@ -22,6 +22,7 @@ forbids secrets in tests, and CI has no Keycloak).
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import json
 import urllib.error
@@ -63,7 +64,10 @@ class KeycloakProvider:
 
     issuer: str
     client_id: str
-    client_secret: str
+    # repr=False: this instance is now kept for the life of the process, so
+    # a stray `logger.exception(provider)` or a debugger would otherwise
+    # print the client secret (review, 2026-09-16).
+    client_secret: str = dataclasses.field(repr=False)
     _endpoints: dict[str, str] | None = None
 
     def _discover(self) -> dict[str, str]:

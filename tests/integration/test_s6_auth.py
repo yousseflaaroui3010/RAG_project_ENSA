@@ -500,10 +500,10 @@ def test_selecting_a_workspace_you_cannot_see_changes_nothing(keycloak, tmp_path
 
 def test_a_person_with_no_role_sees_no_workspace_panel(keycloak, tmp_path):
     """Security review, 2026-09-16: `/workspaces` shows the no-role page,
-    but the panel it polls for did not check the role at all. Someone whose
-    Sanad role was removed in Keycloak, while a grant row survived, could
-    still pull the workspace name, its folder path and its file table out
-    of the poll target."""
+    but the panel it polls for did not check the role at all, so an account
+    that signed in with no Sanad role -- which anyone can create, sign-up is
+    open -- could still pull the workspace name, its folder path and its
+    file table out of the poll target if a grant row existed for it."""
     client, _, db_path, _, sign_in = keycloak
     _, workspace_id = _seed_report(db_path, tmp_path, answer="x")
     sign_in(NO_ROLE_CLAIMS)
@@ -941,6 +941,19 @@ def test_every_response_carries_the_security_headers(keycloak):
     sign_in(ADMIN_CLAIMS)
     signed_in = client.get("/workspaces")
 
+    # The four values are written out HERE, not read from the code under
+    # test: a test that loops over the same tuple the middleware sends
+    # passes on `x-frame-options: ALLOWALL`, and passes on an empty tuple
+    # without executing a single assertion (review, 2026-09-16).
     for response in (signed_out, signed_in):
-        for name, value in HEADERS:
-            assert response.headers.get(name.decode()) == value.decode(), name
+        assert response.headers["x-frame-options"] == "DENY"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+        assert response.headers["permissions-policy"] == (
+            "camera=(), microphone=(), geolocation=()"
+        )
+    assert len(HEADERS) == 4, "a header was added or removed without a test"
+    # The one interesting branch in the middleware: a route that sets a
+    # header itself keeps exactly one copy of it.
+    download = client.get("/workspaces/nope/documents/nope.pdf", follow_redirects=False)
+    assert download.headers.get_list("x-content-type-options") in ([], ["nosniff"])
