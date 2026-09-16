@@ -381,6 +381,20 @@ MESSAGES: dict[str, str] = {
         f"Cette question semble concerner {{name}}. "
         f"Répondre à partir de cet espace{NNBSP}?"
     ),
+    "phr.refusal.not_covered": (
+        "Je n’ai pas pu répondre à partir des documents de cet espace, et je ne"
+        " vais pas deviner. Les recherches effectuées sont indiquées avec ce "
+        "message. Vous pouvez reformuler la question, ajouter à cet espace le "
+        "document qui la couvre, ou passer à l’espace qui le contient."
+    ),
+    "phr.refusal.unreadable": (
+        "J’ai trouvé des passages qui correspondent à votre question mais je "
+        "n’ai pas pu lire les sections dont ils proviennent, je ne peux donc "
+        "pas répondre à partir d’eux et je ne vais pas deviner. Cela signifie "
+        "généralement que les sections enregistrées ne sont plus alignées avec "
+        "l’index de recherche. Lancez une synchronisation sur cet espace puis "
+        "posez de nouveau la question."
+    ),
     "phr.error.sentence": "Sanad n’a pas pu répondre à cette question.",
     "phr.error.asked": f"Question posée{NNBSP}: {{question}}",
     "phr.error.hint": (

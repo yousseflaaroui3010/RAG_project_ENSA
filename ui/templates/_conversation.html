@@ -286,7 +286,7 @@
           #}
           <div class="bubble bubble--refusal">
             <p class="bubble__head"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2M8.5 11h5"/></svg>{{ t('conv.refusal.head') }}</p>
-            <p class="refusal__lead" dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text }}</p>
+            <p class="refusal__lead" dir="auto"{% if is_arabic(tx(message.text)) %} lang="ar"{% endif %}>{{ tx(message.text) }}</p>
             {% if message.searched %}
               <p class="refusal__label" id="searched-{{ m }}">{{ t('conv.refusal.searched') }}</p>
               {#

@@ -64,10 +64,15 @@ REFUSE = "refuse"
 # * All three next steps PRD F-05 names are offered (rephrase, add the
 #   document, switch workspace), because which one is right depends on
 #   something the product cannot see: whether the document exists at all.
-# * Interface copy is English for V1 (PRD section 5), even though the
-#   documents and the question are usually French. This is interface copy,
-#   not answer content; the answer itself follows the question's language,
-#   which is the answer-writer prompt's rule.
+# * This is interface copy, not answer content: the answer itself follows
+#   the question's language, which is the answer-writer prompt's rule. It
+#   is WRITTEN in English here and TRANSLATED at render time, like every
+#   other sentence Python builds -- `phr.refusal.not_covered` and
+#   `phr.refusal.unreadable` in ui/i18n, applied by `tx()` in the template.
+#   V1 shipped an English-only interface (PRD section 5) and this text went
+#   out untranslated; S6 made French the default and nobody came back for
+#   it, so the live demo refused in English inside a French page until
+#   2026-09-16. Change the wording here and the catalogs must follow.
 REFUSAL_TEXT = (
     "I could not answer this from the documents in this workspace, and I "
     "will not guess. The searches I ran are listed with this message. You "

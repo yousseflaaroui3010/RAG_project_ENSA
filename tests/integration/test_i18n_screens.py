@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import vector_store
+from agent import nodes
 from app import Runtime, create_app
 from db import repo
 from tests.integration.test_s1_chat_screen import (  # noqa: F401 -- fixture reuse
@@ -24,6 +25,7 @@ from tests.integration.test_s1_chat_screen import (  # noqa: F401 -- fixture reu
     sanad,
 )
 from tests.integration.test_s3_reports_screen import _seed_feedback, _seed_report
+from ui.conversation import Message, MessageKind
 from ui.i18n import ar, en, fr
 
 CATALOGS = {"fr": fr.MESSAGES, "ar": ar.MESSAGES}
@@ -75,6 +77,32 @@ def test_chat_with_an_answer_sources_trace_and_feedback_is_localised(sanad, lang
     _assert_localised(page, lang)
     if lang == "ar":
         assert '<html lang="ar" dir="rtl">' in page
+
+
+@pytest.mark.parametrize("lang", ["fr", "ar"])
+def test_an_honest_refusal_is_localised_too(sanad, lang):  # noqa: F811
+    """Seen on the live demo, 2026-09-16: the refusal -- the product's whole
+    claim -- came up in English inside a French page. Its wording is built
+    in `agent/nodes.py`, so it reaches the screen as a finished English
+    sentence and needs `tx()` like every other sentence Python produces."""
+    build, workspace, _ = sanad
+    client, runtime = build()
+    client.get(f"/?lang={lang}")
+    conversation = runtime.conversation(workspace.id)
+    conversation.messages.append(
+        Message(
+            kind=MessageKind.REFUSAL,
+            text=nodes.REFUSAL_TEXT,
+            searched=("duree periode essai cadre",),
+            retries=2,
+        )
+    )
+
+    page = client.get("/").text
+
+    assert "bubble--refusal" in page, "the test must render a real refusal"
+    _assert_localised(page, lang)
+    assert nodes.REFUSAL_TEXT not in _visible_text(page)
 
 
 @pytest.mark.parametrize("lang", ["fr", "ar"])
