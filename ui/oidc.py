@@ -22,6 +22,8 @@ forbids secrets in tests, and CI has no Keycloak).
 
 from __future__ import annotations
 
+import dataclasses
+import functools
 import json
 import urllib.error
 import urllib.parse
@@ -62,7 +64,10 @@ class KeycloakProvider:
 
     issuer: str
     client_id: str
-    client_secret: str
+    # repr=False: this instance is now kept for the life of the process, so
+    # a stray `logger.exception(provider)` or a debugger would otherwise
+    # print the client secret (review, 2026-09-16).
+    client_secret: str = dataclasses.field(repr=False)
     _endpoints: dict[str, str] | None = None
 
     def _discover(self) -> dict[str, str]:
@@ -181,8 +186,24 @@ def _read(request: urllib.request.Request, url: str) -> dict[str, Any]:
     return payload
 
 
+@functools.lru_cache(maxsize=4)
+def _provider(issuer: str, client_id: str, client_secret: str) -> KeycloakProvider:
+    """One provider per configuration, kept for the life of the process.
+
+    KEPT, not rebuilt: a provider caches the realm's endpoints on itself,
+    so returning a new one per call made the module's own promise ("read
+    from the issuer once per process") false -- every hit on `/auth/login`,
+    a route open to anyone signed in or not, blocked on a fresh discovery
+    call with a 10-second timeout. Keyed on the settings it was built from,
+    so changing them (a test, a re-read .env) yields a different provider
+    rather than a stale one. Found by review, 2026-09-16."""
+    return KeycloakProvider(
+        issuer=issuer, client_id=client_id, client_secret=client_secret
+    )
+
+
 def build_provider() -> KeycloakProvider:
-    """The configured provider, constructed now.
+    """The configured provider.
 
     Raises before any redirect happens when a setting is missing: a
     half-configured login that silently lets everyone in is the one
@@ -203,8 +224,8 @@ def build_provider() -> KeycloakProvider:
             f"in .env, or choose AUTH_MODE=password (shared password) or "
             f"AUTH_MODE=none (local, no login)."
         )
-    return KeycloakProvider(
-        issuer=settings.keycloak_issuer,
-        client_id=settings.keycloak_client_id,
-        client_secret=settings.keycloak_client_secret,
+    return _provider(
+        settings.keycloak_issuer,
+        settings.keycloak_client_id,
+        settings.keycloak_client_secret,
     )

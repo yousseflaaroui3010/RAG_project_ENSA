@@ -1,7 +1,10 @@
+import json
 import re
 from pathlib import Path
 
 import yaml
+
+from ui import access_gate, auth_gate
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,6 +34,63 @@ def test_compose_keeps_the_app_local_and_persists_product_data():
             "timeout=2).read()"
         ),
     ]
+
+
+def test_railway_waits_for_health_and_restarts_a_failed_deploy():
+    """Without this file Railway swaps traffic to a container the moment it
+    starts and never checks it again: a deploy that boots and immediately
+    fails its own health check still becomes the live site.
+
+    The path is checked against BOTH gates. `AccessGate` decides in
+    password mode, `AuthGate` in keycloak mode -- which is what the
+    published demo runs -- and a path only the first one opens would be
+    answered with a redirect to the sign-in page, failing every deploy
+    (review, 2026-09-16)."""
+    config = json.loads((ROOT / "railway.json").read_text(encoding="utf-8"))
+    path = config["deploy"]["healthcheckPath"]
+
+    assert config["build"]["builder"] == "DOCKERFILE"
+    assert path == access_gate._HEALTH_PATH
+    assert auth_gate._HEALTH == ("GET", path)
+    assert config["deploy"]["restartPolicyType"] == "ON_FAILURE"
+    assert config["deploy"]["restartPolicyMaxRetries"] >= 1
+    # A sanity band, not a pin: long enough for a cold start's model
+    # warm-up (~37 s, and it runs off the request path anyway), short
+    # enough that a container which never answers is called failed today.
+    assert 60 <= config["deploy"]["healthcheckTimeout"] <= 600
+
+
+def test_every_copy_of_the_health_path_agrees():
+    """The same route is written in five places -- two gates, the
+    Dockerfile's own HEALTHCHECK, compose.yaml and railway.json. Five
+    copies drift; this is the one place that notices."""
+    path = access_gate._HEALTH_PATH
+    railway = json.loads((ROOT / "railway.json").read_text(encoding="utf-8"))
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+    healthcheck = dockerfile[dockerfile.index("HEALTHCHECK") :]
+
+    assert auth_gate._HEALTH[1] == path
+    assert railway["deploy"]["healthcheckPath"] == path
+    assert path in healthcheck.split(chr(10) + chr(10))[0]
+    assert path in compose
+
+
+def test_the_keycloak_bundle_carries_its_own_railway_settings():
+    """The repository's root railway.json health-checks Sanad's route. The
+    Keycloak service is uploaded from a bundle, and if that bundle ever
+    picked the root file up, Keycloak would be polled on a 404 for five
+    minutes and rolled back -- sign-in down for the whole demo. The bundle
+    ships its own config declaring no health check (Keycloak's own health
+    lives on management port 9000, which an HTTP check on the app port
+    cannot reach)."""
+    bundle = json.loads(
+        (ROOT / "deploy" / "keycloak" / "railway.json").read_text(encoding="utf-8")
+    )
+
+    assert bundle["deploy"]["healthcheckPath"] is None
+    assert bundle["build"]["dockerfilePath"] == "deploy/keycloak/Dockerfile"
+    assert bundle["deploy"]["restartPolicyType"] == "ON_FAILURE"
 
 
 def test_docker_context_excludes_secrets_state_and_host_virtualenv():

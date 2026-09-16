@@ -1,6 +1,81 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-16, SIGN-UP, AND THE DEMO REBUILT ON YL'S OWN RAILWAY (read this block first; older headers below are history)
+## STATE AT 2026-09-16, THE DEMO ANSWERS FOR REAL (read this block first; older headers below are history)
+
+**One public demo, on YL's paid Railway, and it does the whole job:**
+https://sanad-web-production-5bee.up.railway.app (sign-in service:
+https://keycloak-production-2070.up.railway.app).
+
+**Evidence-only mode is OFF.** The reason for it was the trial server's
+memory; the new container has 24 GB and the models are baked into the image
+(`/opt/models`, `HF_HUB_OFFLINE=1`), so nothing is downloaded at boot. The
+workspace "RH — Code du travail" points at `/app/data/corpus/hr`, which the
+image seeds, and a Sync indexed it.
+
+**Proven on the live site, 2026-09-16, in a browser:**
+- "Quelle est la durée légale du travail hebdomadaire au Maroc ?" →
+  "44 heures pour les activités non agricoles", with **5 sources**, article
+  labels (Article 586, Article 205…206, Article 439, Article 185…188), the
+  legal notice, links to open each passage and to download the original PDF.
+  Evidence: `docs/evidence/S6-keycloak/live-answer-with-sources.png`.
+- An out-of-scope question ("prix du billet de train Casablanca-Marrakech")
+  → the honest refusal, listing the seven searches it ran and "Reformulée 2
+  fois avant d'abandonner". It refused in ENGLISH inside a French page;
+  fixed in #140, and the refusal now has catalog entries like every other
+  sentence Python builds.
+- Sign-up, sign-in, sign-out, the no-role screen and the admin page all work
+  (see the block below).
+
+**Accounts on the live realm:** the four demo people, plus `yousseflaaroui`
+(YL's own, given `sanad-admin` on 2026-09-16 so the owner can administer).
+Two throwaway accounts made while testing were deleted.
+
+**The old demo in MB's workspace is STOPPED** (both its app and its Keycloak
+answer 404). Its project, volumes and settings remain in MB's account and can
+be started again from the Railway dashboard. There is now exactly one public
+Sanad.
+
+**Production settings added, landing with this merge (so the first deploy
+after it is the one that proves them):** `railway.json` states the health
+gate in the repository -- Railway waits for `/api/v1/health` before sending
+traffic to a new deploy, and restarts a failed container. Read back from
+Railway on 2026-09-16, `sanad-web`'s manifest already said
+`restartPolicy ON_FAILURE 10` and `healthcheckPath None`: so the restart
+half changes nothing and the HEALTH GATE is the whole point of the file.
+Without it a container that boots and immediately fails still becomes the
+live site. `deploy/keycloak/railway.json` ships
+inside the Keycloak bundle for one reason: the root file health-checks
+Sanad's route, and if it ever reached the Keycloak service that deploy would
+be polled on a 404 and rolled back, taking sign-in down (caught in review
+before it could happen).
+
+**A security review of the public deployment, 2026-09-16, found one HIGH and
+it is fixed:** every hit on `/auth/login` -- open to anyone, signed in or not
+-- built a new provider and re-read the realm's configuration over the
+network, blocking a worker for up to ten seconds. The module had always
+claimed it read that "once per process"; now it does. Also fixed: two pages
+(`/workspaces/panel` and the chat-history confirmation) rendered without the
+role check their full-page siblings have, and the app set no security
+response headers at all. Six findings were NOT fixed and are written in
+docs/known-issues.md instead, the loudest being that nothing is rate limited.
+No path was found by which a signed-up stranger reads another workspace's
+documents, escapes the upload folder, or spends the model budget.
+
+**Known gaps recorded today** (docs/known-issues.md): deleting a person in
+Keycloak does not end their Sanad session until it expires -- the cure is
+Administration → "Déconnecter partout"; and a person must sign in once
+before an administrator can grant them a workspace.
+
+**NOT DONE, and it is the honest gap before calling this a release:** no new
+paid evaluation run. This project gates a release on the golden set, and the
+last gate (v3.0.0: G1 38/40, G2 20/20, G3 38/38) predates sign-up, the
+permission fixes and the refusal translation. The version is still 3.0.0 and
+no v3.1.0 tag exists. A gate run costs money on the paid model and is YL's
+call.
+
+---
+
+## STATE AT 2026-09-16, SIGN-UP, AND THE DEMO REBUILT ON YL'S OWN RAILWAY (history now)
 
 **THE DEMO PEOPLE SHOULD USE IS NOW YL's:**
 - App: https://sanad-web-production-5bee.up.railway.app

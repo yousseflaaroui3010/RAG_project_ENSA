@@ -97,6 +97,7 @@ from ui.conversation import (
 from ui.i18n.request import LanguageMiddleware, context_language, language_links
 from ui.ports import build_default_ports
 from ui.runs import STAGE_LABELS, Run, Stage
+from ui.security_headers import SecurityHeaders
 
 logger = logging.getLogger(__name__)
 
@@ -1370,6 +1371,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     # Added after the gate, so it wraps it: a 401 page is in the visitor's
     # language too, and a valid ?lang= still sets its cookie.
     app.add_middleware(LanguageMiddleware)
+    # Outermost, so every response carries them: the gates' own 401 and
+    # 403 pages and the static files too (security review, 2026-09-16).
+    app.add_middleware(SecurityHeaders)
 
     api_service = ApiService(runtime)
     app.include_router(build_router(api_service, version=APP_VERSION))
@@ -1788,6 +1792,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         `confirm_remove_document` -- a real page, one action, one way
         back -- and, like those, a GET here never deletes anything; only
         the POST below does."""
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
         return templates.TemplateResponse(
             request, "chat_history_delete_confirm.html", _ws_context(runtime, request)
         )
@@ -1795,7 +1802,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     @app.post("/chat/history/delete")
     def delete_history_route(request: Request) -> Response:
         """The person's own law 09-08 control: every stored conversation
-        they have, gone, plus what is currently in memory."""
+        they have, gone, plus what is currently in memory.
+
+        Guarded like its confirmation page: a no-role account has nothing
+        to delete, so this is consistency rather than a hole -- and "the
+        confirmation page is guarded" is exactly the reasoning that leaves
+        an action unguarded (review, 2026-09-16)."""
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
         runtime.delete_all_history(principal_of(request).id)
         return RedirectResponse("/", status_code=SEE_OTHER)
 
@@ -1974,7 +1989,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         """The detail region alone, for the poll to swap in while a Sync
         runs -- the same reason `/chat/messages` exists for S1: one
         template renders both the full page and the poll target, so a
-        report cannot look different depending on how it arrived."""
+        report cannot look different depending on how it arrived.
+
+        The role check belongs here too: `/workspaces` shows the no-role
+        page, and without the same check this poll target handed the same
+        person the workspace name, its folder path and its file table
+        (security review, 2026-09-16)."""
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
         return templates.TemplateResponse(
             request, "_workspace_detail.html", _ws_context(runtime, request)
         )
