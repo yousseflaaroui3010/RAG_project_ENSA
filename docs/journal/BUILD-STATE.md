@@ -61,7 +61,7 @@ Sanad was live on MB's trial plan, serving that day's code with a dead
 sign-in service. **Stopping it for good needed MB's Railway dashboard**
 (disconnect the repo, or delete the service): the CLI cannot unlink a repo,
 and deleting a service in someone else's project is not something to do
-unasked. That was the state until the link was cut.
+unasked. That was the state until it stopped redeploying, which YL attributes to cutting the link.
 
 **Production settings added (SUPERSEDED by the SETTLED paragraph below --
 read both):** `railway.json` declares a health gate on `/api/v1/health` and a
@@ -128,8 +128,10 @@ The OLD demo in MB's workspace (`sanad-web-production-3416`,
 NOT frozen: its app is still connected to GitHub `main`, so every future
 merge deploys there too, with nobody watching it. **[SUPERSEDED later the
 same day: both its services now answer 404 and it stopped receiving
-deployments once its GitHub link was cut -- see the top block, which is the
-current one.]** Only its REALM is frozen
+deployments, which YL attributes to cutting its GitHub link -- see the top
+block, which is the current one and which says what that does and does not
+establish. The rest of this paragraph, including "a live public site", is
+history.]** Only its REALM is frozen
 -- the import is skipped on an existing database, so sign-up is not on it
 (checked: its sign-in page has no registration link). Deciding its fate is
 YL's; nothing here depends on it any more, but it is a live public site.
