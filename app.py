@@ -1884,6 +1884,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             visible_options(runtime, request)
         ) < 2:
             chosen = None
+        # Only a workspace this person may see. Without this, anyone
+        # signed in could point the shell at a workspace nobody shared with
+        # them -- harmless before sign-up, an open door after it.
+        if (
+            chosen is not None
+            and chosen != screen.ROUTE_SENTINEL
+            and chosen not in {opt.id for opt in visible_options(runtime, request)}
+        ):
+            return _refuse_action(runtime, request)
         moved = chosen is not None and chosen != (
             _active(runtime, request).id if _active(runtime, request) else None
         )
@@ -2027,6 +2036,12 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         destructive action always needs a deliberate second step even with
         scripting off, never a hand-rolled focus trap that only works with
         it on."""
+        # The POST that deletes checks this; this GET did not, and it
+        # prints the workspace's NAME (review 2026-09-15).
+        if not principal_of(request).may_manage_workspaces() or not _may_see(
+            request, workspace_id
+        ):
+            return _refuse_action(runtime, request)
         try:
             target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
         except workspaces.WorkspaceNotFoundError:
@@ -2284,6 +2299,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     @app.get("/reports/{eval_run_id}", response_class=HTMLResponse)
     def report_detail_route(request: Request, eval_run_id: str) -> HTMLResponse:
         detail = reports_screen.report_detail(eval_run_id, db_path=runtime.db_path)
+        if detail is not None and not _may_see(request, detail.summary.workspace_id):
+            # 404, NOT 403: a report of a workspace nobody shared with this
+            # person must read as "no such report". Saying "forbidden"
+            # would confirm the id exists, and the page quotes the
+            # documents' own text. Open to any signed-in stranger until
+            # this check, which sign-up made reachable (review 2026-09-15).
+            detail = None
         return templates.TemplateResponse(
             request,
             "report_detail.html",
@@ -2301,13 +2323,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         )
 
     @app.get("/reports/{eval_run_id}/export")
-    def report_export_route(eval_run_id: str) -> Response:
+    def report_export_route(request: Request, eval_run_id: str) -> Response:
         """UX spec 8.2: "the action states what it produces before it
         runs" -- report_detail.html's link says "Markdown for the report
         annex" before this is ever followed; this route only produces
         exactly that. A plain link with no JavaScript (CR-02): the
         browser's own download handling is the whole delivery mechanism."""
         detail = reports_screen.report_detail(eval_run_id, db_path=runtime.db_path)
+        if detail is not None and not _may_see(request, detail.summary.workspace_id):
+            # Same rule as the page above: the export carries every answer.
+            detail = None
         if detail is None:
             return Response(
                 f"No such report: {eval_run_id}",

@@ -38,7 +38,7 @@ def _client() -> dict:
     return next(c for c in REALM["clients"] if c["clientId"] == "sanad")
 
 
-def test_realm_defines_exactly_the_three_roles_the_code_reads():
+def test_realm_defines_the_three_roles_the_code_reads_plus_keycloaks_own():
     defaults = Settings()
     expected = {f"{defaults.auth_role_prefix}{role}" for role in auth.ROLES}
     names = {r["name"] for r in REALM["roles"]["realm"]}
@@ -86,6 +86,7 @@ def test_sign_up_needs_no_mail_server_and_refuses_weak_passwords():
     length = int(re.search(r"length\((\d+)\)", policy).group(1))
     assert length >= 10
     assert "notUsername" in policy
+    assert "notEmail" in policy
     assert REALM["bruteForceProtected"] is True
 
 

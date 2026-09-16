@@ -205,8 +205,8 @@ docker compose -f compose.keycloak.yaml up -d
 ```
 
 That imports `keycloak/realm-sanad.json`: the realm `sanad`, the confidential
-client `sanad` with both redirect URLs already set, the three realm roles, and
-four people to demonstrate with — `sanad-admin-demo`, `sanad-curator-demo`,
+client `sanad` with both redirect URLs already set, the three realm roles plus
+Keycloak's own two, sign-up turned on, and four people to demonstrate with — `sanad-admin-demo`, `sanad-curator-demo`,
 `sanad-reader-demo`, and `sanad-norole-demo`, who has no role and so sees the
 "ask an administrator" screen. The admin uses `KEYCLOAK_ADMIN_SEED_PASSWORD`,
 the other three `KEYCLOAK_SEED_PASSWORD`, so handing someone the reader

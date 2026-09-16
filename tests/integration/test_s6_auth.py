@@ -366,6 +366,101 @@ def test_cookies_are_not_secure_on_a_plain_http_machine(keycloak):
     assert "secure" not in flow_cookie.lower()
 
 
+def _seed_report(db_path, tmp_path, *, answer: str) -> tuple[str, str]:
+    """A workspace nobody granted, with one evaluation answer in it."""
+    report_path = tmp_path / "run.json"
+    report_path.write_text("{}", encoding="utf-8")
+    with repo.session(db_path) as conn:
+        workspace_id = repo.create_workspace(
+            conn, name="Salaires direction", folder_path=str(tmp_path)
+        )
+        run_id = repo.insert_eval_run(
+            conn,
+            workspace_id=workspace_id,
+            status="running",
+            question_total=1,
+            report_path=str(report_path),
+        )
+        repo.insert_eval_result(
+            conn,
+            eval_run_id=run_id,
+            question_id="g-in-fake-001",
+            kind="in_scope",
+            answer_kind="answer",
+            answer_text=answer,
+            passed=True,
+            groundedness=1.0,
+            relevancy=0.8,
+            sources_present=True,
+        )
+    return run_id, workspace_id
+
+
+def test_a_report_of_a_workspace_you_were_not_granted_is_not_readable(
+    keycloak, tmp_path
+):
+    """Review of the sign-up change, 2026-09-15: these two routes checked
+    neither role nor grant. Once anyone can sign up, a stranger holding a
+    run id could read the evaluation answers of a workspace nobody shared
+    with them -- the answers quote the documents."""
+    client, _, db_path, _, sign_in = keycloak
+    answer = "le salaire du directeur est de 42 000 dirhams"
+    run_id, _ = _seed_report(db_path, tmp_path, answer=answer)
+    sign_in(READER_CLAIMS)
+
+    page = client.get(f"/reports/{run_id}")
+    export = client.get(f"/reports/{run_id}/export")
+
+    assert page.status_code == 404, "an ungranted report must not render"
+    assert answer not in page.text
+    assert "Salaires direction" not in page.text
+    assert export.status_code == 404
+    assert answer not in export.text
+
+
+def test_an_admin_still_reads_any_report(keycloak, tmp_path):
+    """The other side: the fix must not lock out the person who may look."""
+    client, _, db_path, _, sign_in = keycloak
+    answer = "le salaire du directeur est de 42 000 dirhams"
+    run_id, _ = _seed_report(db_path, tmp_path, answer=answer)
+    sign_in(ADMIN_CLAIMS)
+
+    page = client.get(f"/reports/{run_id}")
+
+    assert page.status_code == 200
+    assert "Salaires direction" in page.text
+
+
+def test_the_delete_confirmation_page_does_not_name_a_workspace_you_cannot_touch(
+    keycloak, tmp_path
+):
+    """Same review: the POST that deletes checked the role, the GET that
+    shows the confirmation did not, so it printed the workspace's name to
+    anyone signed in."""
+    client, _, db_path, _, sign_in = keycloak
+    _, workspace_id = _seed_report(db_path, tmp_path, answer="x")
+    sign_in(READER_CLAIMS)
+
+    page = client.get(f"/workspaces/{workspace_id}/delete", follow_redirects=False)
+
+    assert page.status_code == 303
+    assert "Salaires direction" not in page.text
+
+
+def test_selecting_a_workspace_you_cannot_see_changes_nothing(keycloak, tmp_path):
+    """Same review: the posted id was written to the shell's selection
+    without a check, so any signed-in person could point the selector at a
+    workspace that was never shared with them."""
+    client, runtime, db_path, _, sign_in = keycloak
+    _, workspace_id = _seed_report(db_path, tmp_path, answer="x")
+    sign_in(READER_CLAIMS)
+
+    client.post("/workspace", data={"workspace_id": workspace_id}, follow_redirects=False)
+
+    assert runtime.active_workspace_id != workspace_id
+    assert "refused" in _actions(db_path)
+
+
 def test_an_expired_session_is_not_a_session(keycloak):
     client, _, db_path, _, sign_in = keycloak
     sign_in(ADMIN_CLAIMS)
