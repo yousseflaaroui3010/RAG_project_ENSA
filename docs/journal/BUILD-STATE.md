@@ -71,10 +71,17 @@ the DECISIONS row of 2026-09-05 that chose a plain confirm page over a
 usable; and ST-38's six screen-reader rows are still owed
 (`docs/ST-38-MANUAL-QA-RESULTS.md`), so new UI should not add a seventh.
 
-One more trap for whoever reads the signed spec: its assumption at section
-12 says "Interface copy in English for V1", which CR-03 overrode on
-2026-09-13. The spec is signed and stays as written; the override is in
-DECISIONS.
+One more thing about the signed spec, and it is the shape of the whole
+document rather than one line: it stays as written, and the overrides live
+in DECISIONS.md. Two are already there, both CR-03 human rulings of
+2026-09-13 -- "Interface copy in English for V1" (spec section 14,
+Assumptions) was overridden by the French default, and "No drag-and-drop
+file upload" (section 13, Non-goals) was overridden by S6's browser upload.
+So read a non-goal or an assumption as a starting position, check DECISIONS
+before treating it as binding, and escalate rather than edit. The two walls
+above are different: they are design rules in sections 4 and 3, not
+assumptions, and nothing has overridden them (section 13 repeats the second
+one as "No phone or tablet layout").
 
 ---
 
