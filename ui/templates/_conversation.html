@@ -286,7 +286,7 @@
           #}
           <div class="bubble bubble--refusal">
             <p class="bubble__head"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.2-4.2M8.5 11h5"/></svg>{{ t('conv.refusal.head') }}</p>
-            <p class="refusal__lead" dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text }}</p>
+            <p class="refusal__lead" dir="auto"{% if is_arabic(tx(message.text)) %} lang="ar"{% endif %}>{{ tx(message.text) }}</p>
             {% if message.searched %}
               <p class="refusal__label" id="searched-{{ m }}">{{ t('conv.refusal.searched') }}</p>
               {#
@@ -375,7 +375,7 @@
               <div class="answer__text prose" dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text | answer_html }}</div>
               <p class="muted">{{ t('conv.partial.note') }}</p>
             {% else %}
-              <p dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ tx(message.text) }}</p>
+              <p dir="auto"{% if is_arabic(tx(message.text)) %} lang="ar"{% endif %}>{{ tx(message.text) }}</p>
             {% endif %}
           </div>
 
@@ -396,7 +396,7 @@
               (`f"{type(exc).__name__}: {exc}"`), a technical string that
               is never document content.
             #}
-            <p class="error__attempted" dir="auto"{% if is_arabic(message.error.attempted) %} lang="ar"{% endif %}>{{ tx(message.error.attempted) }}</p>
+            <p class="error__attempted" dir="auto"{% if is_arabic(tx(message.error.attempted)) %} lang="ar"{% endif %}>{{ tx(message.error.attempted) }}</p>
             <p class="error__value mono">{{ message.error.value }}</p>
             <p class="error__hint">{{ tx(message.error.hint) }}</p>
           </div>

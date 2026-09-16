@@ -366,6 +366,18 @@ MESSAGES: dict[str, str] = {
         "the selector above and ask again."
     ),
     "phr.route.proposal": "This looks like a question for {name}. Answer from there?",
+    "phr.refusal.not_covered": (
+        "I could not answer this from the documents in this workspace, and I "
+        "will not guess. The searches I ran are listed with this message. You "
+        "could rephrase the question, add the document that covers it to this "
+        "workspace, or switch to the workspace that holds it."
+    ),
+    "phr.refusal.unreadable": (
+        "I found passages that match your question but could not read the "
+        "sections they come from, so I cannot answer from them and will not "
+        "guess. This usually means the stored sections are out of step with the"
+        " search index. Run a Sync on this workspace and ask again."
+    ),
     "phr.error.sentence": "Sanad could not answer this question.",
     "phr.error.asked": "Asked: {question}",
     "phr.error.hint": (
