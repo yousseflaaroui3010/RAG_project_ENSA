@@ -1,6 +1,69 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-15, KEYCLOAK LIVE ON THE DEMO (read this block first; older headers below are history)
+## STATE AT 2026-09-16, SIGN-UP, AND THE DEMO REBUILT ON YL'S OWN RAILWAY (read this block first; older headers below are history)
+
+**THE DEMO PEOPLE SHOULD USE IS NOW YL's:**
+- App: https://sanad-web-production-5bee.up.railway.app
+- Keycloak: https://keycloak-production-2070.up.railway.app
+- Railway project `sanad` in workspace "MYBL's Projects" (paid), services
+  `sanad-web` (from GitHub `main`, volume on `/app/data`), `keycloak`
+  (uploaded with `railway up`, not linked to GitHub) and `Postgres`.
+
+The OLD demo in MB's workspace (`sanad-web-production-3416`,
+`keycloak-production-7371`) is untouched and still running on the trial
+plan; its realm predates sign-up, and the import is skipped on an existing
+database, so sign-up is NOT on it. Deciding its fate is YL's: nothing here
+depends on it any more.
+
+**Settings carried across (same names as the old service):** AUTH_MODE,
+CHAT_MODEL_CLOUD, CLOUD_API_KEY (copied without being displayed; SHA-256 of
+both compared equal), EVIDENCE_ONLY=true, KEYCLOAK_CLIENT_ID,
+KEYCLOAK_CLIENT_SECRET, KEYCLOAK_ISSUER, KEYCLOAK_REDIRECT_URL, MODEL_MODE,
+SERVER_HOST. Every Keycloak secret on the new project is NEW, not copied.
+Nothing was migrated from the old volume: it held 2 empty workspaces, 0
+documents, 0 evaluation runs, 0 chat history and 0 grants.
+
+**ANYONE CAN SIGN UP** (#138, DECISIONS 2026-09-15 "ST-52 sign-up"). The
+sign-in page carries "Nouvel utilisateur ? Enregistrement". A person who
+signs up gets `sanad-reader` and sees NO workspace until an administrator
+ticks one on the Administration page. No email is sent (there is no mail
+server); passwords need 10 characters and cannot be the username or email;
+brute-force protection is on. Keycloak's sign-in, sign-up and sign-out pages
+open in the language Sanad is showing (`ui_locales`).
+
+**What the review caught before sign-up went live, and #138 fixed:** the
+evaluation report page, its export, and the delete-confirmation page checked
+neither role nor grant, and any signed-in person could point the shell at a
+workspace nobody shared with them. Reports now answer 404 for a workspace
+you were not granted -- 404, not 403, because "forbidden" confirms the id
+exists. A stale page naming a DELETED workspace falls back quietly instead
+of being logged as a refusal.
+
+**Proof, 2026-09-16.** Full suite 1295 passed, 2 skipped, 1 xfailed; ruff
+clean; CI green on #138. Every new test was seen failing first (a reader
+read an ungranted report: 200 with the answer text), and 31 deliberate
+mutations across ST-52 each turned a test red. On the NEW live demo: health
+200 version 3.0.0; `/` and `/admin` redirect to sign-in; `/api/v1/workspaces`
+401; the sign-in cookie carries `Secure`; the sign-in redirect carries
+`ui_locales=fr`; Keycloak 26.4.7 started through its own start guard and
+imported the realm; **a real sign-up in a browser** arrived as "Jury Demo",
+role reader, "Aucun espace partagé avec vous" (evidence:
+docs/evidence/S6-keycloak/live-signup-2026-09-16.png). That test account was
+then deleted; the realm holds only the four demo people.
+
+**Found by running it, not by reading it:** composites written inside
+`defaultRole` are silently ignored on realm import. The import succeeded,
+the file said "reader", and the person who signed up arrived with no role at
+all. They only work on the role's own entry in `roles.realm`.
+
+**Demo accounts:** `sanad-admin-demo`, `sanad-curator-demo`,
+`sanad-reader-demo`, `sanad-norole-demo`. Passwords live on the Railway
+`keycloak` service (`KEYCLOAK_ADMIN_SEED_PASSWORD` for the admin,
+`KEYCLOAK_SEED_PASSWORD` for the other three) and are never written here.
+
+---
+
+## STATE AT 2026-09-15, KEYCLOAK LIVE ON THE DEMO (history now)
 
 **The published demo now signs in through Keycloak, and only Keycloak** (YL's
 choice, DECISIONS 2026-09-15 "ST-52 Keycloak on the published demo"). On
