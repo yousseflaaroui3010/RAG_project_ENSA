@@ -38,10 +38,12 @@ Sanad.
 **Production settings added, landing with this merge (so the first deploy
 after it is the one that proves them):** `railway.json` states the health
 gate in the repository -- Railway waits for `/api/v1/health` before sending
-traffic to a new deploy, and restarts a failed container. Without a health
-path a container that boots and immediately fails still becomes the live
-site; the restart policy may match Railway's own default, so the health gate
-is the part that certainly changes. `deploy/keycloak/railway.json` ships
+traffic to a new deploy, and restarts a failed container. Read back from
+Railway on 2026-09-16, `sanad-web`'s manifest already said
+`restartPolicy ON_FAILURE 10` and `healthcheckPath None`: so the restart
+half changes nothing and the HEALTH GATE is the whole point of the file.
+Without it a container that boots and immediately fails still becomes the
+live site. `deploy/keycloak/railway.json` ships
 inside the Keycloak bundle for one reason: the root file health-checks
 Sanad's route, and if it ever reached the Keycloak service that deploy would
 be polled on a 404 and rolled back, taking sign-in down (caught in review

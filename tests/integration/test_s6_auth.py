@@ -930,13 +930,13 @@ def test_a_document_in_a_workspace_nobody_granted_cannot_be_downloaded(keycloak)
     assert b"CONFIDENTIEL" not in response.content
 
 
-def test_every_response_carries_the_security_headers(keycloak):
+def test_every_response_carries_the_security_headers(keycloak, tmp_path):
     """Security review, 2026-09-16: the app set none of these. They must be
     on the pages nobody is signed in for too -- the sign-in redirect and
     the refusal pages are exactly what an attacker would frame."""
     from ui.security_headers import HEADERS
 
-    client, _, _, _, sign_in = keycloak
+    client, _, db_path, _, sign_in = keycloak
     signed_out = client.get("/", follow_redirects=False)
     sign_in(ADMIN_CLAIMS)
     signed_in = client.get("/workspaces")
@@ -954,6 +954,14 @@ def test_every_response_carries_the_security_headers(keycloak):
         )
     assert len(HEADERS) == 4, "a header was added or removed without a test"
     # The one interesting branch in the middleware: a route that sets a
-    # header itself keeps exactly one copy of it.
-    download = client.get("/workspaces/nope/documents/nope.pdf", follow_redirects=False)
-    assert download.headers.get_list("x-content-type-options") in ([], ["nosniff"])
+    # header itself must keep EXACTLY ONE copy of it. This has to reach the
+    # real download route -- an unknown id answers 404 long before the
+    # route sets anything, and would prove nothing (review, 2026-09-16).
+    workspace = workspaces.create_workspace(
+        name="Docs", folder_path=str(tmp_path), db_path=db_path
+    )
+    (tmp_path / "note.md").write_text("# une note", encoding="utf-8")
+    download = client.get(f"/workspaces/{workspace.id}/documents/note.md")
+
+    assert download.status_code == 200, download.text[:200]
+    assert download.headers.get_list("x-content-type-options") == ["nosniff"]

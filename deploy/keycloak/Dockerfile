@@ -11,10 +11,14 @@
 #     railway up <bundle> --path-as-root --service keycloak --ci
 #
 # `railway.json` MUST sit at the bundle's root: that is the copy Railway
-# reads, and it is what keeps the REPOSITORY's root railway.json -- which
-# health-checks `/api/v1/health`, Sanad's route and not Keycloak's -- from
-# ever applying here. Without it a Keycloak deploy would be polled on a
-# 404 and rolled back, taking sign-in down with it.
+# reads. It pins the Dockerfile path and declares NO health check here, in
+# the repository where both are reviewable, instead of leaving them to
+# whatever the service's dashboard happens to hold -- and the dashboard is
+# invisible to everyone reading this repo. It also makes the difference
+# from Sanad explicit: the repository's own root railway.json health-checks
+# `/api/v1/health`, which Keycloak does not serve, so anyone who uploaded
+# this image from the repository root instead of a bundle would watch the
+# deploy be polled on a 404 and rolled back, taking sign-in down.
 #
 # PROVEN, 2026-09-16, not assumed: after an upload of exactly this bundle,
 # Railway's own deployment manifest for the service read
