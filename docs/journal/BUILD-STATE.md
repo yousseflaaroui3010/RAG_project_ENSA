@@ -10,10 +10,12 @@
   (uploaded with `railway up`, not linked to GitHub) and `Postgres`.
 
 The OLD demo in MB's workspace (`sanad-web-production-3416`,
-`keycloak-production-7371`) is untouched and still running on the trial
-plan; its realm predates sign-up, and the import is skipped on an existing
-database, so sign-up is NOT on it. Deciding its fate is YL's: nothing here
-depends on it any more.
+`keycloak-production-7371`) is still running on the trial plan, and it is
+NOT frozen: its app is still connected to GitHub `main`, so every future
+merge deploys there too, with nobody watching it. Only its REALM is frozen
+-- the import is skipped on an existing database, so sign-up is not on it
+(checked: its sign-in page has no registration link). Deciding its fate is
+YL's; nothing here depends on it any more, but it is a live public site.
 
 **Settings carried across (same names as the old service):** AUTH_MODE,
 CHAT_MODEL_CLOUD, CLOUD_API_KEY (copied without being displayed; SHA-256 of
@@ -47,9 +49,12 @@ mutations across ST-52 each turned a test red. On the NEW live demo: health
 401; the sign-in cookie carries `Secure`; the sign-in redirect carries
 `ui_locales=fr`; Keycloak 26.4.7 started through its own start guard and
 imported the realm; **a real sign-up in a browser** arrived as "Jury Demo",
-role reader, "Aucun espace partagé avec vous" (evidence:
-docs/evidence/S6-keycloak/live-signup-2026-09-16.png). That test account was
-then deleted; the realm holds only the four demo people.
+role reader, "Aucun espace partagé avec vous". The screenshot
+(docs/evidence/S6-keycloak/live-signup-2026-09-16.png) shows the name and
+the no-workspace card; the role came from the admin API in the same run,
+not from the picture. That test account was then deleted (HTTP 204); the
+realm holds only the four demo people, and the default role a new sign-up
+receives reads back as reader.
 
 **Found by running it, not by reading it:** composites written inside
 `defaultRole` are silently ignored on realm import. The import succeeded,
