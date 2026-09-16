@@ -62,9 +62,10 @@ on `sanad-web`.** That is the whole claim -- one file, one service, the
 `deploy` block; why is unknown, and `build.builder` was never tested. Two
 fields show it. YL opened the service's settings and the Healthcheck Path
 section showed an empty "+ Healthcheck Path" button -- nothing set -- while
-the committed file declared `/api/v1/health`; and the manifest after the
-deploy carrying that file reported `healthcheckTimeout None` where the file
-says `300`. YL then set `/api/v1/health` by hand, and the manifest now
+the committed file declared `/api/v1/health`; and the manifest read after
+YL set the path by hand STILL reports `healthcheckTimeout None` where the
+file says `300` -- a second field from the same block that never landed,
+read after the fix rather than before it. YL then set `/api/v1/health` by hand, and the manifest now
 reports it. **So the health gate IS now in force, and it is in force because
 of a dashboard setting, not because of the file.** The manifest's
 `restartPolicy ON_FAILURE 10` matches the file but proves nothing either
