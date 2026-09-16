@@ -30,28 +30,38 @@ image seeds, and a Sync indexed it.
 (YL's own, given `sanad-admin` on 2026-09-16 so the owner can administer).
 Two throwaway accounts made while testing were deleted.
 
-**The old demo in MB's workspace: its Keycloak answers 404, so nobody can
-sign in there. Its APP KEPT COMING BACK, and whether it still does is the
-next merge's answer.** The service lives in MB's project, and YL said on
-2026-09-16 that its GitHub link was disconnected; nothing here can confirm
-that -- the CLI sees only the last deployment's metadata, still
-`repo=yousseflaaroui3010/RAG_project_ENSA, branch=main`. One check answers
-it, and only in one direction: after the next merge has finished deploying,
-`https://sanad-web-production-3416.up.railway.app/api/v1/health` answering
-**200 proves the link is still live**. A 404 proves nothing on its own --
-a stopped service, a failed build, a deploy still running and a deleted
-service all answer 404, and that URL answers 404 today.
+**The old demo in MB's workspace: its Keycloak answers 404, and its app has
+stopped coming back.**
 
-The history, which is why this is written down at all: It was stopped twice
-on 2026-09-16 and both times the next merge to `main` redeployed it -- it is
-still linked to GitHub, so `railway down` only removes the container that is
+**What was observed, 2026-09-16, and what it does and does not settle.** YL
+says he disconnected it from GitHub. Merge #143 (11:48) created a deployment
+in YL's project and NONE in MB's, whose most recent is still the 11:14
+deployment -- created by merge #142 and removed by hand afterwards. Those two
+merges touched the IDENTICAL five files 34 minutes apart, which is as close
+to a controlled comparison as this gets: a "no relevant paths changed" skip
+cannot produce that difference. A failed build is excluded too, because the
+list shows non-running states plainly (that 11:14 row reads REMOVED). Of the
+earlier merges, the three whose deployments appear in that list (10:14,
+10:59, 11:14) each created one in MB's project.
+
+NOT excluded, and worth saying rather than implying: an exhausted trial plan,
+or auto-deploy merely paused instead of the repository disconnected, would
+look exactly the same from here. The list was read a few minutes after 11:48,
+so a slow build appearing later would have been missed, and one merge is one
+data point. **The positive check nobody has done is one screen:** that
+service's Settings -> Source panel in MB's Railway dashboard either names a
+repository or offers to connect one. Its health route answers 404, which on
+its own proves nothing -- a stopped service answers 404 too.
+
+The history, which is why this is written down at all. It was stopped twice
+on 2026-09-16 and both times the next merge to `main` redeployed it: it was
+still linked to GitHub, and `railway down` removes only the container that is
 running, not the link. Between a merge and somebody noticing, a second public
-Sanad is live on MB's trial plan, serving today's code with a dead sign-in
-service. **Stopping it for good needs MB's Railway dashboard** (disconnect
-the repo, or delete the service); the CLI cannot unlink a repo, and deleting
-a service in someone else's project is not something to do unasked. Until
-then, there are two public Sanads after every merge, and only this one
-works.
+Sanad was live on MB's trial plan, serving that day's code with a dead
+sign-in service. **Stopping it for good needed MB's Railway dashboard**
+(disconnect the repo, or delete the service): the CLI cannot unlink a repo,
+and deleting a service in someone else's project is not something to do
+unasked. That was the state until it stopped redeploying, which YL attributes to cutting the link.
 
 **Production settings added (SUPERSEDED by the SETTLED paragraph below --
 read both):** `railway.json` declares a health gate on `/api/v1/health` and a
@@ -116,7 +126,12 @@ call.
 The OLD demo in MB's workspace (`sanad-web-production-3416`,
 `keycloak-production-7371`) is still running on the trial plan, and it is
 NOT frozen: its app is still connected to GitHub `main`, so every future
-merge deploys there too, with nobody watching it. Only its REALM is frozen
+merge deploys there too, with nobody watching it. **[SUPERSEDED later the
+same day: both its services now answer 404 and it stopped receiving
+deployments, which YL attributes to cutting its GitHub link -- see the top
+block, which is the current one and which says what that does and does not
+establish. The rest of this paragraph, including "a live public site", is
+history.]** Only its REALM is frozen
 -- the import is skipped on an existing database, so sign-up is not on it
 (checked: its sign-in page has no registration link). Deciding its fate is
 YL's; nothing here depends on it any more, but it is a live public site.
