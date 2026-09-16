@@ -1463,10 +1463,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     def _no_role_page(request: Request) -> Response | None:
         """The page a signed-in person with no Sanad role sees.
 
-        Nobody is anything by default (ui/auth.py), so this is what a
-        newly created Keycloak account gets until an administrator grants
-        a role -- one honest sentence, rather than an empty workspace
-        selector that looks like a broken product."""
+        Sanad invents no role for anybody (ui/auth.py), so this is what a
+        person carries who has an account in the realm but no Sanad role --
+        one honest sentence, rather than an empty workspace selector that
+        looks like a broken product. With the shipped realm, someone who
+        signs up is a reader and lands on the ordinary screens instead;
+        this page remains for a realm without self-registration, and for an
+        account an administrator created or stripped by hand."""
         if principal_of(request).has_any_role:
             return None
         return templates.TemplateResponse(
@@ -1892,7 +1895,17 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             and chosen != screen.ROUTE_SENTINEL
             and chosen not in {opt.id for opt in visible_options(runtime, request)}
         ):
-            return _refuse_action(runtime, request)
+            # A workspace that EXISTS and was not shared with this person is
+            # a refusal, logged for an admin to see. One that does not exist
+            # at all is an honest stale page -- the workspace was deleted
+            # while this screen was open -- and is treated as "not chosen",
+            # which falls back to their first workspace.
+            everything = {
+                opt.id for opt in screen.workspace_options(db_path=runtime.db_path)
+            }
+            if chosen in everything:
+                return _refuse_action(runtime, request)
+            chosen = None
         moved = chosen is not None and chosen != (
             _active(runtime, request).id if _active(runtime, request) else None
         )

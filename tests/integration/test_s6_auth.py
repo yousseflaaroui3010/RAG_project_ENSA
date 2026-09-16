@@ -431,6 +431,43 @@ def test_an_admin_still_reads_any_report(keycloak, tmp_path):
     assert "Salaires direction" in page.text
 
 
+def test_a_reader_reads_the_report_of_a_workspace_they_were_granted(
+    keycloak, tmp_path
+):
+    """The positive control the review asked for: a check written as
+    "admins only" would pass every test above and still lock out the reader
+    this feature exists for."""
+    client, _, db_path, _, sign_in = keycloak
+    answer = "le salaire du directeur est de 42 000 dirhams"
+    run_id, workspace_id = _seed_report(db_path, tmp_path, answer=answer)
+    sign_in(READER_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=workspace_id, user_id=READER_CLAIMS["sub"])
+
+    page = client.get(f"/reports/{run_id}")
+
+    assert page.status_code == 200
+    assert "Salaires direction" in page.text
+
+
+def test_a_stale_page_naming_a_deleted_workspace_just_falls_back(keycloak, tmp_path):
+    """Refusing must mean "not yours", not "your page is old". A workspace
+    deleted while this screen was open posts an id that exists nowhere; the
+    honest answer is the person's own first workspace, with no refusal in
+    the activity log for an admin to puzzle over."""
+    client, runtime, db_path, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+
+    client.post(
+        "/workspace",
+        data={"workspace_id": "11111111-2222-3333-4444-555555555555"},
+        follow_redirects=False,
+    )
+
+    assert runtime.active_workspace_id is None
+    assert "refused" not in _actions(db_path)
+
+
 def test_the_delete_confirmation_page_does_not_name_a_workspace_you_cannot_touch(
     keycloak, tmp_path
 ):
