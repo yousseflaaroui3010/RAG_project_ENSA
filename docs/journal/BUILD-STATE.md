@@ -35,10 +35,29 @@ answer 404). Its project, volumes and settings remain in MB's account and can
 be started again from the Railway dashboard. There is now exactly one public
 Sanad.
 
-**Production settings added:** `railway.json` makes Railway wait for
-`/api/v1/health` before sending traffic to a new deploy and restart a failed
-container (`ON_FAILURE`, 10 retries). Without it a container that boots and
-immediately fails still became the live site.
+**Production settings added, landing with this merge (so the first deploy
+after it is the one that proves them):** `railway.json` states the health
+gate in the repository -- Railway waits for `/api/v1/health` before sending
+traffic to a new deploy, and restarts a failed container. Without a health
+path a container that boots and immediately fails still becomes the live
+site; the restart policy may match Railway's own default, so the health gate
+is the part that certainly changes. `deploy/keycloak/railway.json` ships
+inside the Keycloak bundle for one reason: the root file health-checks
+Sanad's route, and if it ever reached the Keycloak service that deploy would
+be polled on a 404 and rolled back, taking sign-in down (caught in review
+before it could happen).
+
+**A security review of the public deployment, 2026-09-16, found one HIGH and
+it is fixed:** every hit on `/auth/login` -- open to anyone, signed in or not
+-- built a new provider and re-read the realm's configuration over the
+network, blocking a worker for up to ten seconds. The module had always
+claimed it read that "once per process"; now it does. Also fixed: two pages
+(`/workspaces/panel` and the chat-history confirmation) rendered without the
+role check their full-page siblings have, and the app set no security
+response headers at all. Six findings were NOT fixed and are written in
+docs/known-issues.md instead, the loudest being that nothing is rate limited.
+No path was found by which a signed-up stranger reads another workspace's
+documents, escapes the upload folder, or spends the model budget.
 
 **Known gaps recorded today** (docs/known-issues.md): deleting a person in
 Keycloak does not end their Sanad session until it expires -- the cure is

@@ -9,6 +9,20 @@
 # command and only prints help. After changing a variable there, upload
 # this image again with `railway up`.
 #
+# THE BUNDLE IS FOUR FILES, and `railway.json` beside this one is the
+# fourth, copied to the bundle's ROOT:
+#     <bundle>/railway.json                     (deploy/keycloak/railway.json)
+#     <bundle>/deploy/keycloak/Dockerfile       (this file)
+#     <bundle>/deploy/keycloak/start.sh
+#     <bundle>/keycloak/realm-sanad.json
+# uploaded with `railway up <bundle> --path-as-root --service keycloak`.
+# Its railway.json is what stops the REPOSITORY's root railway.json from
+# applying here: that one health-checks `/api/v1/health`, which is Sanad's
+# route and not Keycloak's, so a Keycloak deploy would be polled on a 404
+# and rolled back -- taking sign-in down with it (review, 2026-09-16).
+# Keycloak's own health lives on management port 9000, which a Railway
+# HTTP health check on the app port cannot reach, so it declares none.
+#
 # WHY A DOCKERFILE AND NOT JUST THE PUBLISHED IMAGE. The official image has
 # an ENTRYPOINT (`kc.sh`) and NO CMD, so a platform that starts it without
 # arguments gets Keycloak's help text and an exited container -- which is

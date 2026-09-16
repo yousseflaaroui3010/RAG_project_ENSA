@@ -57,3 +57,44 @@ def test_no_language_means_no_ui_locales_parameter():
     )
 
     assert "ui_locales" not in parse_qs(urlparse(url).query)
+
+
+def test_the_realm_is_read_once_per_process_not_once_per_request(monkeypatch):
+    """The module says "Read from the issuer once per process", and until
+    2026-09-16 it was not true: `build_provider()` returned a NEW provider
+    every call, each with an empty endpoint cache, so every hit on
+    `/auth/login` -- a route open to anyone, signed in or not -- made a
+    blocking 10-second-timeout call to Keycloak before redirecting. A
+    handful of concurrent requests could tie up the server's workers and
+    point them all at the realm."""
+    import ui.oidc as oidc
+    from config import get_settings
+
+    settings = get_settings().model_copy(
+        update={
+            "keycloak_issuer": "https://keycloak.test/realms/sanad",
+            "keycloak_client_id": "sanad",
+            "keycloak_client_secret": "test-secret",
+        }
+    )
+    monkeypatch.setattr(oidc, "get_settings", lambda: settings)
+    oidc._provider.cache_clear()
+    fetched: list[str] = []
+
+    def fake_get_json(url: str) -> dict:
+        fetched.append(url)
+        return {
+            "authorization_endpoint": "https://keycloak.test/auth",
+            "token_endpoint": "https://keycloak.test/token",
+            "introspection_endpoint": "https://keycloak.test/introspect",
+            "end_session_endpoint": "https://keycloak.test/logout",
+        }
+
+    monkeypatch.setattr(oidc, "_get_json", fake_get_json)
+
+    for _ in range(5):
+        oidc.build_provider().authorization_url(
+            state="s", nonce="n", redirect_uri="https://sanad.test/auth/callback"
+        )
+
+    assert len(fetched) == 1, f"one discovery call expected, made {len(fetched)}"

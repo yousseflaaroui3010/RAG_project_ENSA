@@ -498,6 +498,28 @@ def test_selecting_a_workspace_you_cannot_see_changes_nothing(keycloak, tmp_path
     assert "refused" in _actions(db_path)
 
 
+def test_a_person_with_no_role_sees_no_workspace_panel(keycloak, tmp_path):
+    """Security review, 2026-09-16: `/workspaces` shows the no-role page,
+    but the panel it polls for did not check the role at all. Someone whose
+    Sanad role was removed in Keycloak, while a grant row survived, could
+    still pull the workspace name, its folder path and its file table out
+    of the poll target."""
+    client, _, db_path, _, sign_in = keycloak
+    _, workspace_id = _seed_report(db_path, tmp_path, answer="x")
+    sign_in(NO_ROLE_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(
+            conn, workspace_id=workspace_id, user_id=NO_ROLE_CLAIMS["sub"]
+        )
+
+    panel = client.get("/workspaces/panel")
+    confirm = client.get("/chat/history/delete")
+
+    assert panel.status_code == 403
+    assert "Salaires direction" not in panel.text
+    assert confirm.status_code == 403
+
+
 def test_an_expired_session_is_not_a_session(keycloak):
     client, _, db_path, _, sign_in = keycloak
     sign_in(ADMIN_CLAIMS)
@@ -906,3 +928,19 @@ def test_a_document_in_a_workspace_nobody_granted_cannot_be_downloaded(keycloak)
 
     assert response.status_code == 403
     assert b"CONFIDENTIEL" not in response.content
+
+
+def test_every_response_carries_the_security_headers(keycloak):
+    """Security review, 2026-09-16: the app set none of these. They must be
+    on the pages nobody is signed in for too -- the sign-in redirect and
+    the refusal pages are exactly what an attacker would frame."""
+    from ui.security_headers import HEADERS
+
+    client, _, _, _, sign_in = keycloak
+    signed_out = client.get("/", follow_redirects=False)
+    sign_in(ADMIN_CLAIMS)
+    signed_in = client.get("/workspaces")
+
+    for response in (signed_out, signed_in):
+        for name, value in HEADERS:
+            assert response.headers.get(name.decode()) == value.decode(), name
