@@ -27,11 +27,13 @@
 # ON_FAILURE 10`. That is consistent with this file being used -- but it is
 # ALSO exactly what the service's own `RAILWAY_DOCKERFILE_PATH` variable
 # and Railway's defaults produce, so the manifest cannot tell the two
-# apart. Railway's documentation says a config file at the deployed root is
-# picked up automatically, and the deployment details page marks settings
-# that came from one with a file icon; that page is the only place the
-# question can be settled, and nobody has looked yet. Keep the file: it is
-# correct either way and costs nothing.
+# apart. And on the OTHER service, `sanad-web`, the repository's root
+# railway.json demonstrably was NOT applied (2026-09-16: its settings page
+# showed no health check while the file declared one, and the file's
+# `healthcheckTimeout: 300` never appeared either), so the safe assumption
+# here is that this file is ignored too. Keep it: it is correct either way,
+# it costs nothing, and it is the only reviewable record of what this
+# deployment should be.
 #
 # TRAP: on that service, changing ANY variable without `--skip-deploys`
 # makes Railway redeploy the plain published image, which has no start
@@ -47,8 +49,9 @@
 # uploaded with `railway up <bundle> --path-as-root --service keycloak`.
 # Keycloak's own health lives on management port 9000, which a Railway
 # HTTP health check on the app port cannot reach, so this declares none.
-# Whether Railway reads either file is UNCONFIRMED -- see the paragraph
-# above and the row in docs/known-issues.md.
+# Assume Railway does NOT read either file -- see the paragraph above and
+# the row in docs/known-issues.md -- and keep the Keycloak service's own
+# dashboard settings free of a health check.
 #
 # WHY A DOCKERFILE AND NOT JUST THE PUBLISHED IMAGE. The official image has
 # an ENTRYPOINT (`kc.sh`) and NO CMD, so a platform that starts it without

@@ -30,8 +30,19 @@ image seeds, and a Sync indexed it.
 (YL's own, given `sanad-admin` on 2026-09-16 so the owner can administer).
 Two throwaway accounts made while testing were deleted.
 
-**The old demo in MB's workspace: its Keycloak is gone for good (404), so
-nobody can sign in there. Its APP KEEPS COMING BACK.** It was stopped twice
+**The old demo in MB's workspace: its Keycloak answers 404, so nobody can
+sign in there. Its APP KEPT COMING BACK, and whether it still does is the
+next merge's answer.** The service lives in MB's project, and YL said on
+2026-09-16 that its GitHub link was disconnected; nothing here can confirm
+that -- the CLI sees only the last deployment's metadata, still
+`repo=yousseflaaroui3010/RAG_project_ENSA, branch=main`. One check answers
+it, and only in one direction: after the next merge has finished deploying,
+`https://sanad-web-production-3416.up.railway.app/api/v1/health` answering
+**200 proves the link is still live**. A 404 proves nothing on its own --
+a stopped service, a failed build, a deploy still running and a deleted
+service all answer 404, and that URL answers 404 today.
+
+The history, which is why this is written down at all: It was stopped twice
 on 2026-09-16 and both times the next merge to `main` redeployed it -- it is
 still linked to GitHub, so `railway down` only removes the container that is
 running, not the link. Between a merge and somebody noticing, a second public
@@ -42,22 +53,30 @@ a service in someone else's project is not something to do unasked. Until
 then, there are two public Sanads after every merge, and only this one
 works.
 
-**Production settings added (SUPERSEDED by the correction below -- read
-both):** `railway.json` declares a health gate on `/api/v1/health` and a
+**Production settings added (SUPERSEDED by the SETTLED paragraph below --
+read both):** `railway.json` declares a health gate on `/api/v1/health` and a
 restart policy.
 
-**CORRECTION, same day, and it is the honest one:** that file is DECLARED,
-not proven to be in force. After `3b56c35` -- the first deploy that carried
-it -- `sanad-web`'s manifest still reported `healthcheckPath None`
-(`restartPolicy ON_FAILURE 10` was already there before the file, so it
-changes nothing). Railway's documentation says a root config file is picked
-up automatically and that the deployment details page marks settings that
-came from one with a file icon; nobody has opened that page. The same
-correction applies to `deploy/keycloak/railway.json`: the manifest after
-that upload is equally explained by the service's own
-`RAILWAY_DOCKERFILE_PATH` variable. The files are right either way and cost
-nothing; the claim that they are ACTIVE is what was not earned. Recorded in
-docs/known-issues.md so it cannot be quietly forgotten.
+**SETTLED, 2026-09-16: Railway did not apply this file's deploy settings
+on `sanad-web`.** That is the whole claim -- one file, one service, the
+`deploy` block; why is unknown, and `build.builder` was never tested. Two
+fields show it. YL opened the service's settings and the Healthcheck Path
+section showed an empty "+ Healthcheck Path" button -- nothing set -- while
+the committed file declared `/api/v1/health`; and the manifest read after
+YL set the path by hand STILL reports `healthcheckTimeout None` where the
+file says `300` -- a second field from the same block that never landed,
+read after the fix rather than before it. YL then set `/api/v1/health` by hand, and the manifest now
+reports it. **So the health gate IS now in force, and it is in force because
+of a dashboard setting, not because of the file.** The manifest's
+`restartPolicy ON_FAILURE 10` matches the file but proves nothing either
+way: it was already there before the file existed. Why
+the file is ignored is unknown; the service was created from the CLI with
+`railway add --repo`. The same doubt applies to
+`deploy/keycloak/railway.json`, whose result is equally explained by that
+service's `RAILWAY_DOCKERFILE_PATH` variable. Both files stay: they are the
+only reviewable record of what these deployments should be, and a setting
+that exists only in a dashboard is invisible to everyone reading this
+repository. Recorded in docs/known-issues.md.
 
 **A security review of the public deployment, 2026-09-16, found one HIGH and
 it is fixed:** every hit on `/auth/login` -- open to anyone, signed in or not
