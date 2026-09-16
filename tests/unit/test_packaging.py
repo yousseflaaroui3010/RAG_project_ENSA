@@ -36,12 +36,13 @@ def test_compose_keeps_the_app_local_and_persists_product_data():
     ]
 
 
-def test_railway_waits_for_health_and_restarts_a_failed_deploy():
-    """Without this file Railway swaps traffic to a container the moment it
-    starts and never checks it again: a deploy that boots and immediately
-    fails its own health check still becomes the live site.
+def test_railway_json_declares_the_health_gate_on_a_path_both_gates_open():
+    """This file DECLARES a health gate; whether Railway applies it is
+    unconfirmed (docs/known-issues.md). What this test owns is the part
+    that is ours: if the platform does read it, the path must be one a
+    container can actually answer.
 
-    The path is checked against BOTH gates. `AccessGate` decides in
+    So the path is checked against BOTH gates. `AccessGate` decides in
     password mode, `AuthGate` in keycloak mode -- which is what the
     published demo runs -- and a path only the first one opens would be
     answered with a redirect to the sign-in page, failing every deploy
@@ -77,13 +78,12 @@ def test_every_copy_of_the_health_path_agrees():
 
 
 def test_the_keycloak_bundle_carries_its_own_railway_settings():
-    """The repository's root railway.json health-checks Sanad's route. The
-    Keycloak service is uploaded from a bundle, and if that bundle ever
-    picked the root file up, Keycloak would be polled on a 404 for five
-    minutes and rolled back -- sign-in down for the whole demo. The bundle
-    ships its own config declaring no health check (Keycloak's own health
-    lives on management port 9000, which an HTTP check on the app port
-    cannot reach)."""
+    """The repository's root railway.json health-checks Sanad's route,
+    which Keycloak does not serve. The bundle therefore ships its own
+    config declaring no health check, so that whichever file Railway reads
+    for that service, Keycloak is never polled on a route it has not got
+    (its own health lives on management port 9000, which an HTTP check on
+    the app port cannot reach)."""
     bundle = json.loads(
         (ROOT / "deploy" / "keycloak" / "railway.json").read_text(encoding="utf-8")
     )
