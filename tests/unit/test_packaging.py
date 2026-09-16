@@ -3,6 +3,8 @@ from pathlib import Path
 
 import yaml
 
+from ui import access_gate
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -31,6 +33,24 @@ def test_compose_keeps_the_app_local_and_persists_product_data():
             "timeout=2).read()"
         ),
     ]
+
+
+def test_railway_waits_for_health_and_restarts_a_failed_deploy():
+    """Without this file Railway swaps traffic to a container the moment it
+    starts and never checks it again: a deploy that boots and immediately
+    fails its own health check still becomes the live site. The path must
+    be the one route the access gate leaves open, or the health check
+    itself would be refused and every deploy would be rolled back."""
+    import json as _json
+
+    config = _json.loads((ROOT / "railway.json").read_text(encoding="utf-8"))
+
+    assert config["build"]["builder"] == "DOCKERFILE"
+    assert config["deploy"]["healthcheckPath"] == access_gate._HEALTH_PATH
+    assert config["deploy"]["restartPolicyType"] == "ON_FAILURE"
+    # Long enough for the model warm-up on a cold start; short enough that a
+    # container that never answers is called a failure the same day.
+    assert 60 <= config["deploy"]["healthcheckTimeout"] <= 600
 
 
 def test_docker_context_excludes_secrets_state_and_host_virtualenv():
