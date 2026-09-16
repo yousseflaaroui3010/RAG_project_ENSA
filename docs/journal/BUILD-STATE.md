@@ -1,5 +1,58 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
+## STATE AT 2026-09-16, END OF SESSION -- AND WHAT IS NEXT (read this block first)
+
+**Shipped today, in order:** #138 sign-up (anyone can create an account, they
+arrive as a reader who sees nothing until granted) with the permission holes
+that opened up closed; #139 the demo rebuilt on YL's own paid Railway; #140
+the honest refusal translated, it was English inside a French page; #141 the
+health gate, the security-review fixes and evidence-only turned OFF so the
+demo answers for real; #142, #143 and #144 three corrections of my own
+claims. Suite at the close: **1303 passed, 2 skipped, 1 xfailed**, ruff
+clean. `main` carries them all; GitHub has one branch.
+
+**One live product:** https://sanad-web-production-5bee.up.railway.app with
+its Keycloak at https://keycloak-production-2070.up.railway.app, both in YL's
+own Railway project, plus one Postgres. MB's old project is out of scope from
+here on: its services answer 404 and it no longer receives deployments.
+
+**Open, and honest about it:** nothing is rate limited (the one security
+finding judged too big to improvise); there is no v3.1.0 tag because this
+project gates a release on a paid evaluation run and the last one predates
+everything above; six further security findings and the Railway
+config-as-code oddity are rows in docs/known-issues.md.
+
+### NEXT: the chat screen, its history, and the shell (ST-53)
+
+YL asked for a visible, slide-out chat history, a fixed header and footer,
+and a cleaner chat layout. Three things a future session must know BEFORE
+designing anything, because two of them are walls:
+
+1. **THERE IS NO HISTORY TO LIST YET.** `chat_history` is keyed
+   `PRIMARY KEY (user_id, workspace_id)` (db/schema.sql): exactly ONE
+   transcript per person per workspace, and "Nouvelle conversation"
+   REPLACES it. A browsable list of past conversations is a schema change
+   (a conversation needs its own id, a title, a created-at) plus migration,
+   not a menu. Design the data first or the menu will have nothing in it.
+2. **THE WORKSPACE SELECTOR MAY NOT GO INTO A MENU.** Signed UX spec,
+   section 4: "the active workspace stays visible at all times, never inside
+   a menu", because workspace isolation is F-01's whole promise. A drawer
+   holding chat history is fine; a drawer that swallows the selector
+   contradicts a signed document -- escalate, never edit the spec (rule 1).
+3. **NO PHONE LAYOUT.** Signed UX spec, section 3: below 768px the app shows
+   a plain notice that Sanad targets a desktop browser, and "Do not build a
+   phone layout". A responsive drawer is welcome; a mobile redesign is out
+   of scope until the spec says otherwise.
+
+Also standing: French default with Arabic and English, and Arabic mirrors the
+whole screen (RTL) -- any new control needs all three and a right-to-left
+check; CR-02 keeps the core flows working without JavaScript, so a drawer
+that only exists in JS must degrade to something usable; and ST-38's six
+screen-reader rows are still owed, so new UI should not add a seventh.
+
+---
+
+
 ## STATE AT 2026-09-16, THE DEMO ANSWERS FOR REAL (read this block first; older headers below are history)
 
 **One public demo, on YL's paid Railway, and it does the whole job:**
