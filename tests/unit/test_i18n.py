@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 from markupsafe import Markup
 
+import agent.nodes as nodes
 import app as app_module
 import change_detection
 import conversion
@@ -131,6 +132,11 @@ def _english_sentences_built_in_python() -> list[str]:
         *runs.STAGE_LABELS.values(),
         conversation.NO_MATCH_TEXT,
         conversation.INTERRUPTED_TEXT,
+        # Both refusals, not just the one seen failing on the demo: the
+        # unreadable-sections variant is rendered by the same template
+        # line and would go back to English unnoticed (review, 2026-09-16).
+        nodes.REFUSAL_TEXT,
+        nodes.REFUSAL_TEXT_UNREADABLE,
         proposal.text,
         error.error.sentence,
         error.error.attempted,

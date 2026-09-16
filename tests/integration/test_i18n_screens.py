@@ -103,6 +103,11 @@ def test_an_honest_refusal_is_localised_too(sanad, lang):  # noqa: F811
     assert "bubble--refusal" in page, "the test must render a real refusal"
     _assert_localised(page, lang)
     assert nodes.REFUSAL_TEXT not in _visible_text(page)
+    if lang == "ar":
+        # Reverting only the is_arabic() half of the line would leave an
+        # Arabic paragraph unmarked, and a screen reader would read it
+        # aloud in a French voice.
+        assert re.search(r'class="refusal__lead"[^>]*lang="ar"', page)
 
 
 @pytest.mark.parametrize("lang", ["fr", "ar"])
