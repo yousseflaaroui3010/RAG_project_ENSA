@@ -82,10 +82,16 @@ and is refused.
 ## Roles and permissions
 
 Keycloak realm roles map by name: `sanad-admin`, `sanad-curator`,
-`sanad-reader` (prefix configurable). Nobody is anything by default —
+`sanad-reader` (prefix configurable). Sanad itself grants nothing —
 someone with no Sanad role sees one page saying an administrator must
 grant access. Least privilege, and it makes a misconfigured realm
 obvious instead of accidentally generous.
+
+Since 2026-09-15 the shipped realm lets anyone sign up and gives them
+`sanad-reader` (DECISIONS, "ST-52 sign-up"). That is a realm setting, not
+a rule in the code: a reader sees no workspace until an administrator
+grants one, and `AUTH_MODE=keycloak` against a realm without
+self-registration behaves exactly as before.
 
 | Action | reader | curator | admin |
 |---|---|---|---|

@@ -11,10 +11,16 @@ role name itself. Two routes deciding "is this person an admin" in two
 places is how one of them ends up wrong, and it is the failure nobody
 notices until the wrong person deletes a workspace.
 
-NOBODY IS ANYTHING BY DEFAULT. A person Keycloak knows but who carries no
-Sanad role gets `roles=()`, which permits nothing -- they see one page
-saying an administrator must grant access. The alternative (defaulting to
-reader) turns a misconfigured realm into quiet, invisible access.
+SANAD ITSELF GRANTS NOTHING. Roles arrive from the realm; a person
+Keycloak knows but who carries no Sanad role gets `roles=()`, which
+permits nothing -- they see one page saying an administrator must grant
+access. Nothing here ever invents a role for anybody, so a misconfigured
+realm is obvious instead of accidentally generous.
+
+WHAT THE SHIPPED REALM DOES, which is a realm decision and not this
+module's: someone who signs up gets `sanad-reader` (DECISIONS 2026-09-15,
+"ST-52 sign-up"). A reader still sees no workspace until an administrator
+grants one, so the open door opens onto an empty room.
 """
 
 from __future__ import annotations

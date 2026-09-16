@@ -1463,10 +1463,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     def _no_role_page(request: Request) -> Response | None:
         """The page a signed-in person with no Sanad role sees.
 
-        Nobody is anything by default (ui/auth.py), so this is what a
-        newly created Keycloak account gets until an administrator grants
-        a role -- one honest sentence, rather than an empty workspace
-        selector that looks like a broken product."""
+        Sanad invents no role for anybody (ui/auth.py), so this is what a
+        person carries who has an account in the realm but no Sanad role --
+        one honest sentence, rather than an empty workspace selector that
+        looks like a broken product. With the shipped realm, someone who
+        signs up is a reader and lands on the ordinary screens instead;
+        this page remains for a realm without self-registration, and for an
+        account an administrator created or stripped by hand."""
         if principal_of(request).has_any_role:
             return None
         return templates.TemplateResponse(
@@ -1528,6 +1531,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 state=state,
                 nonce=nonce,
                 redirect_uri=get_settings().keycloak_redirect_url,
+                ui_locales=context_language(request),
             )
         except oidc.ProviderUnavailableError as exc:
             return _login_failed(request, str(exc))
@@ -1656,7 +1660,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         callback = urlsplit(get_settings().keycloak_redirect_url)
         return_to = urlunsplit((callback.scheme, callback.netloc, "/auth/login", "", ""))
         with contextlib.suppress(oidc.ProviderUnavailableError, AttributeError):
-            end_session = _provider().end_session_url(redirect_uri=return_to)
+            end_session = _provider().end_session_url(
+                redirect_uri=return_to, ui_locales=context_language(request)
+            )
             target = end_session or target
         response = RedirectResponse(target, status_code=SEE_OTHER)
         response.delete_cookie(auth.SESSION_COOKIE, path="/")
@@ -1881,6 +1887,25 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             visible_options(runtime, request)
         ) < 2:
             chosen = None
+        # Only a workspace this person may see. Without this, anyone
+        # signed in could point the shell at a workspace nobody shared with
+        # them -- harmless before sign-up, an open door after it.
+        if (
+            chosen is not None
+            and chosen != screen.ROUTE_SENTINEL
+            and chosen not in {opt.id for opt in visible_options(runtime, request)}
+        ):
+            # A workspace that EXISTS and was not shared with this person is
+            # a refusal, logged for an admin to see. One that does not exist
+            # at all is an honest stale page -- the workspace was deleted
+            # while this screen was open -- and is treated as "not chosen",
+            # which falls back to their first workspace.
+            everything = {
+                opt.id for opt in screen.workspace_options(db_path=runtime.db_path)
+            }
+            if chosen in everything:
+                return _refuse_action(runtime, request)
+            chosen = None
         moved = chosen is not None and chosen != (
             _active(runtime, request).id if _active(runtime, request) else None
         )
@@ -2024,6 +2049,12 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         destructive action always needs a deliberate second step even with
         scripting off, never a hand-rolled focus trap that only works with
         it on."""
+        # The POST that deletes checks this; this GET did not, and it
+        # prints the workspace's NAME (review 2026-09-15).
+        if not principal_of(request).may_manage_workspaces() or not _may_see(
+            request, workspace_id
+        ):
+            return _refuse_action(runtime, request)
         try:
             target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
         except workspaces.WorkspaceNotFoundError:
@@ -2281,6 +2312,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     @app.get("/reports/{eval_run_id}", response_class=HTMLResponse)
     def report_detail_route(request: Request, eval_run_id: str) -> HTMLResponse:
         detail = reports_screen.report_detail(eval_run_id, db_path=runtime.db_path)
+        if detail is not None and not _may_see(request, detail.summary.workspace_id):
+            # 404, NOT 403: a report of a workspace nobody shared with this
+            # person must read as "no such report". Saying "forbidden"
+            # would confirm the id exists, and the page quotes the
+            # documents' own text. Open to any signed-in stranger until
+            # this check, which sign-up made reachable (review 2026-09-15).
+            detail = None
         return templates.TemplateResponse(
             request,
             "report_detail.html",
@@ -2298,13 +2336,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         )
 
     @app.get("/reports/{eval_run_id}/export")
-    def report_export_route(eval_run_id: str) -> Response:
+    def report_export_route(request: Request, eval_run_id: str) -> Response:
         """UX spec 8.2: "the action states what it produces before it
         runs" -- report_detail.html's link says "Markdown for the report
         annex" before this is ever followed; this route only produces
         exactly that. A plain link with no JavaScript (CR-02): the
         browser's own download handling is the whole delivery mechanism."""
         detail = reports_screen.report_detail(eval_run_id, db_path=runtime.db_path)
+        if detail is not None and not _may_see(request, detail.summary.workspace_id):
+            # Same rule as the page above: the export carries every answer.
+            detail = None
         if detail is None:
             return Response(
                 f"No such report: {eval_run_id}",

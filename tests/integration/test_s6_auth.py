@@ -61,8 +61,12 @@ class FakeProvider:
         self.claims = ADMIN_CLAIMS
         self.active = True
         self.codes: list[str] = []
+        self.ui_locales: str | None = None
 
-    def authorization_url(self, *, state: str, nonce: str, redirect_uri: str) -> str:
+    def authorization_url(
+        self, *, state: str, nonce: str, redirect_uri: str, ui_locales: str = ""
+    ) -> str:
+        self.ui_locales = ui_locales
         return f"https://keycloak.test/realms/sanad/auth?state={state}&nonce={nonce}"
 
     def exchange_code(self, *, code: str, redirect_uri: str) -> dict:
@@ -72,7 +76,8 @@ class FakeProvider:
     def introspect(self, access_token: str) -> dict:
         return {**self.claims, "active": self.active}
 
-    def end_session_url(self, *, redirect_uri: str) -> str:
+    def end_session_url(self, *, redirect_uri: str, ui_locales: str = "") -> str:
+        self.logout_ui_locales = ui_locales
         return f"https://keycloak.test/realms/sanad/logout?redirect={redirect_uri}"
 
 
@@ -150,6 +155,31 @@ def test_sign_in_sends_the_browser_to_keycloak_with_a_state_and_remembers_it(key
     assert query["state"][0] and query["nonce"][0]
     assert auth.FLOW_COOKIE in response.cookies
     assert query["state"][0] in response.cookies[auth.FLOW_COOKIE]
+
+
+def test_sign_in_and_sign_up_pages_open_in_the_language_sanad_is_showing(keycloak):
+    """2026-09-15: a visitor reading Sanad in French got Keycloak's sign-in
+    and sign-up pages in English (Keycloak follows the browser). The
+    language chosen in Sanad now travels with the redirect."""
+    client, _, _, provider, _ = keycloak
+
+    client.get("/auth/login?lang=ar", follow_redirects=False)
+    arabic = provider.ui_locales
+    client.cookies.clear()
+    client.get("/auth/login?lang=en", follow_redirects=False)
+    english = provider.ui_locales
+
+    assert (arabic, english) == ("ar", "en")
+
+
+def test_sign_out_confirmation_opens_in_the_language_sanad_is_showing(keycloak):
+    client, _, _, provider, sign_in = keycloak
+    sign_in(ADMIN_CLAIMS)
+    client.get("/?lang=ar", follow_redirects=False)
+
+    client.post("/auth/logout", follow_redirects=False)
+
+    assert provider.logout_ui_locales == "ar"
 
 
 def test_a_callback_with_the_wrong_state_is_refused_and_no_session_is_written(keycloak):
@@ -334,6 +364,138 @@ def test_cookies_are_not_secure_on_a_plain_http_machine(keycloak):
         c for c in login.headers.get_list("set-cookie") if c.startswith(auth.FLOW_COOKIE)
     )
     assert "secure" not in flow_cookie.lower()
+
+
+def _seed_report(db_path, tmp_path, *, answer: str) -> tuple[str, str]:
+    """A workspace nobody granted, with one evaluation answer in it."""
+    report_path = tmp_path / "run.json"
+    report_path.write_text("{}", encoding="utf-8")
+    with repo.session(db_path) as conn:
+        workspace_id = repo.create_workspace(
+            conn, name="Salaires direction", folder_path=str(tmp_path)
+        )
+        run_id = repo.insert_eval_run(
+            conn,
+            workspace_id=workspace_id,
+            status="running",
+            question_total=1,
+            report_path=str(report_path),
+        )
+        repo.insert_eval_result(
+            conn,
+            eval_run_id=run_id,
+            question_id="g-in-fake-001",
+            kind="in_scope",
+            answer_kind="answer",
+            answer_text=answer,
+            passed=True,
+            groundedness=1.0,
+            relevancy=0.8,
+            sources_present=True,
+        )
+    return run_id, workspace_id
+
+
+def test_a_report_of_a_workspace_you_were_not_granted_is_not_readable(
+    keycloak, tmp_path
+):
+    """Review of the sign-up change, 2026-09-15: these two routes checked
+    neither role nor grant. Once anyone can sign up, a stranger holding a
+    run id could read the evaluation answers of a workspace nobody shared
+    with them -- the answers quote the documents."""
+    client, _, db_path, _, sign_in = keycloak
+    answer = "le salaire du directeur est de 42 000 dirhams"
+    run_id, _ = _seed_report(db_path, tmp_path, answer=answer)
+    sign_in(READER_CLAIMS)
+
+    page = client.get(f"/reports/{run_id}")
+    export = client.get(f"/reports/{run_id}/export")
+
+    assert page.status_code == 404, "an ungranted report must not render"
+    assert answer not in page.text
+    assert "Salaires direction" not in page.text
+    assert export.status_code == 404
+    assert answer not in export.text
+
+
+def test_an_admin_still_reads_any_report(keycloak, tmp_path):
+    """The other side: the fix must not lock out the person who may look."""
+    client, _, db_path, _, sign_in = keycloak
+    answer = "le salaire du directeur est de 42 000 dirhams"
+    run_id, _ = _seed_report(db_path, tmp_path, answer=answer)
+    sign_in(ADMIN_CLAIMS)
+
+    page = client.get(f"/reports/{run_id}")
+
+    assert page.status_code == 200
+    assert "Salaires direction" in page.text
+
+
+def test_a_reader_reads_the_report_of_a_workspace_they_were_granted(
+    keycloak, tmp_path
+):
+    """The positive control the review asked for: a check written as
+    "admins only" would pass every test above and still lock out the reader
+    this feature exists for."""
+    client, _, db_path, _, sign_in = keycloak
+    answer = "le salaire du directeur est de 42 000 dirhams"
+    run_id, workspace_id = _seed_report(db_path, tmp_path, answer=answer)
+    sign_in(READER_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=workspace_id, user_id=READER_CLAIMS["sub"])
+
+    page = client.get(f"/reports/{run_id}")
+
+    assert page.status_code == 200
+    assert "Salaires direction" in page.text
+
+
+def test_a_stale_page_naming_a_deleted_workspace_just_falls_back(keycloak, tmp_path):
+    """Refusing must mean "not yours", not "your page is old". A workspace
+    deleted while this screen was open posts an id that exists nowhere; the
+    honest answer is the person's own first workspace, with no refusal in
+    the activity log for an admin to puzzle over."""
+    client, runtime, db_path, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+
+    client.post(
+        "/workspace",
+        data={"workspace_id": "11111111-2222-3333-4444-555555555555"},
+        follow_redirects=False,
+    )
+
+    assert runtime.active_workspace_id is None
+    assert "refused" not in _actions(db_path)
+
+
+def test_the_delete_confirmation_page_does_not_name_a_workspace_you_cannot_touch(
+    keycloak, tmp_path
+):
+    """Same review: the POST that deletes checked the role, the GET that
+    shows the confirmation did not, so it printed the workspace's name to
+    anyone signed in."""
+    client, _, db_path, _, sign_in = keycloak
+    _, workspace_id = _seed_report(db_path, tmp_path, answer="x")
+    sign_in(READER_CLAIMS)
+
+    page = client.get(f"/workspaces/{workspace_id}/delete", follow_redirects=False)
+
+    assert page.status_code == 303
+    assert "Salaires direction" not in page.text
+
+
+def test_selecting_a_workspace_you_cannot_see_changes_nothing(keycloak, tmp_path):
+    """Same review: the posted id was written to the shell's selection
+    without a check, so any signed-in person could point the selector at a
+    workspace that was never shared with them."""
+    client, runtime, db_path, _, sign_in = keycloak
+    _, workspace_id = _seed_report(db_path, tmp_path, answer="x")
+    sign_in(READER_CLAIMS)
+
+    client.post("/workspace", data={"workspace_id": workspace_id}, follow_redirects=False)
+
+    assert runtime.active_workspace_id != workspace_id
+    assert "refused" in _actions(db_path)
 
 
 def test_an_expired_session_is_not_a_session(keycloak):

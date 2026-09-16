@@ -178,8 +178,17 @@ introspection endpoint. Roles are realm roles named `sanad-admin`,
 Sanad role can sign in and is told to ask an administrator; they see
 nothing else. Non-admins see only the workspaces they were granted.
 
+**Anyone can sign up.** The sign-in page has a "Nouvel utilisateur ?
+Enregistrement" link. A person who signs up gets the **reader** role and
+sees no workspace until an administrator ticks one for them on the
+Administration page, so an open sign-up never opens a document. No email is
+sent (there is no mail server); passwords need at least 10 characters and
+cannot be the username or email. Keycloak's pages open in the language Sanad
+is showing (French, Arabic or English).
+
 A realm for development, in one command. Set five variables in your shell
-(any values you like, but pick them yourself — none has a default):
+(any values you like, at least 10 characters for the two seed passwords,
+but pick them yourself — none has a default):
 
 ```
 KEYCLOAK_ADMIN_USER            the realm administrator's name
@@ -196,8 +205,8 @@ docker compose -f compose.keycloak.yaml up -d
 ```
 
 That imports `keycloak/realm-sanad.json`: the realm `sanad`, the confidential
-client `sanad` with both redirect URLs already set, the three realm roles, and
-four people to demonstrate with — `sanad-admin-demo`, `sanad-curator-demo`,
+client `sanad` with both redirect URLs already set, the three realm roles plus
+Keycloak's own two, sign-up turned on, and four people to demonstrate with — `sanad-admin-demo`, `sanad-curator-demo`,
 `sanad-reader-demo`, and `sanad-norole-demo`, who has no role and so sees the
 "ask an administrator" screen. The admin uses `KEYCLOAK_ADMIN_SEED_PASSWORD`,
 the other three `KEYCLOAK_SEED_PASSWORD`, so handing someone the reader
