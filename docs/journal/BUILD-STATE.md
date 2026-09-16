@@ -30,15 +30,21 @@ image seeds, and a Sync indexed it.
 (YL's own, given `sanad-admin` on 2026-09-16 so the owner can administer).
 Two throwaway accounts made while testing were deleted.
 
-**The old demo in MB's workspace is STOPPED** (both its app and its Keycloak
-answer 404). Its project, volumes and settings remain in MB's account and can
-be started again from the Railway dashboard. There is now exactly one public
-Sanad.
+**The old demo in MB's workspace: its Keycloak is gone for good (404), so
+nobody can sign in there. Its APP KEEPS COMING BACK.** It was stopped twice
+on 2026-09-16 and both times the next merge to `main` redeployed it -- it is
+still linked to GitHub, so `railway down` only removes the container that is
+running, not the link. Between a merge and somebody noticing, a second public
+Sanad is live on MB's trial plan, serving today's code with a dead sign-in
+service. **Stopping it for good needs MB's Railway dashboard** (disconnect
+the repo, or delete the service); the CLI cannot unlink a repo, and deleting
+a service in someone else's project is not something to do unasked. Until
+then, there are two public Sanads after every merge, and only this one
+works.
 
-**Production settings added, landing with this merge (so the first deploy
-after it is the one that proves them):** `railway.json` states the health
-gate in the repository -- Railway waits for `/api/v1/health` before sending
-traffic to a new deploy, and restarts a failed container.
+**Production settings added (SUPERSEDED by the correction below -- read
+both):** `railway.json` declares a health gate on `/api/v1/health` and a
+restart policy.
 
 **CORRECTION, same day, and it is the honest one:** that file is DECLARED,
 not proven to be in force. After `3b56c35` -- the first deploy that carried
@@ -51,11 +57,7 @@ correction applies to `deploy/keycloak/railway.json`: the manifest after
 that upload is equally explained by the service's own
 `RAILWAY_DOCKERFILE_PATH` variable. The files are right either way and cost
 nothing; the claim that they are ACTIVE is what was not earned. Recorded in
-docs/known-issues.md so it cannot be quietly forgotten. `deploy/keycloak/railway.json` ships
-inside the Keycloak bundle for one reason: the root file health-checks
-Sanad's route, and if it ever reached the Keycloak service that deploy would
-be polled on a 404 and rolled back, taking sign-in down (caught in review
-before it could happen).
+docs/known-issues.md so it cannot be quietly forgotten.
 
 **A security review of the public deployment, 2026-09-16, found one HIGH and
 it is fixed:** every hit on `/auth/login` -- open to anyone, signed in or not

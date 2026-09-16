@@ -10,8 +10,8 @@
 #     cp keycloak/realm-sanad.json <bundle>/keycloak/
 #     railway up <bundle> --path-as-root --service keycloak --ci
 #
-# `railway.json` MUST sit at the bundle's root: that is the copy Railway
-# reads. It pins the Dockerfile path and declares NO health check here, in
+# `railway.json` is copied to the bundle's root because that is where
+# Railway looks. It pins the Dockerfile path and declares NO health check here, in
 # the repository where both are reviewable, instead of leaving them to
 # whatever the service's dashboard happens to hold -- and the dashboard is
 # invisible to everyone reading this repo. It also makes the difference
@@ -45,12 +45,10 @@
 #     <bundle>/deploy/keycloak/start.sh
 #     <bundle>/keycloak/realm-sanad.json
 # uploaded with `railway up <bundle> --path-as-root --service keycloak`.
-# Its railway.json is what stops the REPOSITORY's root railway.json from
-# applying here: that one health-checks `/api/v1/health`, which is Sanad's
-# route and not Keycloak's, so a Keycloak deploy would be polled on a 404
-# and rolled back -- taking sign-in down with it (review, 2026-09-16).
 # Keycloak's own health lives on management port 9000, which a Railway
-# HTTP health check on the app port cannot reach, so it declares none.
+# HTTP health check on the app port cannot reach, so this declares none.
+# Whether Railway reads either file is UNCONFIRMED -- see the paragraph
+# above and the row in docs/known-issues.md.
 #
 # WHY A DOCKERFILE AND NOT JUST THE PUBLISHED IMAGE. The official image has
 # an ENTRYPOINT (`kc.sh`) and NO CMD, so a platform that starts it without
