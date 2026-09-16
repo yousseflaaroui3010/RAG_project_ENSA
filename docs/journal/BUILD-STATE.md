@@ -1,6 +1,92 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-16, THE DEMO ANSWERS FOR REAL (read this block first; older headers below are history)
+## STATE AT 2026-09-16, END OF SESSION -- AND WHAT IS NEXT (read this block first)
+
+**Shipped today, in order:** #138 sign-up (anyone can create an account, they
+arrive as a reader who sees nothing until granted) with the permission holes
+that opened up closed; #139 the demo rebuilt on YL's own paid Railway; #140
+the honest refusal translated, it was English inside a French page; #141 the
+health gate, the security-review fixes and evidence-only turned OFF so the
+demo answers for real; #142, #143 and #144 three corrections of my own
+claims. Suite at the close: **1303 passed, 2 skipped, 1 xfailed**, ruff
+clean. `main` carries them all, and GitHub is down to `main` once this
+block's own branch merges.
+
+**One live product:** https://sanad-web-production-5bee.up.railway.app with
+its Keycloak at https://keycloak-production-2070.up.railway.app, both in YL's
+own Railway project, plus one Postgres. YL has said MB's old project is out
+of scope from here on, and no deployment appeared there after merge #143 --
+which YL attributes to cutting its GitHub link. That is ONE observation and
+the service's Source panel has still not been read, so an exhausted trial
+plan or a merely paused auto-deploy are not excluded. The careful version is
+in the next block. **Check it again after the next merge**: a 200 on
+`https://sanad-web-production-3416.up.railway.app/api/v1/health` means a
+second public Sanad is live on someone else's account with a dead sign-in --
+which is exactly what happened twice on 2026-09-16.
+
+**Open, and honest about it:** nothing is rate limited (the one security
+finding judged too big to improvise); there is no v3.1.0 tag because this
+project gates a release on a paid evaluation run and the last one predates
+everything above; six further security findings and the Railway
+config-as-code oddity are rows in docs/known-issues.md.
+
+### NEXT: the chat screen, its history, and the shell (ST-53)
+
+YL asked for a visible, slide-out chat history, a fixed header and footer,
+and a cleaner chat layout. Three things a future session must know BEFORE
+designing anything, because two of them are walls:
+
+1. **THERE IS NO HISTORY TO LIST YET.** `chat_history` is keyed
+   `PRIMARY KEY (user_id, workspace_id)` (db/schema.sql): exactly ONE
+   transcript per person per workspace, and "Nouvelle conversation" does
+   not overwrite it -- it DELETES the row (`app.py` POST /chat/new ->
+   `delete_conversation_storage`), so there is not even a previous
+   conversation to recover. A browsable list is a schema change (a
+   conversation needs its own id, a title, a created-at) plus a migration,
+   and the capture has to start BEFORE that button is pressed. Design the
+   data first or the menu will have nothing in it. (There IS a `session_id`
+   inside the stored payload, `ui/conversation.py`; it is not a conversation
+   record -- `reset()` nulls it and the row goes -- so it does not change
+   this.)
+2. **THE WORKSPACE SELECTOR MAY NOT GO INTO A MENU.** Signed UX spec,
+   section 4: "the active workspace stays visible at all times, never inside
+   a menu", because workspace isolation is F-01's whole promise. A drawer
+   holding chat history is fine; a drawer that swallows the selector
+   contradicts a signed document -- escalate, never edit the spec (rule 1).
+3. **NO PHONE LAYOUT.** Signed UX spec, section 3: below 768px the app shows
+   a plain notice that Sanad targets a desktop browser, and "Do not build a
+   phone layout". A responsive drawer is welcome; a mobile redesign is out
+   of scope until the spec says otherwise.
+
+Also standing, with where to read each one: French by default with Arabic
+and English (`config.py` `default_ui_language`, DECISIONS 2026-09-13 CR-03),
+and Arabic mirrors the whole screen (`ui/templates/base.html` sets
+`dir="rtl"`, plus `ui/rtl.py` for content) -- any new control needs all three
+languages and a right-to-left look; the no-JavaScript habit, which is not a
+line in CR-02 but a practice visible at `app.py` ("a real `<form>` per
+button", "a plain link with no JavaScript") and `ui/templates/base.html` ("a
+button that does nothing without JavaScript is worse than no button"), and in
+the DECISIONS row of 2026-09-05 that chose a plain confirm page over a
+`<dialog>` -- so a drawer that exists only in JS must degrade to something
+usable; and ST-38's six screen-reader rows are still owed
+(`docs/ST-38-MANUAL-QA-RESULTS.md`), so new UI should not add a seventh.
+
+One more thing about the signed spec, and it is the shape of the whole
+document rather than one line: it stays as written, and the overrides live
+in DECISIONS.md. Two are already there, both CR-03 human rulings of
+2026-09-13 -- "Interface copy in English for V1" (spec section 14,
+Assumptions) was overridden by the French default, and "No drag-and-drop
+file upload" (section 13, Non-goals) was overridden by S6's browser upload.
+So read a non-goal or an assumption as a starting position, check DECISIONS
+before treating it as binding, and escalate rather than edit. The two walls
+above are different: they are design rules in sections 4 and 3, not
+assumptions, and nothing has overridden them (section 13 repeats the second
+one as "No phone or tablet layout").
+
+---
+
+
+## STATE AT 2026-09-16, THE DEMO ANSWERS FOR REAL (history now; the block above is current, and this one carries the detail behind it)
 
 **One public demo, on YL's paid Railway, and it does the whole job:**
 https://sanad-web-production-5bee.up.railway.app (sign-in service:
@@ -128,8 +214,8 @@ The OLD demo in MB's workspace (`sanad-web-production-3416`,
 NOT frozen: its app is still connected to GitHub `main`, so every future
 merge deploys there too, with nobody watching it. **[SUPERSEDED later the
 same day: both its services now answer 404 and it stopped receiving
-deployments, which YL attributes to cutting its GitHub link -- see the top
-block, which is the current one and which says what that does and does not
+deployments, which YL attributes to cutting its GitHub link -- see the
+block "THE DEMO ANSWERS FOR REAL", which says what that does and does not
 establish. The rest of this paragraph, including "a live public site", is
 history.]** Only its REALM is frozen
 -- the import is skipped on an existing database, so sign-up is not on it
@@ -525,7 +611,7 @@ backup video, mock defense.
 
 ---
 
-## STATE AT 2026-09-12, RAILWAY LIVE (read this block first; older headers below are history)
+## STATE AT 2026-09-12, RAILWAY LIVE (history now)
 
 **RAILWAY IS FIXED AND VERIFIED LIVE** on main `dd2243b` (#105 + #106),
 deploy SUCCESS on MB's `sanad-web` service. Checked against the public URL,
@@ -646,7 +732,7 @@ rather than silently accepted.
 
 ---
 
-## STATE AT 2026-09-12, v1.0.1 (read this block first; older headers below are history)
+## STATE AT 2026-09-12, v1.0.1 (history now)
 
 **v1.0.1 IS TAGGED** on `2b44491` (main, #103); v1.0.0 stays on `ae0bcbb`.
 Release run on golden set **v2**: **G1 37/40, G2 20/20, G3 37/37**,
