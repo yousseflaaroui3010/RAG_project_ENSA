@@ -30,8 +30,16 @@ image seeds, and a Sync indexed it.
 (YL's own, given `sanad-admin` on 2026-09-16 so the owner can administer).
 Two throwaway accounts made while testing were deleted.
 
-**The old demo in MB's workspace: its Keycloak is gone for good (404), so
-nobody can sign in there. Its APP KEEPS COMING BACK.** It was stopped twice
+**The old demo in MB's workspace: its Keycloak answers 404, so nobody can
+sign in there. Its APP KEPT COMING BACK, and whether it still does is the
+next merge's answer.** YL was asked to disconnect it from GitHub on
+2026-09-16; that cannot be confirmed from the CLI, which sees only the last
+deployment's metadata (still `repo=yousseflaaroui3010/RAG_project_ENSA,
+branch=main`). The proof is simple and costs nothing: after the next merge,
+check `https://sanad-web-production-3416.up.railway.app/api/v1/health`. A
+404 means the link is gone. A 200 means it is not.
+
+Until that check: It was stopped twice
 on 2026-09-16 and both times the next merge to `main` redeployed it -- it is
 still linked to GitHub, so `railway down` only removes the container that is
 running, not the link. Between a merge and somebody noticing, a second public
@@ -46,18 +54,21 @@ works.
 both):** `railway.json` declares a health gate on `/api/v1/health` and a
 restart policy.
 
-**CORRECTION, same day, and it is the honest one:** that file is DECLARED,
-not proven to be in force. After `3b56c35` -- the first deploy that carried
-it -- `sanad-web`'s manifest still reported `healthcheckPath None`
-(`restartPolicy ON_FAILURE 10` was already there before the file, so it
-changes nothing). Railway's documentation says a root config file is picked
-up automatically and that the deployment details page marks settings that
-came from one with a file icon; nobody has opened that page. The same
-correction applies to `deploy/keycloak/railway.json`: the manifest after
-that upload is equally explained by the service's own
-`RAILWAY_DOCKERFILE_PATH` variable. The files are right either way and cost
-nothing; the claim that they are ACTIVE is what was not earned. Recorded in
-docs/known-issues.md so it cannot be quietly forgotten.
+**SETTLED, 2026-09-16, and the answer is no: Railway does not apply that
+file.** YL opened the service's settings and the Healthcheck Path section
+showed an empty "+ Healthcheck Path" button -- nothing set -- while the file
+in the repository declared one, and two deploys carrying it reported
+`healthcheckPath None`. YL then set `/api/v1/health` by hand, and the
+manifest now reports `healthcheckPath /api/v1/health` with
+`restartPolicy ON_FAILURE 10`. **So the health gate IS now in force, and it
+is in force because of a dashboard setting, not because of the file.** Why
+the file is ignored is unknown; the service was created from the CLI with
+`railway add --repo`. The same doubt applies to
+`deploy/keycloak/railway.json`, whose result is equally explained by that
+service's `RAILWAY_DOCKERFILE_PATH` variable. Both files stay: they are the
+only reviewable record of what these deployments should be, and a setting
+that exists only in a dashboard is invisible to everyone reading this
+repository. Recorded in docs/known-issues.md.
 
 **A security review of the public deployment, 2026-09-16, found one HIGH and
 it is fixed:** every hit on `/auth/login` -- open to anyone, signed in or not
