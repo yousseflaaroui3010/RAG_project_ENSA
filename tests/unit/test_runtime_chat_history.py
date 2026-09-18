@@ -355,26 +355,6 @@ def test_delete_conversation_removes_exactly_one_and_only_for_its_owner(tmp_path
     assert sibling.id in runtime.conversations
 
 
-def test_delete_workspace_history_takes_every_conversation_there_and_nothing_else(tmp_path):
-    """An admin revoke: every one of the person's conversations in THAT
-    workspace, stored and live -- there are two here, so deleting "the"
-    conversation would leave one -- and nothing in another workspace or
-    of another person."""
-    db_path = _db(tmp_path)
-    ws1 = _workspace(db_path, "HR")
-    ws2 = _workspace(db_path, "Legal")
-    runtime = Runtime(db_path=db_path)
-    _saved(runtime, "alice", ws1, "a")
-    _saved(runtime, "alice", ws1, "b")
-    elsewhere = _saved(runtime, "alice", ws2, "c")
-    bobs = _saved(runtime, "bob", ws1, "d")
-
-    runtime.delete_workspace_history("alice", ws1)
-
-    assert _stored_ids(db_path) == {elsewhere.id, bobs.id}
-    assert {c.id for c in runtime.conversations.values()} == {elsewhere.id, bobs.id}
-
-
 def test_forget_conversations_clears_memory_but_leaves_storage_alone(tmp_path):
     """Ordinary sign-out: the transcript comes back at the next sign-in
     because only the in-memory copy is dropped, not the stored row."""
@@ -470,23 +450,6 @@ def test_delete_conversation_cancels_its_run_and_no_other(tmp_path):
 
     assert running.cancelled is True
     assert sibling.cancelled is False
-
-
-def test_delete_workspace_history_cancels_every_run_there(tmp_path):
-    db_path = _db(tmp_path)
-    ws1 = _workspace(db_path, "HR")
-    ws2 = _workspace(db_path, "Legal")
-    runtime = Runtime(db_path=db_path)
-    first = _running(runtime, "alice", ws1)
-    second = _running(runtime, "alice", ws1)
-    elsewhere = _running(runtime, "alice", ws2)
-
-    runtime.delete_workspace_history("alice", ws1)
-
-    assert (first.cancelled, second.cancelled, elsewhere.cancelled) == (True, True, False)
-
-
-# --- a deleted workspace's conversations, every person's (cold review) ----
 
 
 def test_forget_workspace_conversations_removes_every_persons_and_cancels_runs(tmp_path):

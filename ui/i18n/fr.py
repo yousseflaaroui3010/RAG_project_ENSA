@@ -18,43 +18,6 @@ MESSAGES: dict[str, str] = {
     "title.delete": "Supprimer {name} — Sanad",
     "title.chat_history_delete": "Supprimer mon historique — Sanad",
     "shell.skip": "Aller au contenu",
-    "phr.activity.uploaded": "document ajouté",
-    "phr.activity.removed_doc": "document retiré",
-    "ws.none_shared.title": "Aucun espace partagé avec vous",
-    "ws.none_shared.body": (
-        "Aucun espace de travail ne vous a encore été attribué. "
-        "Demandez à un administrateur de vous donner accès."
-    ),
-    "shell.nav.admin": "Administration",
-    "admin.title": "Administration",
-    "admin.lead": "Qui peut utiliser Sanad, sur quels espaces, et ce qui a été fait.",
-    "admin.people": "Personnes",
-    "admin.people_caption": "Comptes connus",
-    "admin.col.person": "Personne",
-    "admin.col.roles": "Rôles",
-    "admin.col.last_seen": "Dernière connexion",
-    "admin.col.workspaces": "Espaces autorisés",
-    "admin.col.actions": "Actions",
-    "admin.all_workspaces": "Tous les espaces (rôle administrateur)",
-    "admin.no_workspaces": "Aucun espace pour l’instant.",
-    "admin.save_grants": "Enregistrer les accès",
-    "admin.sign_out_everywhere": "Déconnecter partout",
-    "admin.no_people": "Personne ne s’est encore connecté.",
-    "admin.activity": "Journal d’activité",
-    "admin.activity_lead": "Ce qui a été fait et par qui. Jamais le contenu d’une question.",
-    "admin.activity_caption": "{count} derniers événements",
-    "admin.col.when": "Quand",
-    "admin.col.who": "Qui",
-    "admin.col.what": "Quoi",
-    "admin.col.where": "Espace",
-    "admin.no_activity": "Aucune activité enregistrée.",
-    "phr.activity.signed_in": "connexion",
-    "phr.activity.signed_out": "déconnexion",
-    "phr.activity.started_sync": "synchronisation lancée",
-    "phr.activity.granted": "accès accordé",
-    "phr.activity.revoked": "accès retiré",
-    "phr.activity.refused": "action refusée",
-    "phr.activity.signed_out_everywhere": "déconnexion forcée",
     "auth.title": "Connexion à Sanad",
     "auth.lead": (
         "Sanad ne vous demande jamais votre mot de passe : la connexion se fait "
@@ -63,13 +26,6 @@ MESSAGES: dict[str, str] = {
     "auth.sign_in": "Se connecter",
     "auth.sign_out": "Se déconnecter",
     "auth.failed": "La connexion n’a pas abouti.",
-    "auth.roles": "Rôles : {roles}",
-    "auth.no_roles": "aucun",
-    "auth.no_role.title": "Accès pas encore accordé",
-    "auth.no_role.body": (
-        "Votre compte est reconnu, mais aucun rôle Sanad ne lui est attribué. "
-        "Demandez à un administrateur de vous donner un rôle pour ce compte :"
-    ),
     "docs.error.forbidden": "vous n’avez pas le droit de faire cela dans cet espace.",
     "shell.brand": "Sanad",
     "shell.active_workspace": "Espace actif",
@@ -82,9 +38,6 @@ MESSAGES: dict[str, str] = {
     "shell.nav_label": "Écrans",
     "shell.nav.chat": "Assistant",
     "shell.nav.chat_disabled_title": "Créez un espace de travail avant de poser une question",
-    "shell.nav.chat_disabled_title_no_access": (
-        "Aucun espace partagé avec vous : demandez un accès à un administrateur"
-    ),
     "shell.nav.workspaces": "Espaces",
     "shell.nav.reports": "Rapports",
     "shell.dark_theme": "Thème sombre",
@@ -290,6 +243,10 @@ MESSAGES: dict[str, str] = {
     "ws.sync.finished": "Dernière synchronisation terminée le {when}.",
     "ws.sync.never": "Cet espace n’a pas encore été synchronisé.",
     "ws.first.title": "Créez votre premier espace",
+    "ws.shared.note": (
+        f"Espace partagé{NNBSP}: vous pouvez le consulter et poser des questions. "
+        "Seul son propriétaire peut le modifier."
+    ),
     "ws.first.body": (
         "Sanad répond à partir des documents regroupés dans un espace de travail. "
         "Tant qu’aucun espace n’existe, il n’y a rien à synchroniser ni à interroger."

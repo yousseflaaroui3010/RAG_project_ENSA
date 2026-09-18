@@ -111,11 +111,22 @@ class WorkspaceOption:
     id: str
     name: str
     legal_flag: bool
+    # ST-54: who owns it; None for a shared workspace. Screen-side only --
+    # `workspaces.Workspace`, which the machine API serialises, does not
+    # carry it, so the signed API contract is unchanged.
+    owner_user_id: str | None = None
 
 
 def workspace_options(*, db_path: str | Path | None = None) -> list[WorkspaceOption]:
+    with repo.session(db_path) as conn:
+        owners = repo.workspace_owners(conn)
     return [
-        WorkspaceOption(id=ws.id, name=ws.name, legal_flag=ws.legal_flag)
+        WorkspaceOption(
+            id=ws.id,
+            name=ws.name,
+            legal_flag=ws.legal_flag,
+            owner_user_id=owners.get(ws.id),
+        )
         for ws in workspaces.list_workspaces(db_path=db_path)
     ]
 

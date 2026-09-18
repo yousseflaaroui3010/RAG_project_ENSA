@@ -121,6 +121,7 @@ Sprint-0 baseline exit: all Highest sprint-0 stories Done (target 2026-07-22).
 | ID | Title | Own | Phase-2 refs | Depends on | Exit gate |
 |---|---|---|---|---|---|
 | ST-53 | Chat history you can see and open, then the drawer, header, footer and chat layout (three pull requests: A data and routes, B drawer, C shell) | YL | UX spec 4, 6.2, 3.1; PRD F-07; law 09-08 rows in DECISIONS | S6 saved chat history | A: many conversations per person with list, open, rename, delete, migration proven by tests that fail without it; B and C: used on the live site, screenshots of two conversations and switching between them |
+| ST-54 | No roles, no admin page: every signed-in person owns the workspaces they create; pre-existing workspaces are shared read-and-ask (PR 1), then create a workspace by picking a folder on your computer (PR 2) | YL | DECISIONS 2026-09-18 ST-54 rows | ST-53 part A | PR 1: someone else's private workspace is hidden and unchangeable on every route, proven by tests that fail without each check; PR 2: a picked folder's files are uploaded and synced on the live site |
 
 ## Critical path (V1.0)
 ST-02 → ST-10 → {ST-12, ST-13→ST-14→ST-15→ST-16} → ST-17 → ST-21 → ST-23 →

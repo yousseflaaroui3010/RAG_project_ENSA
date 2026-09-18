@@ -1,9 +1,10 @@
-"""S6: roles as Keycloak states them, and what each role may do.
+"""S6, ST-54: who may see and change a workspace.
 
-Every row of the permission table in docs/design/S6-auth-rbac.md is a
-rule someone could get wrong in one direction (a reader deleting a
-workspace) or the other (an admin locked out of their own instance), so
-each is asserted in both directions.
+ST-54 (YL's ruling, 2026-09-18) dropped the roles: every signed-in person
+is equal, owns what they create, may read and ask a shared (ownerless)
+workspace, and cannot see anyone else's. Each rule is asserted in both
+directions -- a stranger changing your workspace is one failure, an owner
+locked out of their own is the other.
 """
 
 from __future__ import annotations
@@ -11,95 +12,34 @@ from __future__ import annotations
 import pytest
 
 from ui import auth
-from ui.auth import ADMIN, CURATOR, READER, Principal
+from ui.auth import Principal
+
+AMINA = Principal(id="u-amina", username="amina", display_name="Amina")
 
 
-def person(*roles: str) -> Principal:
-    return Principal(id="u-1", username="amina", display_name="Amina", roles=roles)
+# --- ownership ----------------------------------------------------------------
 
 
-# --- roles as the provider states them -------------------------------------
+def test_an_owner_sees_and_manages_their_own_workspace():
+    assert AMINA.may_see_workspace("u-amina")
+    assert AMINA.may_manage_workspace("u-amina")
 
 
-def test_only_prefixed_sanad_roles_are_read_from_the_realm():
-    claims = {
-        "realm_access": {"roles": ["offline_access", "sanad-admin", "default-roles"]},
-    }
-
-    assert auth.roles_from_claims(claims, prefix="sanad-") == (ADMIN,)
+def test_a_shared_workspace_is_readable_by_everyone_and_changeable_by_nobody():
+    assert AMINA.may_see_workspace(None)
+    assert not AMINA.may_manage_workspace(None)
 
 
-def test_roles_on_this_client_count_too_and_duplicates_collapse():
-    claims = {
-        "realm_access": {"roles": ["sanad-reader"]},
-        "resource_access": {
-            "sanad": {"roles": ["sanad-curator", "sanad-reader"]},
-            "other-app": {"roles": ["sanad-admin"]},
-        },
-    }
-
-    assert auth.roles_from_claims(claims, prefix="sanad-") == (ADMIN, CURATOR, READER)
-
-
-@pytest.mark.parametrize(
-    "claims",
-    [
-        {},
-        {"realm_access": {}},
-        {"realm_access": {"roles": ["admin", "curator", "reader"]}},
-        {"realm_access": {"roles": ["sanad-superuser", "sanad-"]}},
-        {"realm_access": {"roles": [None, 7]}},
-    ],
-)
-def test_anything_else_grants_nothing(claims):
-    assert auth.roles_from_claims(claims, prefix="sanad-") == ()
-
-
-# --- what each role may do --------------------------------------------------
-
-
-def test_a_person_with_no_role_may_do_nothing_at_all():
-    nobody = person()
-
-    assert not nobody.has_any_role
-    assert not nobody.may_ask("ws", {"ws"})
-    assert not nobody.may_manage_documents("ws", {"ws"})
-    assert not nobody.may_manage_workspaces()
-    assert not nobody.may_read_activity()
-
-
-def test_a_reader_asks_in_granted_workspaces_only_and_changes_nothing():
-    reader = person(READER)
-
-    assert reader.may_ask("granted", {"granted"})
-    assert not reader.may_ask("other", {"granted"})
-    assert not reader.may_manage_documents("granted", {"granted"})
-    assert not reader.may_manage_workspaces()
-
-
-def test_a_curator_manages_documents_where_granted_but_owns_no_workspace():
-    curator = person(CURATOR)
-
-    assert curator.may_manage_documents("granted", {"granted"})
-    assert not curator.may_manage_documents("other", {"granted"})
-    assert not curator.may_manage_workspaces()
-    assert not curator.may_read_activity()
-
-
-def test_an_admin_sees_every_workspace_without_a_grant():
-    admin = person(ADMIN)
-
-    assert admin.may_see_workspace("never-granted", set())
-    assert admin.may_manage_documents("never-granted", set())
-    assert admin.may_manage_workspaces()
-    assert admin.may_read_activity()
+def test_someone_elses_workspace_is_neither_visible_nor_changeable():
+    assert not AMINA.may_see_workspace("u-omar")
+    assert not AMINA.may_manage_workspace("u-omar")
 
 
 def test_the_local_principal_of_the_login_free_modes_may_do_everything():
     assert auth.LOCAL.unrestricted
-    assert auth.LOCAL.may_manage_workspaces()
-    assert auth.LOCAL.may_ask("any", set())
-    assert auth.LOCAL.may_manage_documents("any", set())
+    for owner in (None, "local", "u-omar"):
+        assert auth.LOCAL.may_see_workspace(owner)
+        assert auth.LOCAL.may_manage_workspace(owner)
 
 
 # --- sessions ---------------------------------------------------------------

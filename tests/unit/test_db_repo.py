@@ -737,7 +737,7 @@ def test_rename_and_delete_touch_only_the_owners_row(conn):
     assert repo.delete_conversation(conn, conversation_id="c1", user_id="alice") == 1
 
 
-def test_delete_conversations_in_workspace_and_for_user(conn):
+def test_delete_conversations_for_user_leaves_other_people_alone(conn):
     ws1 = repo.create_workspace(conn, name="ws-del-a", folder_path="/tmp/wsda")
     ws2 = repo.create_workspace(conn, name="ws-del-b", folder_path="/tmp/wsdb")
     conn.commit()
@@ -746,12 +746,7 @@ def test_delete_conversations_in_workspace_and_for_user(conn):
     ]:
         _conversation(conn, conversation_id, ws_id, user=user)
 
-    assert repo.delete_conversations_in_workspace(conn, user_id="alice", workspace_id=ws1) == 2
-    conn.commit()
-    left = {row[0] for row in conn.execute("SELECT id FROM conversation")}
-    assert left == {"a3", "b1"}
-
-    assert repo.delete_conversations_for_user(conn, user_id="alice") == 1
+    assert repo.delete_conversations_for_user(conn, user_id="alice") == 3
     conn.commit()
     assert {row[0] for row in conn.execute("SELECT id FROM conversation")} == {"b1"}
 
@@ -975,3 +970,34 @@ def test_a_migration_that_fails_part_way_keeps_the_old_table_whole(tmp_path, mon
         assert connection.execute("SELECT COUNT(*) FROM conversation").fetchone()[0] == 0
     finally:
         connection.close()
+
+
+# --- ST-54: the workspace owner column ---------------------------------------
+
+
+def test_an_old_database_gets_the_owner_column_and_every_workspace_stays_shared(tmp_path):
+    """A database made before ST-54 has no owner column. Start-up adds it,
+    leaves every existing workspace ownerless (= shared, so the live demo
+    stays readable by everyone), and a second start-up changes nothing."""
+    db_path = tmp_path / "old.db"
+    connection = sqlite3.connect(db_path)
+    connection.execute(
+        "CREATE TABLE workspace (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, "
+        "folder_path TEXT NOT NULL, legal_flag INTEGER NOT NULL DEFAULT 0, "
+        "created_at TEXT NOT NULL)"
+    )
+    connection.execute(
+        "INSERT INTO workspace VALUES ('w1', 'RH', '/data/hr', 1, '2026-09-01T00:00:00+00:00')"
+    )
+    connection.commit()
+    connection.close()
+
+    repo.ensure_schema(db_path)
+    repo.ensure_schema(db_path)
+
+    with repo.session(db_path) as conn:
+        assert repo.workspace_owners(conn) == {"w1": None}
+        new = repo.create_workspace(
+            conn, name="Mine", folder_path="/tmp/m", owner_user_id="kc-amina"
+        )
+        assert repo.workspace_owners(conn)[new] == "kc-amina"

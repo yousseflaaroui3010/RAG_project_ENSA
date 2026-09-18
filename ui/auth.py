@@ -1,26 +1,21 @@
-"""Who is asking, and what they are allowed to do (S6).
+"""Who is asking, and what they are allowed to do (S6, ST-54).
 
-docs/design/S6-auth-rbac.md is the design; this module is the part every
-route asks. Three modes (`AUTH_MODE`): `none` is today's local-first app
-with no login at all, `password` is the existing shared-secret gate, and
-`keycloak` is named people with roles.
+Three modes (`AUTH_MODE`): `none` is the local-first app with no login at
+all, `password` is the shared-secret gate, and `keycloak` is named people.
 
 THE PERMISSION RULES LIVE HERE, IN ONE PLACE. A route asks
-`principal.may_manage_documents(workspace_id, granted)`; it never reads a
-role name itself. Two routes deciding "is this person an admin" in two
-places is how one of them ends up wrong, and it is the failure nobody
-notices until the wrong person deletes a workspace.
+`principal.may_manage_workspace(owner)`; it never decides ownership
+itself. Two routes deciding "may this person change this workspace" in
+two places is how one of them ends up wrong.
 
-SANAD ITSELF GRANTS NOTHING. Roles arrive from the realm; a person
-Keycloak knows but who carries no Sanad role gets `roles=()`, which
-permits nothing -- they see one page saying an administrator must grant
-access. Nothing here ever invents a role for anybody, so a misconfigured
-realm is obvious instead of accidentally generous.
-
-WHAT THE SHIPPED REALM DOES, which is a realm decision and not this
-module's: someone who signs up gets `sanad-reader` (DECISIONS 2026-09-15,
-"ST-52 sign-up"). A reader still sees no workspace until an administrator
-grants one, so the open door opens onto an empty room.
+ST-54 (YL's ruling, 2026-09-18): THERE ARE NO ROLES. Every signed-in
+person is equal. Keycloak only says who they are. A person owns the
+workspaces they create and may do everything to those; a workspace with
+no owner (every one made before ST-54, like the live demo's) is SHARED:
+everyone may read it and ask it, nobody may change it. Someone else's
+workspace is invisible -- not merely refused -- so its name never leaks
+through a selector. The login-free modes are one unrestricted person who
+owns and sees everything, exactly as before S6.
 """
 
 from __future__ import annotations
@@ -28,7 +23,6 @@ from __future__ import annotations
 import hashlib
 import secrets
 import sqlite3
-from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -37,11 +31,6 @@ from config import get_settings
 MODE_NONE = "none"
 MODE_PASSWORD = "password"
 MODE_KEYCLOAK = "keycloak"
-
-ADMIN = "admin"
-CURATOR = "curator"
-READER = "reader"
-ROLES = (ADMIN, CURATOR, READER)
 
 # The cookie that carries the session token. `sanad_lang` next to it is
 # the only other cookie this app sets.
@@ -59,49 +48,26 @@ class Principal:
     id: str
     username: str
     display_name: str
-    roles: tuple[str, ...]
     # True for the local, login-free modes: nothing is checked and
     # everything is allowed, exactly as before S6.
     unrestricted: bool = False
 
-    @property
-    def is_admin(self) -> bool:
-        return self.unrestricted or ADMIN in self.roles
+    def may_see_workspace(self, owner_user_id: str | None) -> bool:
+        """Their own, or a shared one (no owner). Anything else is not
+        offered anywhere -- not in the selector, not in routing, not in
+        Reports -- and refused if a stale or forged request names it."""
+        return self.unrestricted or owner_user_id is None or owner_user_id == self.id
 
-    @property
-    def is_curator(self) -> bool:
-        return self.is_admin or CURATOR in self.roles
-
-    @property
-    def has_any_role(self) -> bool:
-        return self.unrestricted or bool(self.roles)
-
-    def may_see_workspace(self, workspace_id: str, granted: Iterable[str]) -> bool:
-        """An admin sees every workspace; everyone else sees only what they
-        were granted. A workspace that is not visible is not offered
-        anywhere -- not in the selector, not in routing, not in Reports."""
-        return self.is_admin or workspace_id in set(granted)
-
-    def may_ask(self, workspace_id: str, granted: Iterable[str]) -> bool:
-        return self.has_any_role and self.may_see_workspace(workspace_id, granted)
-
-    def may_manage_documents(self, workspace_id: str, granted: Iterable[str]) -> bool:
-        """Upload, remove, Sync. Curators, in the workspaces they hold."""
-        return self.is_curator and self.may_see_workspace(workspace_id, granted)
-
-    def may_manage_workspaces(self) -> bool:
-        """Create, rename, re-flag, delete a workspace: admins only."""
-        return self.is_admin
-
-    def may_read_activity(self) -> bool:
-        return self.is_admin
+    def may_manage_workspace(self, owner_user_id: str | None) -> bool:
+        """Rename, re-flag, delete, upload, remove, Sync: their own only.
+        A shared workspace is read-and-ask for everyone who signs in."""
+        return self.unrestricted or (owner_user_id is not None and owner_user_id == self.id)
 
 
 LOCAL = Principal(
     id="local",
     username="local",
     display_name="local",
-    roles=ROLES,
     unrestricted=True,
 )
 
@@ -110,37 +76,11 @@ def current_mode() -> str:
     return get_settings().auth_mode
 
 
-def roles_from_claims(claims: dict, *, prefix: str | None = None) -> tuple[str, ...]:
-    """The Sanad roles inside Keycloak's introspection answer.
-
-    Realm roles and this client's roles are both read, because a realm can
-    be organised either way and an operator who put `sanad-admin` in the
-    client's role list has not made a mistake. Anything without the
-    configured prefix belongs to another application and is ignored."""
-    marker = get_settings().auth_role_prefix if prefix is None else prefix
-    found: set[str] = set()
-    realm = claims.get("realm_access") or {}
-    sources = [realm.get("roles") or []]
-    for entry in (claims.get("resource_access") or {}).values():
-        if isinstance(entry, dict):
-            sources.append(entry.get("roles") or [])
-    for source in sources:
-        for raw in source:
-            if not isinstance(raw, str) or not raw.startswith(marker):
-                continue
-            name = raw[len(marker) :].lower()
-            if name in ROLES:
-                found.add(name)
-    return tuple(role for role in ROLES if role in found)
-
-
 def principal_from_session(row: sqlite3.Row) -> Principal:
-    roles = tuple(r for r in (row["roles"] or "").split() if r in ROLES)
     return Principal(
         id=row["user_id"],
         username=row["username"],
         display_name=row["display_name"] or row["username"],
-        roles=roles,
     )
 
 

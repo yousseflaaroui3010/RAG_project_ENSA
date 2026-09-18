@@ -151,9 +151,12 @@ def create_workspace(
     name: str,
     folder_path: str,
     legal_flag: bool = False,
+    owner_user_id: str | None = None,
     db_path: str | Path | None = None,
 ) -> Workspace:
-    """Create a workspace. Raises InvalidWorkspaceNameError if `name` is
+    """Create a workspace. `owner_user_id` is who created it (ST-54); None
+    makes it shared, which only pre-ST-54 rows and the machine API's
+    login-free callers produce. Raises InvalidWorkspaceNameError if `name` is
     outside the contract's length bounds, or DuplicateWorkspaceNameError
     if `name` is already taken, instead of letting sqlite3.IntegrityError
     escape (only a UNIQUE violation on workspace.name is translated; any
@@ -163,7 +166,11 @@ def create_workspace(
     with repo.session(db_path) as conn:
         try:
             ws_id = repo.create_workspace(
-                conn, name=name, folder_path=folder_path, legal_flag=legal_flag
+                conn,
+                name=name,
+                folder_path=folder_path,
+                legal_flag=legal_flag,
+                owner_user_id=owner_user_id,
             )
         except sqlite3.IntegrityError as exc:
             if _NAME_UNIQUE_VIOLATION not in str(exc):

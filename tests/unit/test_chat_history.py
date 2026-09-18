@@ -206,22 +206,6 @@ def test_delete_removes_only_that_one_conversation(tmp_path):
     assert _load(db_path, "b1") is not None
 
 
-def test_delete_in_workspace_removes_every_conversation_there_for_that_person(tmp_path):
-    db_path = _db(tmp_path)
-    ws1 = _workspace(db_path, "ws-rev-a")
-    ws2 = _workspace(db_path, "ws-rev-b")
-    _save(db_path, "a1", ws1)
-    _save(db_path, "a2", ws1)
-    _save(db_path, "b1", ws2)
-    _save(db_path, "other", ws1, user="bob")
-
-    removed = chat_history.delete_in_workspace(user_id="local", workspace_id=ws1, db_path=db_path)
-
-    assert removed == 2
-    assert _load(db_path, "b1") is not None
-    assert _load(db_path, "other", user="bob") is not None
-
-
 def test_delete_for_user_leaves_other_people_alone(tmp_path):
     db_path = _db(tmp_path)
     ws_id = _workspace(db_path, "ws-two-people")
