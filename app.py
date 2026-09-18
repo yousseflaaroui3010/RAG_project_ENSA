@@ -1332,6 +1332,7 @@ def _ws_context(
         # ST-54: anyone may create; only the owner of the SELECTED workspace
         # sees its settings, upload, remove and Sync.
         "may_create_workspace": True,
+        "asks_folder_path": principal_of(request).unrestricted,
         "may_manage_workspaces": bool(
             selected_id and may_manage(runtime, request, selected_id)
         ),
@@ -2205,13 +2206,32 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             "folder_path": form.get("folder_path", ""),
             "legal_flag": form.get("legal_flag") == "on",
         }
+        # WITH ACCOUNTS ON, THE SERVER PICKS THE FOLDER (cold review of
+        # #148). A typed path let anyone who signed up point a workspace
+        # they own at any folder the server can reach -- the shared demo's
+        # included -- then download, upload into or delete its files. A
+        # posted `folder_path` is ignored; the workspace gets its own empty
+        # folder under `managed_folder_root()`, filled by browser uploads.
+        # The login-free modes keep the typed path: that is one person on
+        # their own machine, pointing Sanad at their own files.
+        new_id = None
+        managed = None
+        if not principal.unrestricted:
+            new_id = repo.new_id()
+            managed = workspaces.managed_folder_root() / new_id
+            managed.mkdir(parents=True, exist_ok=False)
+            submitted["folder_path"] = str(managed)
         try:
             created = workspaces.create_workspace(
                 db_path=runtime.db_path,
                 owner_user_id=None if principal.unrestricted else principal.id,
+                workspace_id=new_id,
                 **submitted,
             )
         except workspaces.WorkspaceError as exc:
+            if managed is not None:
+                managed.rmdir()
+                submitted["folder_path"] = ""
             return templates.TemplateResponse(
                 request,
                 "workspaces.html",

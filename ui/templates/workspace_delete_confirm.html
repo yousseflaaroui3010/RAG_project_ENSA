@@ -28,7 +28,10 @@
     users will not believe it unless the dialog says so."
   #}
   <p>{{ th('del.body_html', name=target.name) }}</p>
-  <p class="mono error__value">{{ target.folder_path }}</p>
+  {# ST-54: server paths only without accounts. #}
+  {% if asks_folder_path %}
+    <p class="mono error__value">{{ target.folder_path }}</p>
+  {% endif %}
   <p>{{ t('del.body_after') }}</p>
   <form method="post" action="/workspaces/{{ target.id }}/delete">
     <button class="btn btn--primary" type="submit">{{ th('del.yes_html', name=target.name) }}</button>

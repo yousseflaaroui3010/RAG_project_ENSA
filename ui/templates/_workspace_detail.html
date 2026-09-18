@@ -20,7 +20,11 @@
         <span class="marker" title="{{ t('shell.legal_marker_title') }}">{{ t('shell.legal_marker') }}</span>
       {% endif %}
     </div>
-    <p class="mono ws-detail__path">{{ selected.folder_path }}</p>
+    {# ST-54: a server path means nothing to a signed-in person, and names
+       where on the server the files sit. Shown only without accounts. #}
+    {% if asks_folder_path %}
+      <p class="mono ws-detail__path">{{ selected.folder_path }}</p>
+    {% endif %}
     {% if signed_in_as and not may_manage_workspaces %}
       {# ST-54: a shared workspace -- read and ask, nothing to change. #}
       <p class="notice" role="note">{{ t('ws.shared.note') }}</p>

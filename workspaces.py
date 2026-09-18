@@ -98,6 +98,16 @@ def _normalize_name(name: str) -> str:
     return normalized
 
 
+def managed_folder_root() -> Path:
+    """Where the server makes each workspace's folder when accounts are on
+    (ST-54): `workspace_files_root`, or a `workspaces` folder next to the
+    database."""
+    settings = get_settings()
+    if settings.workspace_files_root:
+        return Path(settings.workspace_files_root)
+    return Path(settings.sqlite_db_path).parent / "workspaces"
+
+
 def _validate_folder_path(folder_path: str) -> None:
     """Reject empty/whitespace-only folder_path. A non-str (e.g. None) is
     left to db/schema.sql's own NOT NULL constraint -- that is a
@@ -152,6 +162,7 @@ def create_workspace(
     folder_path: str,
     legal_flag: bool = False,
     owner_user_id: str | None = None,
+    workspace_id: str | None = None,
     db_path: str | Path | None = None,
 ) -> Workspace:
     """Create a workspace. `owner_user_id` is who created it (ST-54); None
@@ -171,6 +182,7 @@ def create_workspace(
                 folder_path=folder_path,
                 legal_flag=legal_flag,
                 owner_user_id=owner_user_id,
+                id=workspace_id,
             )
         except sqlite3.IntegrityError as exc:
             if _NAME_UNIQUE_VIOLATION not in str(exc):

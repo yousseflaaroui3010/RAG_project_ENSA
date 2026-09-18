@@ -22,12 +22,19 @@
            value="{{ (form_values.name if form_values else '') }}"
            placeholder="{{ t('ws.form.name_placeholder') }}">
   </div>
+  {#
+    ST-54: only without accounts. Signed in, the server makes the folder
+    and the documents are uploaded from the browser; a typed server path
+    would let anyone reach any folder on the server.
+  #}
+  {% if asks_folder_path %}
   <div class="ws-form__row">
     <label class="ws-form__label" for="ws-folder">{{ t('ws.form.folder') }}</label>
     <input class="ws-form__input mono" id="ws-folder" name="folder_path" type="text" required
            value="{{ (form_values.folder_path if form_values else '') }}"
            placeholder="{{ t('ws.form.folder_placeholder') }}">
   </div>
+  {% endif %}
   <div class="ws-form__row ws-form__row--check">
     <input id="ws-legal" name="legal_flag" type="checkbox"
            {% if form_values and form_values.legal_flag %}checked{% endif %}>
