@@ -27,12 +27,24 @@
     source files on disk stay, because that is F-01's third criterion and
     users will not believe it unless the dialog says so."
   #}
-  <p>{{ th('del.body_html', name=target.name) }}</p>
-  {# ST-54: server paths only without accounts. #}
-  {% if asks_folder_path %}
+  {#
+    ST-54 part 2: a workspace created with accounts on has a folder the
+    server made for its uploads, and deleting the workspace deletes those
+    files too -- the dialog must say so, not promise they stay (review of
+    #149; an override of UX spec 7.2's wording for this case only, recorded
+    in DECISIONS). Every other workspace keeps 7.2's promise: its source
+    folder is the person's own and is never touched.
+  #}
+  {% if deletes_files %}
+    <p>{{ th('del.body_uploads_html', name=target.name) }}</p>
+  {% elif asks_folder_path %}
+    <p>{{ th('del.body_html', name=target.name) }}</p>
     <p class="mono error__value">{{ target.folder_path }}</p>
+    <p>{{ t('del.body_after') }}</p>
+  {% else %}
+    {# ST-54: no server path with accounts on, so no sentence ending in one. #}
+    <p>{{ th('del.body_kept_html', name=target.name) }}</p>
   {% endif %}
-  <p>{{ t('del.body_after') }}</p>
   <form method="post" action="/workspaces/{{ target.id }}/delete">
     <button class="btn btn--primary" type="submit">{{ th('del.yes_html', name=target.name) }}</button>
   </form>

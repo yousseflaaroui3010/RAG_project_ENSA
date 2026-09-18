@@ -1363,3 +1363,135 @@ def test_every_response_carries_the_security_headers(keycloak, tmp_path):
 
     assert download.status_code == 200, download.text[:200]
     assert download.headers.get_list("x-content-type-options") == ["nosniff"]
+
+
+# --- ST-54 part 2: create from a folder --------------------------------------
+
+
+def test_the_picker_script_gets_the_new_workspace_back_as_json(keycloak):
+    """The folder picker creates the workspace first and needs its
+    addresses to upload into; a plain form post still redirects."""
+    client, _, db_path, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+
+    answer = client.post(
+        "/workspaces", data={"name": "Picked"}, headers={"X-Requested-With": "fetch"}
+    )
+
+    assert answer.status_code == 201
+    body = answer.json()
+    [created] = workspaces.list_workspaces(db_path=db_path)
+    assert body == {
+        "id": created.id,
+        "url": f"/workspaces?ws={created.id}",
+        "upload_url": f"/workspaces/{created.id}/documents",
+        "sync_url": f"/workspaces/{created.id}/sync",
+    }
+    uploaded = _upload(client, created.id, "contrat.txt", b"Article 1.")
+    assert uploaded.status_code == 201
+    assert (Path(created.folder_path) / "contrat.txt").read_bytes() == b"Article 1."
+
+
+def test_a_refused_name_answers_json_and_leaves_no_folder_behind(keycloak):
+    client, _, db_path, _, sign_in = keycloak
+    workspaces.create_workspace(name="Taken", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(READER_CLAIMS)
+
+    answer = client.post(
+        "/workspaces", data={"name": "Taken"}, headers={"X-Requested-With": "fetch"}
+    )
+
+    assert answer.status_code == 422
+    assert answer.json()["error"]
+    root = workspaces.managed_folder_root(db_path)
+    assert not root.exists() or list(root.iterdir()) == []
+
+
+def test_deleting_a_workspace_removes_its_uploaded_files_too(keycloak):
+    """Its uploads exist only because of it (closes the ST-54 known issue).
+    Only a server-made folder: see test_workspaces for the typed-path half."""
+    client, _, db_path, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+    created = client.post(
+        "/workspaces", data={"name": "Short-lived"}, headers={"X-Requested-With": "fetch"}
+    ).json()
+    _upload(client, created["id"], "note.txt", b"uploaded")
+    folder = Path(
+        workspaces.get_workspace(workspace_id=created["id"], db_path=db_path).folder_path
+    )
+    assert (folder / "note.txt").exists()
+
+    client.post(f"/workspaces/{created['id']}/delete", follow_redirects=False)
+
+    assert workspaces.list_workspaces(db_path=db_path) == []
+    assert not folder.exists()
+
+
+def test_the_delete_dialog_says_uploaded_files_go_too(keycloak):
+    """Review of #149: the dialog promised the files stay, then deleted
+    them. For a workspace whose folder the server made, it must say they
+    go; and no sentence may dangle waiting for a path it cannot show."""
+    client, _, _, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+    created = client.post(
+        "/workspaces", data={"name": "Mine"}, headers={"X-Requested-With": "fetch"}
+    ).json()
+
+    page = client.get(f"/workspaces/{created['id']}/delete").text
+
+    assert "the files uploaded to it" in page
+    assert "not</strong> touch" not in page
+
+
+def test_the_folder_picker_is_offered_only_with_accounts_on(keycloak):
+    client, _, _, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+
+    page = client.get("/workspaces").text
+
+    assert "webkitdirectory" in page and "data-folder-pick" in page
+
+
+def test_the_dialog_shown_again_after_a_refused_delete_still_says_files_go(keycloak, monkeypatch):
+    """Second review of #149: a delete refused while a Sync runs shows the
+    dialog again, and its Yes button still deletes -- it must say so too."""
+    from db import repo as repo_module
+
+    client, _, _, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+    created = client.post(
+        "/workspaces", data={"name": "Mine"}, headers={"X-Requested-With": "fetch"}
+    ).json()
+    monkeypatch.setattr(repo_module, "get_running_sync_run", lambda conn, wid: {"id": "run"})
+
+    page = client.post(f"/workspaces/{created['id']}/delete", follow_redirects=False)
+
+    assert page.status_code == 409
+    assert "the files uploaded to it" in page.text
+    assert "not touched" not in page.text
+
+
+def test_the_script_is_told_whether_the_sync_really_started(keycloak):
+    """Every Sync outcome is a redirect for a form, which a script's fetch
+    follows to an "ok" page either way. With the script's header it gets
+    a plain answer instead."""
+    import sync as sync_module
+
+    client, runtime, _, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+    created = client.post(
+        "/workspaces", data={"name": "Mine"}, headers={"X-Requested-With": "fetch"}
+    ).json()
+    fetch = {"X-Requested-With": "fetch"}
+
+    runtime.start_sync = lambda workspace_id: None
+    started = client.post(created["sync_url"], headers=fetch)
+
+    def busy(workspace_id):
+        raise sync_module.SyncInProgressError(workspace_id, "run-1", "2026-09-18T00:00:00+00:00")
+
+    runtime.start_sync = busy
+    refused = client.post(created["sync_url"], headers=fetch)
+
+    assert (started.status_code, started.json()) == (202, {"started": True})
+    assert refused.status_code == 409 and refused.json()["started"] is False

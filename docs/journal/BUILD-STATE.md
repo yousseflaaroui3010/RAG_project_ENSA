@@ -1,6 +1,28 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-18, ST-54 PR 1: NO ROLES, OWNED WORKSPACES (read this block first)
+## STATE AT 2026-09-18, ST-54 PART 2: CREATE A WORKSPACE FROM A FOLDER (read this block first)
+
+**#148 is merged and live**: owner column present, the demo workspace
+shared (no owner), health 200. Backup taken first:
+`/app/data/sanad.db.bak-2026-09-18-st54`.
+
+**Part 2.** Signed in, the create form has a "folder on your computer"
+picker. The script creates the workspace, uploads each supported file at
+the top of the folder through the existing upload route, then starts one
+Sync. Subfolder files and unsupported types are skipped and named.
+Deleting a workspace now deletes its server-made folder too, never a typed
+laptop path.
+
+**Proof.** Full suite **1332 passed, 2 skipped, 1 xfailed**, ruff clean; 6
+of 6 deliberate breakages caught. **Run in a real browser** (Playwright,
+local app with accounts on): picker visible, no path field; picking a
+folder of `contrat.txt`, `notes.md`, `photo.jpg`, `sub/deep.txt` created
+the workspace and left exactly `contrat.txt` and `notes.md` in its folder;
+a Sync started. Not yet tried on the live site.
+
+---
+
+## STATE AT 2026-09-18, ST-54 PR 1: NO ROLES, OWNED WORKSPACES (merged as #148; the part-2 block above is current)
 
 **ST-53 part A is merged (#147) and live.** The live database was backed up
 first (`/app/data/sanad.db.bak-2026-09-18`, 163,840 bytes, same as the

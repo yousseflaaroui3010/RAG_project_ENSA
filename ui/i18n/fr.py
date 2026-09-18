@@ -242,6 +242,19 @@ MESSAGES: dict[str, str] = {
     "ws.sync.pending_report": "Le rapport s’affichera ici à la fin de cette synchronisation.",
     "ws.sync.finished": "Dernière synchronisation terminée le {when}.",
     "ws.sync.never": "Cet espace n’a pas encore été synchronisé.",
+    "ws.form.folder_pick": "Dossier sur votre ordinateur (facultatif)",
+    "ws.form.folder_pick_help": (
+        "Ses fichiers sont envoyés dans le nouvel espace, puis synchronisés. Les "
+        "fichiers des sous-dossiers et les formats non pris en charge sont ignorés."
+    ),
+    "ws.create.skipped": (
+        f"{{name}}{NNBSP}: ignoré (dans un sous-dossier, ou format non pris en charge)"
+    ),
+    "ws.create.creating": "Création de l’espace…",
+    "ws.create.created": "Espace créé.",
+    "ws.create.nothing": "Aucun fichier pris en charge dans ce dossier.",
+    "ws.create.skipped_nested": f"Fichiers des sous-dossiers ignorés{NNBSP}: {{name}}",
+    "ws.create.open": "Ouvrir l’espace",
     "ws.first.title": "Créez votre premier espace",
     "ws.shared.note": (
         f"Espace partagé{NNBSP}: vous pouvez le consulter et poser des questions. "
@@ -264,6 +277,15 @@ MESSAGES: dict[str, str] = {
     ),
     "del.body_after": (
         "Ils restent sur le disque tels quels ; seule la copie lue par Sanad est supprimée."
+    ),
+    "del.body_uploads_html": (
+        "Cette action supprime l’index synchronisé de <bdi>{name}</bdi>, son "
+        "historique de synchronisation <strong>et les fichiers qui y ont été "
+        "envoyés</strong>. Elle est définitive."
+    ),
+    "del.body_kept_html": (
+        "Cette action supprime l’index synchronisé de <bdi>{name}</bdi> et son "
+        "historique de synchronisation. Les fichiers sources ne sont pas touchés."
     ),
     "del.yes_html": "Oui, supprimer <bdi>{name}</bdi>",
     "del.cancel": "Annuler, conserver cet espace",

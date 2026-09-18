@@ -19,6 +19,7 @@ PRD F-01 (docs/phase2/Sanad_PRD_v1.0.md):
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,6 +113,53 @@ def managed_folder_root(db_path: str | Path | None = None) -> Path:
     path, so a script run from another directory finds the same folder."""
     path = db_path if db_path is not None else get_settings().sqlite_db_path
     return Path(path).resolve().parent / MANAGED_FOLDER_NAME
+
+
+def is_managed_folder(
+    folder_path: str,
+    workspace_id: str,
+    owner_user_id: str | None,
+    db_path: str | Path | None = None,
+) -> bool:
+    """True only for the folder the SERVER made for THIS workspace.
+
+    Decided by who made it, not only by where it is (review of #149: a
+    person's own folder that merely sat inside the managed area would have
+    been deleted). All three must hold: the workspace has an owner (only
+    workspaces created with accounts on do, and only those get a server
+    folder); the folder is a DIRECT child of the managed root, both
+    resolved, so links and `..` cannot reach elsewhere; and its name is
+    this workspace's id, which is how the server names it."""
+    if owner_user_id is None:
+        return False
+    try:
+        root = managed_folder_root(db_path).resolve()
+        candidate = Path(folder_path).resolve()
+    except (OSError, ValueError):
+        return False
+    return candidate.parent == root and candidate.name == workspace_id
+
+
+def remove_managed_folder(
+    folder_path: str,
+    workspace_id: str,
+    owner_user_id: str | None,
+    db_path: str | Path | None = None,
+) -> bool:
+    """Delete the server-made folder of a deleted workspace and the files
+    uploaded into it (ST-54 part 2). Refuses anything `is_managed_folder`
+    does not vouch for, so a person's own files are never touched, and
+    deletes the RESOLVED path it checked, not the raw string. True if the
+    folder is gone; False if refused or if removing failed (a file held
+    open, say) -- the caller logs that."""
+    if not is_managed_folder(folder_path, workspace_id, owner_user_id, db_path):
+        return False
+    target = Path(folder_path).resolve()
+    try:
+        shutil.rmtree(target)
+    except OSError:
+        return False
+    return not target.exists()
 
 
 def _validate_folder_path(folder_path: str) -> None:

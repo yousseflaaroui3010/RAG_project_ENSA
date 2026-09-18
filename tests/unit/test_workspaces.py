@@ -384,3 +384,81 @@ def test_create_and_get_workspace_bootstraps_schema_on_default_path(tmp_path, mo
         assert ws.list_workspaces() == [fetched]
     finally:
         get_settings.cache_clear()
+
+
+# --- ST-54 part 2: server-made folders, and only those, may be deleted ------
+
+WS_ID = "11111111-2222-3333-4444-555555555555"
+
+
+def test_a_folder_counts_as_server_made_only_by_who_made_it_not_only_where(tmp_path):
+    """Review of #149: going by location alone, a person's own folder that
+    merely sat inside the managed area would have been deleted. It must be
+    a direct child of the root, named after THIS workspace, of a workspace
+    that has an owner (only those get a server folder)."""
+    db_path = tmp_path / "sanad.db"
+    root = ws.managed_folder_root(db_path)
+    made = root / WS_ID
+
+    assert ws.is_managed_folder(str(made), WS_ID, "kc-amina", db_path)
+    assert not ws.is_managed_folder(str(made), WS_ID, None, db_path), "no owner"
+    assert not ws.is_managed_folder(str(made), "another-id", "kc-amina", db_path), "not its id"
+    assert not ws.is_managed_folder(str(root / "HR"), "HR", None, db_path), "a typed folder"
+    assert not ws.is_managed_folder(str(root / WS_ID / "deeper"), "deeper", "kc-a", db_path)
+    assert not ws.is_managed_folder(str(root), "workspaces", "kc-a", db_path), "never the root"
+    assert not ws.is_managed_folder(
+        str(root / ".." / WS_ID), WS_ID, "kc-a", db_path
+    ), "no climbing out"
+
+
+def test_removing_refuses_a_typed_folder_even_inside_the_managed_area(tmp_path):
+    """The reviewer's case, made real: `<db dir>/workspaces/HR` typed by a
+    laptop user, full of their own files, must survive."""
+    db_path = tmp_path / "sanad.db"
+    typed = ws.managed_folder_root(db_path) / "HR"
+    typed.mkdir(parents=True)
+    (typed / "contrat.pdf").write_bytes(b"mine")
+    made = ws.managed_folder_root(db_path) / WS_ID
+    made.mkdir()
+    (made / "upload.txt").write_text("uploaded", encoding="utf-8")
+
+    assert ws.remove_managed_folder(str(typed), "some-workspace-id", None, db_path) is False
+    assert (typed / "contrat.pdf").read_bytes() == b"mine"
+    assert ws.remove_managed_folder(str(made), WS_ID, "kc-amina", db_path) is True
+    assert not made.exists()
+
+
+def _link(link, target):
+    """A directory link: a symlink where allowed, else a Windows junction
+    (no special rights needed). Skips the test where neither can be made."""
+    import os
+
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return
+    except (OSError, NotImplementedError):
+        pass
+    try:
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    except (ImportError, OSError):
+        pytest.skip("this machine cannot make directory links")
+
+
+def test_a_link_named_after_the_workspace_never_leads_a_delete_outside(tmp_path):
+    """Second review of #149: checked with junctions by hand; now in the
+    suite. A link inside the managed area, named like a workspace id, that
+    points at someone's own folder must not count as server-made."""
+    db_path = tmp_path / "sanad.db"
+    outside = tmp_path / "my-own-files"
+    outside.mkdir()
+    (outside / "contrat.pdf").write_bytes(b"mine")
+    root = ws.managed_folder_root(db_path)
+    root.mkdir(parents=True)
+    link = root / WS_ID
+    _link(link, outside)
+
+    assert not ws.is_managed_folder(str(link), WS_ID, "kc-amina", db_path)
+    assert ws.remove_managed_folder(str(link), WS_ID, "kc-amina", db_path) is False
+    assert (outside / "contrat.pdf").read_bytes() == b"mine"

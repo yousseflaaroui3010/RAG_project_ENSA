@@ -229,6 +229,17 @@ MESSAGES: dict[str, str] = {
     "ws.sync.pending_report": "The last sync report will appear here once this run finishes.",
     "ws.sync.finished": "Last Sync finished {when}.",
     "ws.sync.never": "This workspace has not been synced yet.",
+    "ws.form.folder_pick": "Folder on your computer (optional)",
+    "ws.form.folder_pick_help": (
+        "Its files are uploaded into the new workspace, then synced. Files inside "
+        "subfolders and unsupported types are skipped."
+    ),
+    "ws.create.skipped": "{name}: skipped (in a subfolder, or not a supported type)",
+    "ws.create.creating": "Creating the workspace…",
+    "ws.create.created": "Workspace created.",
+    "ws.create.nothing": "No supported file was found in this folder.",
+    "ws.create.skipped_nested": "Files inside subfolders skipped: {name}",
+    "ws.create.open": "Open the workspace",
     "ws.first.title": "Create your first workspace",
     "ws.shared.note": (
         "Shared workspace: you can read it and ask questions. Only its owner can change it."
@@ -251,6 +262,14 @@ MESSAGES: dict[str, str] = {
     "del.body_after": (
         "They stay on disk exactly as they are; only Sanad's copy of what it read "
         "from them is removed."
+    ),
+    "del.body_uploads_html": (
+        "This removes <bdi>{name}</bdi>'s synced index, its sync history <strong>and "
+        "the files uploaded to it</strong>. This cannot be undone."
+    ),
+    "del.body_kept_html": (
+        "This removes <bdi>{name}</bdi>'s synced index and its sync history. The "
+        "source files themselves are not touched."
     ),
     "del.yes_html": "Yes, delete <bdi>{name}</bdi>",
     "del.cancel": "Cancel, keep this workspace",

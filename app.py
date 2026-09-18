@@ -2200,6 +2200,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         a laptop stays readable if the same database later runs with
         accounts on."""
         principal = principal_of(request)
+        # ST-54 part 2: the folder picker's script creates the workspace
+        # first, then uploads the picked files into it -- it needs the new
+        # id back as JSON, not a redirect. The same custom header the
+        # upload route relies on.
+        wants_json = request.headers.get("x-requested-with") == "fetch"
         form = await _form(request)
         submitted = {
             "name": form.get("name", ""),
@@ -2232,6 +2237,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             if managed is not None:
                 managed.rmdir()
                 submitted["folder_path"] = ""
+            if wants_json:
+                return JSONResponse(
+                    status_code=422,
+                    content={
+                        "error": str(i18n.translate_text(context_language(request), str(exc)))
+                    },
+                )
             return templates.TemplateResponse(
                 request,
                 "workspaces.html",
@@ -2250,6 +2262,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 managed.rmdir()
             raise
         runtime.set_active(principal.id, created.id)
+        if wants_json:
+            return JSONResponse(
+                status_code=201,
+                content={
+                    "id": created.id,
+                    "url": f"/workspaces?ws={created.id}",
+                    "upload_url": f"/workspaces/{created.id}/documents",
+                    "sync_url": f"/workspaces/{created.id}/sync",
+                },
+            )
         return RedirectResponse(f"/workspaces?ws={created.id}", status_code=SEE_OTHER)
 
     @app.post("/workspaces/{workspace_id}/rename")
@@ -2290,6 +2312,14 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             pass
         return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
 
+    def _deletes_files(target: workspaces.Workspace) -> bool:
+        """Whether deleting this workspace deletes files too: only its
+        server-made upload folder (ST-54 part 2). ONE answer for every
+        render of the delete dialog, so no render can promise otherwise."""
+        return workspaces.is_managed_folder(
+            target.folder_path, target.id, _owner_of(runtime, target.id)[1], runtime.db_path
+        )
+
     @app.get("/workspaces/{workspace_id}/delete", response_class=HTMLResponse)
     def confirm_delete_workspace(request: Request, workspace_id: str) -> Response:
         """The no-JS `ConfirmDialog` (UX spec 5, 7.2): a real page, so a
@@ -2307,7 +2337,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         return templates.TemplateResponse(
             request,
             "workspace_delete_confirm.html",
-            {**_ws_context(runtime, request), "target": target},
+            {
+                **_ws_context(runtime, request),
+                "target": target,
+                "deletes_files": _deletes_files(target),
+            },
         )
 
     @app.post("/workspaces/{workspace_id}/delete")
@@ -2329,6 +2363,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                     **_ws_context(runtime, request),
                     "target": target,
                     "delete_error": message,
+                    # Shown again after a refusal (a Sync running), and its
+                    # Yes button still deletes: it must say the same thing
+                    # as the first time (second review of #149).
+                    "deletes_files": _deletes_files(target),
                 },
                 status_code=409,
             )
@@ -2346,6 +2384,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 "This workspace cannot be deleted while a Sync of it is running. "
                 "Cancel the Sync or wait for it to finish, then try again."
             )
+        try:
+            folder = workspaces.get_workspace(
+                workspace_id=workspace_id, db_path=runtime.db_path
+            ).folder_path
+        except workspaces.WorkspaceNotFoundError:
+            folder = None
+        _exists, owner = _owner_of(runtime, workspace_id)
         try:
             with runtime.store() as client:
                 sync.delete_workspace(
@@ -2365,6 +2410,20 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         runtime.last_sync_run_id.pop(workspace_id, None)
         runtime.forget_workspace_conversations(workspace_id)
         runtime.forget_active(workspace_id)
+        # ST-54 part 2: a folder the SERVER made for this workspace goes
+        # with it -- those uploads exist only because of it. A typed path
+        # (the login-free modes, the demo) is the person's own folder and
+        # stays untouched, as PRD F-01 requires; `remove_managed_folder`
+        # refuses anything outside the managed root.
+        if folder is not None and workspaces.is_managed_folder(
+            folder, workspace_id, owner, runtime.db_path
+        ):
+            if not workspaces.remove_managed_folder(folder, workspace_id, owner, runtime.db_path):
+                # The person was told the files go; say so when they did
+                # not. The id only -- never a file name or a path.
+                logger.warning(
+                    "could not remove the uploaded files of deleted workspace %s", workspace_id
+                )
         return RedirectResponse("/workspaces", status_code=SEE_OTHER)
 
     @app.post("/workspaces/{workspace_id}/sync")
@@ -2377,6 +2436,22 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         clicked sees it; see that method for why the claim moved here."""
         if not _may_manage(request, workspace_id):
             return _refuse_action(runtime, request)
+        # ST-54 part 2: the folder picker's script needs to know whether the
+        # Sync really started -- every outcome below is a redirect, which a
+        # script's fetch follows to an "ok" page either way (second review
+        # of #149). Asked with the script's header, it answers plainly.
+        if request.headers.get("x-requested-with") == "fetch":
+            lang = context_language(request)
+            try:
+                runtime.start_sync(workspace_id)
+            except (sync.EvidenceOnlyError, sync.SyncInProgressError) as exc:
+                return JSONResponse(
+                    status_code=409,
+                    content={"started": False, "error": str(i18n.translate_text(lang, str(exc)))},
+                )
+            except workspaces.WorkspaceNotFoundError:
+                return JSONResponse(status_code=404, content={"started": False, "error": ""})
+            return JSONResponse(status_code=202, content={"started": True})
         try:
             runtime.start_sync(workspace_id)
         except sync.EvidenceOnlyError as exc:
