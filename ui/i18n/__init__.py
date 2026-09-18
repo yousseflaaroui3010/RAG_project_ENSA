@@ -246,6 +246,8 @@ def js_strings(lang: str) -> dict[str, str]:
         # ST-54 part 2: the folder picker's own lines.
         "ws.create.skipped",
         "ws.create.creating",
+        "ws.create.skipped_nested",
+        "ws.create.open",
     )
     return {key: translate(lang, key, name="{name}", reason="{reason}") for key in keys}
 

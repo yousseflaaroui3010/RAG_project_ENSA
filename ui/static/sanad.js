@@ -381,14 +381,22 @@
         .split("{reason}").join(reason || "");
     }
 
-    function usable(file) {
+    // "nested" (inside a subfolder: counted, not listed one by one),
+    // "hidden" (a system file like .DS_Store or desktop.ini: left out
+    // silently), "unsupported" (named), or "ok".
+    var SYSTEM_FILES = ["desktop.ini", "thumbs.db"];
+    function sort(file) {
       var path = file.webkitRelativePath || file.name;
       if (path.split("/").length > 2) {
-        return false;
+        return "nested";
       }
-      var dot = file.name.lastIndexOf(".");
-      var extension = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
-      return !accepted.length || accepted.indexOf(extension) !== -1;
+      var lower = file.name.toLowerCase();
+      if (lower.charAt(0) === "." || SYSTEM_FILES.indexOf(lower) !== -1) {
+        return "hidden";
+      }
+      var dot = lower.lastIndexOf(".");
+      var extension = dot >= 0 ? lower.slice(dot) : "";
+      return !accepted.length || accepted.indexOf(extension) !== -1 ? "ok" : "unsupported";
     }
 
     function upload(url, file) {
@@ -432,7 +440,8 @@
         submit.disabled = true;
       }
       folderStatus.textContent = "";
-      folderLine(uiString("ws.create.creating", "Creating the workspace…"), "pending");
+      var creating = folderLine(uiString("ws.create.creating", "Creating the workspace…"), "pending");
+      var created = null;
       fetch(createForm.action, {
         method: "POST",
         headers: {
@@ -446,47 +455,98 @@
             return { ok: response.ok, data: data };
           });
         })
-        .then(function (created) {
-          if (!created.ok) {
-            folderStatus.textContent = "";
-            folderLine(created.data.error || "—", "failed");
+        .then(function (answer) {
+          if (!answer.ok) {
+            // Nothing was created: the form may be corrected and sent again.
+            creating.textContent = answer.data.error || "—";
+            creating.className = "dropzone__line dropzone__line--failed";
             if (submit) {
               submit.disabled = false;
             }
-            return;
+            return null;
           }
+          // From here the workspace EXISTS: the button stays off (a second
+          // press would only be told the name is taken), and every path
+          // below ends with a way into it.
+          created = answer.data;
+          creating.className = "dropzone__line dropzone__line--done";
           var landed = 0;
+          var nested = 0;
+          var trouble = false;
           return files
             .reduce(function (chain, file) {
               return chain.then(function () {
-                if (!usable(file)) {
+                var kind = sort(file);
+                if (kind === "nested") {
+                  nested += 1;
+                  return null;
+                }
+                if (kind === "hidden") {
+                  return null;
+                }
+                if (kind === "unsupported") {
+                  trouble = true;
                   folderLine(named("ws.create.skipped", "{name}: skipped", file.name), "failed");
                   return null;
                 }
-                return upload(created.data.upload_url, file).then(function (ok) {
+                return upload(created.upload_url, file).then(function (ok) {
                   if (ok) {
                     landed += 1;
+                  } else {
+                    trouble = true;
                   }
                 });
               });
             }, Promise.resolve())
             .then(function () {
-              if (!landed) {
-                return null;
+              if (nested) {
+                trouble = true;
+                folderLine(
+                  named("ws.create.skipped_nested", "Files inside subfolders skipped: {name}", String(nested)),
+                  "failed"
+                );
               }
-              folderLine(uiString("docs.upload.syncing", "Sync started."), "done");
-              return fetch(created.data.sync_url, {
+              if (!landed) {
+                return false;
+              }
+              return fetch(created.sync_url, {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 body: ""
-              });
+              })
+                .then(function (response) {
+                  if (response.ok) {
+                    folderLine(uiString("docs.upload.syncing", "Sync started."), "done");
+                  }
+                  return true;
+                })
+                .catch(function () {
+                  return true;
+                });
             })
-            .then(function () {
-              window.location.assign(created.data.url);
+            .then(function (anyLanded) {
+              // Straight on only when everything went in. Otherwise the
+              // lines above ARE the explanation, so they stay on screen,
+              // with a link into the workspace.
+              if (anyLanded && !trouble) {
+                window.location.assign(created.url);
+                return;
+              }
+              var item = document.createElement("li");
+              var link = document.createElement("a");
+              link.href = created.url;
+              link.textContent = uiString("ws.create.open", "Open the workspace");
+              item.appendChild(link);
+              folderStatus.appendChild(item);
             });
         })
         .catch(function () {
-          folderLine("—", "failed");
+          if (created) {
+            window.location.assign(created.url);
+            return;
+          }
+          creating.textContent = "—";
+          creating.className = "dropzone__line dropzone__line--failed";
           if (submit) {
             submit.disabled = false;
           }

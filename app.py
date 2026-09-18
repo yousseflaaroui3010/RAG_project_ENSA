@@ -2329,7 +2329,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         return templates.TemplateResponse(
             request,
             "workspace_delete_confirm.html",
-            {**_ws_context(runtime, request), "target": target},
+            {
+                **_ws_context(runtime, request),
+                "target": target,
+                "deletes_files": workspaces.is_managed_folder(
+                    target.folder_path,
+                    target.id,
+                    _owner_of(runtime, target.id)[1],
+                    runtime.db_path,
+                ),
+            },
         )
 
     @app.post("/workspaces/{workspace_id}/delete")
@@ -2374,6 +2383,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             ).folder_path
         except workspaces.WorkspaceNotFoundError:
             folder = None
+        _exists, owner = _owner_of(runtime, workspace_id)
         try:
             with runtime.store() as client:
                 sync.delete_workspace(
@@ -2398,8 +2408,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         # (the login-free modes, the demo) is the person's own folder and
         # stays untouched, as PRD F-01 requires; `remove_managed_folder`
         # refuses anything outside the managed root.
-        if folder is not None:
-            workspaces.remove_managed_folder(folder, runtime.db_path)
+        if folder is not None and workspaces.is_managed_folder(
+            folder, workspace_id, owner, runtime.db_path
+        ):
+            if not workspaces.remove_managed_folder(folder, workspace_id, owner, runtime.db_path):
+                # The person was told the files go; say so when they did
+                # not. The id only -- never a file name or a path.
+                logger.warning(
+                    "could not remove the uploaded files of deleted workspace %s", workspace_id
+                )
         return RedirectResponse("/workspaces", status_code=SEE_OTHER)
 
     @app.post("/workspaces/{workspace_id}/sync")
