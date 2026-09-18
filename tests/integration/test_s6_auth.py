@@ -1555,7 +1555,7 @@ def test_one_person_asking_too_often_is_refused_and_another_is_not(keycloak):
 # --- ST-53 parts B and C: history panel, header, footer ------------------------
 
 
-def test_the_history_panel_has_its_toggle_close_and_delete_link(keycloak):
+def test_the_history_panel_has_its_toggle_close_and_delete_link_once(keycloak):
     client, runtime, _, _, ws = _reader_with_a_workspace(keycloak)
     _stored(runtime, "kc-reader", ws.id, "Q?", "A.")
 
@@ -1565,9 +1565,10 @@ def test_the_history_panel_has_its_toggle_close_and_delete_link(keycloak):
     assert 'id="history-panel"' in page and "data-history-close" in page
     panel = page.split('id="history-panel"')[1].split("</nav>")[0]
     assert 'href="/chat/history/delete"' in panel, "deleting history lives in the panel"
+    assert page.count('href="/chat/history/delete"') == 1, "and only there"
 
 
-def test_the_language_switch_moved_to_the_footer_and_the_header_is_one_row(keycloak):
+def test_the_language_switch_moved_to_the_footer(keycloak):
     client, _, _, _, ws = _reader_with_a_workspace(keycloak)
 
     page = client.get("/workspaces").text

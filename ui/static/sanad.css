@@ -1545,6 +1545,9 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 .desktop-only__text { margin: 0; }
 @media (max-width: 767px) {
   .shell__nav, .main, .shell__workspace { display: none; }
+  /* The phone notice stays the whole page: only the language switch of
+     the footer remains (review of #151). */
+  .footer__brand { display: none; }
   .desktop-only {
     display: block;
     max-width: var(--prose-max);
@@ -1554,7 +1557,6 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 }
 
 /* ---- ST-53 part C: one-row header, a footer -------------------------- */
-.shell__inner { flex-wrap: nowrap; }
 .shell__workspace select { max-width: 22rem; }
 .shell__account .btn { padding-block: var(--space-4); }
 .shell__seal--small { width: 22px; height: 22px; font-size: var(--size-meta); margin-inline-end: var(--space-8); }
@@ -1575,9 +1577,6 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
   color: var(--text-muted);
 }
 .footer__brand { display: inline-flex; align-items: center; margin: 0; }
-.footer__links { display: flex; gap: var(--space-16); }
-.footer__links a { color: var(--text-muted); }
-.footer__links a:hover { color: var(--text); }
 .footer .lang-switch { margin-inline-start: auto; }
 
 /* ---- ST-53 part B: the history panel ------------------------------------ */
@@ -1597,10 +1596,14 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 .history__manage { font-size: var(--size-meta); color: var(--text-muted); }
 .history__foot { margin: var(--space-8) 0 0; font-size: var(--size-meta); }
 /* With the script, the list becomes a side panel on the reading side. */
+/* Below the sticky header, never over it, and under it if they ever
+   meet: the workspace selector must stay visible at all times (UX spec 4;
+   review of #151). sanad.js sets `top` to the header's real bottom edge. */
 .has-history-drawer .history {
   position: fixed;
-  z-index: 30;
-  inset-block: 0;
+  z-index: 15;
+  top: var(--history-top, 65px);
+  bottom: 0;
   inset-inline-start: 0;
   width: min(22rem, 90vw);
   margin: 0;
@@ -1611,13 +1614,13 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
   box-shadow: var(--shadow-raised, 0 8px 24px rgb(0 0 0 / 0.18));
   transform: translateX(-105%);
   visibility: hidden;
-  transition: transform 180ms ease, visibility 0s linear 180ms;
+  transition: transform var(--motion) var(--ease), visibility 0s linear var(--motion);
 }
 [dir="rtl"] .has-history-drawer .history { transform: translateX(105%); }
 .has-history-drawer .history.is-open {
   transform: none;
   visibility: visible;
-  transition: transform 180ms ease;
+  transition: transform var(--motion) var(--ease);
 }
 @media (prefers-reduced-motion: reduce) {
   .has-history-drawer .history, .has-history-drawer .history.is-open { transition: none; }

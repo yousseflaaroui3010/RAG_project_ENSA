@@ -363,7 +363,16 @@
     }
     document.body.classList.add("has-history-drawer");
 
+    var shellHeader = document.querySelector("header.shell");
+
     function setHistory(open) {
+      if (open && shellHeader) {
+        // Start below the header's real edge, so the workspace selector
+        // is never covered (UX spec 4).
+        historyPanel.style.setProperty(
+          "--history-top", Math.round(shellHeader.getBoundingClientRect().bottom) + "px"
+        );
+      }
       historyPanel.classList.toggle("is-open", open);
       historyToggle.setAttribute("aria-expanded", open ? "true" : "false");
       if (open) {
@@ -384,9 +393,23 @@
       });
     }
     document.addEventListener("keydown", function (event) {
+      // An open dialog (the passage viewer) owns Escape and returns focus
+      // to its own card; the panel must not close with it.
+      if (event.defaultPrevented || document.querySelector("dialog[open]")) {
+        return;
+      }
       if (event.key === "Escape" && historyPanel.classList.contains("is-open")) {
         setHistory(false);
         historyToggle.focus();
+      }
+    });
+    // No focus trap, so focus may leave -- and then the panel closes, so a
+    // keyboard user is never focused on something the panel hides (WCAG
+    // 2.4.11; review of #151).
+    historyPanel.addEventListener("focusout", function (event) {
+      var next = event.relatedTarget;
+      if (next && !historyPanel.contains(next) && next !== historyToggle) {
+        setHistory(false);
       }
     });
   }
