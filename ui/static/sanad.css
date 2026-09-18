@@ -1545,6 +1545,9 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
 .desktop-only__text { margin: 0; }
 @media (max-width: 767px) {
   .shell__nav, .main, .shell__workspace { display: none; }
+  /* The phone notice stays the whole page: only the language switch of
+     the footer remains (review of #151). */
+  .footer__brand { display: none; }
   .desktop-only {
     display: block;
     max-width: var(--prose-max);
@@ -1552,3 +1555,79 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
     padding: 0 var(--gutter);
   }
 }
+
+/* ---- ST-53 part C: one-row header, a footer -------------------------- */
+.shell__workspace select { max-width: 22rem; }
+.shell__account .btn { padding-block: var(--space-4); }
+.shell__seal--small { width: 22px; height: 22px; font-size: var(--size-meta); margin-inline-end: var(--space-8); }
+.footer {
+  margin-top: var(--space-48, 48px);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.footer__inner {
+  max-width: var(--shell-max);
+  margin: 0 auto;
+  padding: var(--space-16) var(--gutter);
+  display: flex;
+  align-items: center;
+  gap: var(--space-24, 24px);
+  flex-wrap: wrap;
+  font-size: var(--size-meta);
+  color: var(--text-muted);
+}
+.footer__brand { display: inline-flex; align-items: center; margin: 0; }
+.footer .lang-switch { margin-inline-start: auto; }
+
+/* ---- ST-53 part B: the history panel ------------------------------------ */
+.history {
+  margin-block: var(--space-16);
+  padding: var(--space-16);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+.history__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); }
+.history__title { margin: 0; font-size: var(--size-section); }
+.history__list { list-style: none; margin: var(--space-8) 0; padding: 0; }
+.history__item { display: flex; align-items: center; gap: var(--space-8); padding-block: var(--space-4); }
+.history__item a:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history__item a[aria-current="page"] { font-weight: 600; color: var(--text); }
+.history__manage { font-size: var(--size-meta); color: var(--text-muted); }
+.history__foot { margin: var(--space-8) 0 0; font-size: var(--size-meta); }
+/* With the script, the list becomes a side panel on the reading side. */
+/* Below the sticky header, never over it, and under it if they ever
+   meet: the workspace selector must stay visible at all times (UX spec 4;
+   review of #151). sanad.js sets `top` to the header's real bottom edge. */
+.has-history-drawer .history {
+  position: fixed;
+  z-index: 15;
+  top: var(--history-top, 65px);
+  bottom: 0;
+  inset-inline-start: 0;
+  width: min(22rem, 90vw);
+  margin: 0;
+  border-radius: 0;
+  border-block: 0;
+  border-inline-start: 0;
+  overflow-y: auto;
+  box-shadow: var(--shadow-raised, 0 8px 24px rgb(0 0 0 / 0.18));
+  transform: translateX(-105%);
+  visibility: hidden;
+  transition: transform var(--motion) var(--ease), visibility 0s linear var(--motion);
+}
+[dir="rtl"] .has-history-drawer .history { transform: translateX(105%); }
+.has-history-drawer .history.is-open {
+  transform: none;
+  visibility: visible;
+  transition: transform var(--motion) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .has-history-drawer .history, .has-history-drawer .history.is-open { transition: none; }
+}
+
+/* ---- ST-53 part C: a calmer chat page ------------------------------------ */
+.chat__header { flex-wrap: wrap; row-gap: var(--space-8); }
+.chat__header form { margin-inline-start: 0; }
+.chat__header [data-history-toggle] { margin-inline-start: auto; }
+

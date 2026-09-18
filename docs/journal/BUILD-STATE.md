@@ -1,5 +1,15 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
+## STATE AT 2026-09-19, ST-53 FINISHED: HISTORY PANEL, HEADER, FOOTER (read this block first)
+
+Merged before this: #148 no roles/owned workspaces, #149 create from a
+folder, #150 rate limits -- all live. This change: the chat history is a
+slide-out side panel (plain list without script), the header is one row,
+and a footer carries the language switch. Checked in a real browser in
+French and Arabic. Next: the paid release run and v3.1.0.
+
+---
+
 ## STATE AT 2026-09-18, ST-54 PART 2: CREATE A WORKSPACE FROM A FOLDER (read this block first)
 
 **#148 is merged and live**: owner column present, the demo workspace

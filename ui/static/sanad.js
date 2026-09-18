@@ -344,6 +344,91 @@
     }
   }
 
+  /* ---- ST-53 part B: the history panel slides in ------------------ */
+
+  /*
+    Without this script the history is a plain list above the chat. With
+    it, the list becomes a side panel: the History button opens it, the
+    close button or Escape shuts it, and focus goes back to the button.
+    No focus trap -- the rest of the page stays reachable, as a side panel
+    should (the UX spec's dialogs are the only focus traps).
+  */
+  var historyPanel = document.querySelector("[data-history-panel]");
+  var historyToggle = document.querySelector("[data-history-toggle]");
+  if (historyPanel && historyToggle) {
+    var historyClose = historyPanel.querySelector("[data-history-close]");
+    historyToggle.hidden = false;
+    if (historyClose) {
+      historyClose.hidden = false;
+    }
+    document.body.classList.add("has-history-drawer");
+
+    var shellHeader = document.querySelector("header.shell");
+
+    function setHistory(open) {
+      if (open && shellHeader) {
+        // Start below the header's real edge, so the workspace selector
+        // is never covered (UX spec 4).
+        historyPanel.style.setProperty(
+          "--history-top", Math.round(shellHeader.getBoundingClientRect().bottom) + "px"
+        );
+      }
+      historyPanel.classList.toggle("is-open", open);
+      historyToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        // After the browser has made the panel visible: focusing a still
+        // hidden element does nothing, silently.
+        window.requestAnimationFrame(function () {
+          var first = historyPanel.querySelector("a, button");
+          if (first) {
+            first.focus();
+          }
+        });
+      }
+    }
+
+    historyToggle.addEventListener("click", function () {
+      setHistory(!historyPanel.classList.contains("is-open"));
+    });
+    if (historyClose) {
+      historyClose.addEventListener("click", function () {
+        setHistory(false);
+        historyToggle.focus();
+      });
+    }
+    document.addEventListener("keydown", function (event) {
+      // An open dialog (the passage viewer) owns Escape and returns focus
+      // to its own card; the panel must not close with it.
+      if (event.defaultPrevented || document.querySelector("dialog[open]")) {
+        return;
+      }
+      if (event.key === "Escape" && historyPanel.classList.contains("is-open")) {
+        setHistory(false);
+        historyToggle.focus();
+      }
+    });
+    // No focus trap, so focus may leave -- and then the panel closes, so a
+    // keyboard user is never focused on something the panel hides (WCAG
+    // 2.4.11; review of #151).
+    // The header can wrap to a second row when the window narrows, and the
+    // panel's top was measured on opening: close rather than be covered.
+    window.addEventListener("resize", function () {
+      if (historyPanel.classList.contains("is-open")) {
+        setHistory(false);
+      }
+    });
+    document.addEventListener("focusin", function (event) {
+      var next = event.target;
+      if (
+        historyPanel.classList.contains("is-open") &&
+        !historyPanel.contains(next) &&
+        next !== historyToggle
+      ) {
+        setHistory(false);
+      }
+    });
+  }
+
   /* ---- ST-54 part 2: create a workspace from a folder ------------- */
 
   /*
