@@ -1363,3 +1363,87 @@ def test_every_response_carries_the_security_headers(keycloak, tmp_path):
 
     assert download.status_code == 200, download.text[:200]
     assert download.headers.get_list("x-content-type-options") == ["nosniff"]
+
+
+# --- ST-54 part 2: create from a folder --------------------------------------
+
+
+def test_the_picker_script_gets_the_new_workspace_back_as_json(keycloak):
+    """The folder picker creates the workspace first and needs its
+    addresses to upload into; a plain form post still redirects."""
+    client, _, db_path, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+
+    answer = client.post(
+        "/workspaces", data={"name": "Picked"}, headers={"X-Requested-With": "fetch"}
+    )
+
+    assert answer.status_code == 201
+    body = answer.json()
+    [created] = workspaces.list_workspaces(db_path=db_path)
+    assert body == {
+        "id": created.id,
+        "url": f"/workspaces?ws={created.id}",
+        "upload_url": f"/workspaces/{created.id}/documents",
+        "sync_url": f"/workspaces/{created.id}/sync",
+    }
+    uploaded = _upload(client, created.id, "contrat.txt", b"Article 1.")
+    assert uploaded.status_code == 201
+    assert (Path(created.folder_path) / "contrat.txt").read_bytes() == b"Article 1."
+
+
+def test_a_refused_name_answers_json_and_leaves_no_folder_behind(keycloak):
+    client, _, db_path, _, sign_in = keycloak
+    workspaces.create_workspace(name="Taken", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(READER_CLAIMS)
+
+    answer = client.post(
+        "/workspaces", data={"name": "Taken"}, headers={"X-Requested-With": "fetch"}
+    )
+
+    assert answer.status_code == 422
+    assert answer.json()["error"]
+    root = workspaces.managed_folder_root(db_path)
+    assert not root.exists() or list(root.iterdir()) == []
+
+
+def test_deleting_a_workspace_removes_its_uploaded_files_too(keycloak):
+    """Its uploads exist only because of it (closes the ST-54 known issue).
+    Only a server-made folder: see test_workspaces for the typed-path half."""
+    client, _, db_path, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+    created = client.post(
+        "/workspaces", data={"name": "Short-lived"}, headers={"X-Requested-With": "fetch"}
+    ).json()
+    _upload(client, created["id"], "note.txt", b"uploaded")
+    folder = Path(
+        workspaces.get_workspace(workspace_id=created["id"], db_path=db_path).folder_path
+    )
+    assert (folder / "note.txt").exists()
+
+    client.post(f"/workspaces/{created['id']}/delete", follow_redirects=False)
+
+    assert workspaces.list_workspaces(db_path=db_path) == []
+    assert not folder.exists()
+
+
+def test_deleting_a_shared_typed_path_workspace_never_touches_its_files(keycloak):
+    """The demo's folder is someone's real files. Even its deletion (done by
+    whoever may -- here the unrestricted login-free path cannot be reached,
+    so the rule is checked on the folder helper the route calls)."""
+    _, _, db_path, _, _ = keycloak
+    demo = db_path.parent / "corpus-typed"
+    demo.mkdir()
+    (demo / "note.txt").write_text("keep", encoding="utf-8")
+
+    assert workspaces.remove_managed_folder(str(demo), db_path) is False
+    assert (demo / "note.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_the_folder_picker_is_offered_only_with_accounts_on(keycloak):
+    client, _, _, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+
+    page = client.get("/workspaces").text
+
+    assert "webkitdirectory" in page and "data-folder-pick" in page

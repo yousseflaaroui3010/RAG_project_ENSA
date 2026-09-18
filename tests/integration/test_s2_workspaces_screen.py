@@ -138,6 +138,24 @@ def test_create_workspace_appears_in_the_list_and_is_not_synced_yet(tmp_path, mo
         assert "has not been synced yet" in created.text
 
 
+def test_without_login_the_form_keeps_the_typed_folder_and_offers_no_picker(tmp_path, monkeypatch):
+    """ST-54: the laptop case points Sanad at the person's own folder in
+    place; the upload-a-folder picker exists only with accounts on, where
+    no one may name a server folder. The workspace keeps the typed path."""
+    with vector_store.open_store(tmp_path / "qdrant") as client:
+        app_client, _runtime, db_path = _app(tmp_path, monkeypatch, client=client)
+        folder = _corpus(tmp_path)
+
+        page = app_client.get("/workspaces").text
+        app_client.post(
+            "/workspaces", data={"name": "HR", "folder_path": str(folder)}, follow_redirects=False
+        )
+
+        assert 'name="folder_path"' in page
+        assert "webkitdirectory" not in page
+        [created] = workspaces.list_workspaces(db_path=db_path)
+        assert created.folder_path == str(folder)
+
 def test_invalid_folder_path_re_renders_the_form_with_the_error_and_no_redirect(
     tmp_path, monkeypatch
 ):

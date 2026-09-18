@@ -344,6 +344,156 @@
     }
   }
 
+  /* ---- ST-54 part 2: create a workspace from a folder ------------- */
+
+  /*
+    The create form's folder picker (a `webkitdirectory` input with no
+    name, so the plain form never sends it). With a folder picked, the form
+    is sent by this script instead: the server creates the workspace and
+    answers its addresses as JSON, then every top-level supported file goes
+    through the SAME upload route the drop zone uses, one at a time, and one
+    ordinary Sync starts. Files inside subfolders are skipped (Sync reads a
+    workspace's top level only) and so are unsupported types -- each named
+    on its own line. With nothing picked, the form submits as before.
+  */
+  var createForm = document.querySelector("[data-create-form]");
+  var folderPick = createForm && createForm.querySelector("[data-folder-pick]");
+  if (createForm && folderPick) {
+    var folderInput = folderPick.querySelector("[data-folder-input]");
+    var folderStatus = folderPick.querySelector("[data-folder-status]");
+    var accepted = (folderInput.getAttribute("data-accept") || "")
+      .toLowerCase()
+      .split(",")
+      .filter(Boolean);
+    folderPick.hidden = false;
+
+    function folderLine(text, role) {
+      var item = document.createElement("li");
+      item.className = "dropzone__line dropzone__line--" + role;
+      item.textContent = text;
+      folderStatus.appendChild(item);
+      return item;
+    }
+
+    function named(key, fallback, name, reason) {
+      return uiString(key, fallback)
+        .split("{name}").join(name || "")
+        .split("{reason}").join(reason || "");
+    }
+
+    function usable(file) {
+      var path = file.webkitRelativePath || file.name;
+      if (path.split("/").length > 2) {
+        return false;
+      }
+      var dot = file.name.lastIndexOf(".");
+      var extension = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
+      return !accepted.length || accepted.indexOf(extension) !== -1;
+    }
+
+    function upload(url, file) {
+      var line = folderLine(named("docs.upload.sending", "Sending {name}…", file.name), "pending");
+      return fetch(url, {
+        method: "POST",
+        headers: {
+          "X-File-Name": encodeURIComponent(file.name),
+          "X-Requested-With": "fetch",
+          "Content-Type": "application/octet-stream"
+        },
+        body: file
+      })
+        .then(function (response) {
+          return response.json().then(function (data) {
+            return { ok: response.ok, data: data };
+          });
+        })
+        .then(function (result) {
+          line.textContent = result.ok
+            ? result.data.message
+            : named("docs.upload.failed", "{name}: {reason}", file.name, result.data.error);
+          line.className = "dropzone__line dropzone__line--" + (result.ok ? "done" : "failed");
+          return result.ok;
+        })
+        .catch(function () {
+          line.textContent = named("docs.upload.failed", "{name}: {reason}", file.name, "—");
+          line.className = "dropzone__line dropzone__line--failed";
+          return false;
+        });
+    }
+
+    createForm.addEventListener("submit", function (event) {
+      var files = Array.prototype.slice.call(folderInput.files || []);
+      if (!files.length) {
+        return;
+      }
+      event.preventDefault();
+      var submit = createForm.querySelector('button[type="submit"]');
+      if (submit) {
+        submit.disabled = true;
+      }
+      folderStatus.textContent = "";
+      folderLine(uiString("ws.create.creating", "Creating the workspace…"), "pending");
+      fetch(createForm.action, {
+        method: "POST",
+        headers: {
+          "X-Requested-With": "fetch",
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams(new FormData(createForm)).toString()
+      })
+        .then(function (response) {
+          return response.json().then(function (data) {
+            return { ok: response.ok, data: data };
+          });
+        })
+        .then(function (created) {
+          if (!created.ok) {
+            folderStatus.textContent = "";
+            folderLine(created.data.error || "—", "failed");
+            if (submit) {
+              submit.disabled = false;
+            }
+            return;
+          }
+          var landed = 0;
+          return files
+            .reduce(function (chain, file) {
+              return chain.then(function () {
+                if (!usable(file)) {
+                  folderLine(named("ws.create.skipped", "{name}: skipped", file.name), "failed");
+                  return null;
+                }
+                return upload(created.data.upload_url, file).then(function (ok) {
+                  if (ok) {
+                    landed += 1;
+                  }
+                });
+              });
+            }, Promise.resolve())
+            .then(function () {
+              if (!landed) {
+                return null;
+              }
+              folderLine(uiString("docs.upload.syncing", "Sync started."), "done");
+              return fetch(created.data.sync_url, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: ""
+              });
+            })
+            .then(function () {
+              window.location.assign(created.data.url);
+            });
+        })
+        .catch(function () {
+          folderLine("—", "failed");
+          if (submit) {
+            submit.disabled = false;
+          }
+        });
+    });
+  }
+
   /* ---- S2 Sync progress: poll the real count (UX spec 7.2, 7.4) ----- */
 
   /*

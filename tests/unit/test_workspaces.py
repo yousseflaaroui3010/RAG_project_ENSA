@@ -384,3 +384,32 @@ def test_create_and_get_workspace_bootstraps_schema_on_default_path(tmp_path, mo
         assert ws.list_workspaces() == [fetched]
     finally:
         get_settings.cache_clear()
+
+
+# --- ST-54 part 2: server-made folders, and only those, may be deleted ------
+
+
+def test_only_a_folder_strictly_inside_the_managed_root_counts_as_server_made(tmp_path):
+    db_path = tmp_path / "sanad.db"
+    root = ws.managed_folder_root(db_path)
+    inside = root / "11111111-2222-3333-4444-555555555555"
+
+    assert ws.is_managed_folder(str(inside), db_path)
+    assert not ws.is_managed_folder(str(root), db_path), "never the root itself"
+    assert not ws.is_managed_folder(str(tmp_path / "corpus"), db_path)
+    assert not ws.is_managed_folder(str(root / ".." / "corpus"), db_path), "no climbing out"
+
+
+def test_removing_refuses_a_typed_folder_and_removes_a_server_made_one(tmp_path):
+    db_path = tmp_path / "sanad.db"
+    typed = tmp_path / "my-own-files"
+    typed.mkdir()
+    (typed / "contrat.txt").write_text("mine", encoding="utf-8")
+    made = ws.managed_folder_root(db_path) / "11111111-2222-3333-4444-555555555555"
+    made.mkdir(parents=True)
+    (made / "upload.txt").write_text("uploaded", encoding="utf-8")
+
+    assert ws.remove_managed_folder(str(typed), db_path) is False
+    assert (typed / "contrat.txt").read_text(encoding="utf-8") == "mine"
+    assert ws.remove_managed_folder(str(made), db_path) is True
+    assert not made.exists()

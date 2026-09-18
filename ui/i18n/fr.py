@@ -242,6 +242,15 @@ MESSAGES: dict[str, str] = {
     "ws.sync.pending_report": "Le rapport s’affichera ici à la fin de cette synchronisation.",
     "ws.sync.finished": "Dernière synchronisation terminée le {when}.",
     "ws.sync.never": "Cet espace n’a pas encore été synchronisé.",
+    "ws.form.folder_pick": "Dossier sur votre ordinateur (facultatif)",
+    "ws.form.folder_pick_help": (
+        "Ses fichiers sont envoyés dans le nouvel espace, puis synchronisés. Les "
+        "fichiers des sous-dossiers et les formats non pris en charge sont ignorés."
+    ),
+    "ws.create.skipped": (
+        f"{{name}}{NNBSP}: ignoré (dans un sous-dossier, ou format non pris en charge)"
+    ),
+    "ws.create.creating": "Création de l’espace…",
     "ws.first.title": "Créez votre premier espace",
     "ws.shared.note": (
         f"Espace partagé{NNBSP}: vous pouvez le consulter et poser des questions. "

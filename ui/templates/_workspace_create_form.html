@@ -5,7 +5,7 @@
   List state (where it is one action among several), so the two cannot
   drift into two different sets of fields.
 #}
-<form class="ws-form" method="post" action="/workspaces">
+<form class="ws-form" method="post" action="/workspaces" data-create-form>
   {% if form_error %}
     <p class="form-error" role="alert">{{ tx(form_error) }}</p>
   {% endif %}
@@ -33,6 +33,22 @@
     <input class="ws-form__input mono" id="ws-folder" name="folder_path" type="text" required
            value="{{ (form_values.folder_path if form_values else '') }}"
            placeholder="{{ t('ws.form.folder_placeholder') }}">
+  </div>
+  {% endif %}
+  {#
+    ST-54 part 2: with accounts on, pick a folder on your own computer; its
+    files are uploaded into the new workspace and synced. The input has NO
+    `name`, so the plain form never sends it: it exists for sanad.js, which
+    reveals it. Without the script the workspace is still created, empty,
+    and the files go in through the page's own upload box afterwards.
+  #}
+  {% if not asks_folder_path and uploads_enabled %}
+  <div class="ws-form__row" data-folder-pick hidden>
+    <label class="ws-form__label" for="ws-folder-pick">{{ t('ws.form.folder_pick') }}</label>
+    <input class="ws-form__input" id="ws-folder-pick" type="file" webkitdirectory multiple
+           data-folder-input data-accept="{{ upload_accept }}">
+    <p class="muted">{{ t('ws.form.folder_pick_help') }}</p>
+    <ul class="dropzone__status" aria-live="polite" data-folder-status></ul>
   </div>
   {% endif %}
   <div class="ws-form__row ws-form__row--check">

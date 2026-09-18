@@ -19,6 +19,7 @@ PRD F-01 (docs/phase2/Sanad_PRD_v1.0.md):
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -112,6 +113,29 @@ def managed_folder_root(db_path: str | Path | None = None) -> Path:
     path, so a script run from another directory finds the same folder."""
     path = db_path if db_path is not None else get_settings().sqlite_db_path
     return Path(path).resolve().parent / MANAGED_FOLDER_NAME
+
+
+def is_managed_folder(folder_path: str, db_path: str | Path | None = None) -> bool:
+    """True only for a folder the SERVER made for a workspace: strictly
+    inside `managed_folder_root` (the root itself never counts). A typed
+    laptop path, the demo's corpus, anything else: False -- those are the
+    person's own files, which Sanad never deletes (PRD F-01)."""
+    root = managed_folder_root(db_path)
+    try:
+        candidate = Path(folder_path).resolve()
+    except (OSError, ValueError):
+        return False
+    return candidate != root and candidate.is_relative_to(root)
+
+
+def remove_managed_folder(folder_path: str, db_path: str | Path | None = None) -> bool:
+    """Delete a server-made workspace folder and the files uploaded into it
+    (ST-54 part 2). Refuses anything `is_managed_folder` does not vouch for,
+    so a typed path's files can never be touched. True if removed."""
+    if not is_managed_folder(folder_path, db_path):
+        return False
+    shutil.rmtree(folder_path, ignore_errors=True)
+    return not Path(folder_path).exists()
 
 
 def _validate_folder_path(folder_path: str) -> None:

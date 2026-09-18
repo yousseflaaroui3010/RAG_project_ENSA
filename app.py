@@ -2200,6 +2200,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         a laptop stays readable if the same database later runs with
         accounts on."""
         principal = principal_of(request)
+        # ST-54 part 2: the folder picker's script creates the workspace
+        # first, then uploads the picked files into it -- it needs the new
+        # id back as JSON, not a redirect. The same custom header the
+        # upload route relies on.
+        wants_json = request.headers.get("x-requested-with") == "fetch"
         form = await _form(request)
         submitted = {
             "name": form.get("name", ""),
@@ -2232,6 +2237,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             if managed is not None:
                 managed.rmdir()
                 submitted["folder_path"] = ""
+            if wants_json:
+                return JSONResponse(
+                    status_code=422,
+                    content={
+                        "error": str(i18n.translate_text(context_language(request), str(exc)))
+                    },
+                )
             return templates.TemplateResponse(
                 request,
                 "workspaces.html",
@@ -2250,6 +2262,16 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 managed.rmdir()
             raise
         runtime.set_active(principal.id, created.id)
+        if wants_json:
+            return JSONResponse(
+                status_code=201,
+                content={
+                    "id": created.id,
+                    "url": f"/workspaces?ws={created.id}",
+                    "upload_url": f"/workspaces/{created.id}/documents",
+                    "sync_url": f"/workspaces/{created.id}/sync",
+                },
+            )
         return RedirectResponse(f"/workspaces?ws={created.id}", status_code=SEE_OTHER)
 
     @app.post("/workspaces/{workspace_id}/rename")
@@ -2347,6 +2369,12 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 "Cancel the Sync or wait for it to finish, then try again."
             )
         try:
+            folder = workspaces.get_workspace(
+                workspace_id=workspace_id, db_path=runtime.db_path
+            ).folder_path
+        except workspaces.WorkspaceNotFoundError:
+            folder = None
+        try:
             with runtime.store() as client:
                 sync.delete_workspace(
                     workspace_id=workspace_id,
@@ -2365,6 +2393,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         runtime.last_sync_run_id.pop(workspace_id, None)
         runtime.forget_workspace_conversations(workspace_id)
         runtime.forget_active(workspace_id)
+        # ST-54 part 2: a folder the SERVER made for this workspace goes
+        # with it -- those uploads exist only because of it. A typed path
+        # (the login-free modes, the demo) is the person's own folder and
+        # stays untouched, as PRD F-01 requires; `remove_managed_folder`
+        # refuses anything outside the managed root.
+        if folder is not None:
+            workspaces.remove_managed_folder(folder, runtime.db_path)
         return RedirectResponse("/workspaces", status_code=SEE_OTHER)
 
     @app.post("/workspaces/{workspace_id}/sync")

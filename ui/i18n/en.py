@@ -229,6 +229,13 @@ MESSAGES: dict[str, str] = {
     "ws.sync.pending_report": "The last sync report will appear here once this run finishes.",
     "ws.sync.finished": "Last Sync finished {when}.",
     "ws.sync.never": "This workspace has not been synced yet.",
+    "ws.form.folder_pick": "Folder on your computer (optional)",
+    "ws.form.folder_pick_help": (
+        "Its files are uploaded into the new workspace, then synced. Files inside "
+        "subfolders and unsupported types are skipped."
+    ),
+    "ws.create.skipped": "{name}: skipped (in a subfolder, or not a supported type)",
+    "ws.create.creating": "Creating the workspace…",
     "ws.first.title": "Create your first workspace",
     "ws.shared.note": (
         "Shared workspace: you can read it and ask questions. Only its owner can change it."

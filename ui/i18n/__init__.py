@@ -243,6 +243,9 @@ def js_strings(lang: str) -> dict[str, str]:
         "docs.upload.sending",
         "docs.upload.failed",
         "docs.upload.syncing",
+        # ST-54 part 2: the folder picker's own lines.
+        "ws.create.skipped",
+        "ws.create.creating",
     )
     return {key: translate(lang, key, name="{name}", reason="{reason}") for key in keys}
 
