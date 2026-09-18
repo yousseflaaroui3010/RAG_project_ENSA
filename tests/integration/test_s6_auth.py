@@ -1550,3 +1550,30 @@ def test_one_person_asking_too_often_is_refused_and_another_is_not(keycloak):
     assert client.post(
         "/chat/ask", data={"question": ""}, follow_redirects=False
     ).status_code == 303, "the cap is per person"
+
+
+# --- ST-53 parts B and C: history panel, header, footer ------------------------
+
+
+def test_the_history_panel_has_its_toggle_close_and_delete_link(keycloak):
+    client, runtime, _, _, ws = _reader_with_a_workspace(keycloak)
+    _stored(runtime, "kc-reader", ws.id, "Q?", "A.")
+
+    page = client.get("/").text
+
+    assert 'data-history-toggle' in page and 'aria-controls="history-panel"' in page
+    assert 'id="history-panel"' in page and "data-history-close" in page
+    panel = page.split('id="history-panel"')[1].split("</nav>")[0]
+    assert 'href="/chat/history/delete"' in panel, "deleting history lives in the panel"
+
+
+def test_the_language_switch_moved_to_the_footer_and_the_header_is_one_row(keycloak):
+    client, _, _, _, ws = _reader_with_a_workspace(keycloak)
+
+    page = client.get("/workspaces").text
+
+    header = page.split("<header")[1].split("</header>")[0]
+    footer = page.split("<footer")[1].split("</footer>")[0]
+    assert "lang-switch" not in header
+    assert "lang-switch" in footer and 'hreflang="ar"' in footer
+    assert 'class="visually-hidden" for="workspace-select"' in header

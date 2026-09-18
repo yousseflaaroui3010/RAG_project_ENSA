@@ -344,6 +344,53 @@
     }
   }
 
+  /* ---- ST-53 part B: the history panel slides in ------------------ */
+
+  /*
+    Without this script the history is a plain list above the chat. With
+    it, the list becomes a side panel: the History button opens it, the
+    close button or Escape shuts it, and focus goes back to the button.
+    No focus trap -- the rest of the page stays reachable, as a side panel
+    should (the UX spec's dialogs are the only focus traps).
+  */
+  var historyPanel = document.querySelector("[data-history-panel]");
+  var historyToggle = document.querySelector("[data-history-toggle]");
+  if (historyPanel && historyToggle) {
+    var historyClose = historyPanel.querySelector("[data-history-close]");
+    historyToggle.hidden = false;
+    if (historyClose) {
+      historyClose.hidden = false;
+    }
+    document.body.classList.add("has-history-drawer");
+
+    function setHistory(open) {
+      historyPanel.classList.toggle("is-open", open);
+      historyToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        var first = historyPanel.querySelector("a, button");
+        if (first) {
+          first.focus();
+        }
+      }
+    }
+
+    historyToggle.addEventListener("click", function () {
+      setHistory(!historyPanel.classList.contains("is-open"));
+    });
+    if (historyClose) {
+      historyClose.addEventListener("click", function () {
+        setHistory(false);
+        historyToggle.focus();
+      });
+    }
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && historyPanel.classList.contains("is-open")) {
+        setHistory(false);
+        historyToggle.focus();
+      }
+    });
+  }
+
   /* ---- ST-54 part 2: create a workspace from a folder ------------- */
 
   /*

@@ -47,6 +47,10 @@
           {{ t('chat.will_pick') }}
         </p>
       {% endif %}
+      {% if shows_history %}
+        <button class="btn btn--quiet" type="button" data-history-toggle
+                aria-controls="history-panel" aria-expanded="false" hidden>{{ t('chat.history.open') }}</button>
+      {% endif %}
       <form method="post" action="/chat/new">
         <input type="hidden" name="conversation_id" value="{{ conversation_id }}">
         <button class="btn btn--quiet" type="submit">{{ t('chat.new_conversation') }}</button>
@@ -56,7 +60,10 @@
         history. A GET here only shows the confirmation page (UX spec
         5, 7.2) -- deleting is the POST that page's own form submits.
       #}
-      <a class="btn btn--quiet" href="/chat/history/delete">{{ t('chat.delete_history') }}</a>
+      {# With the history panel, deleting history lives inside it. #}
+      {% if not shows_history %}
+        <a class="btn btn--quiet" href="/chat/history/delete">{{ t('chat.delete_history') }}</a>
+      {% endif %}
     </div>
 
     {#
@@ -65,8 +72,18 @@
       scripting off; the slide-out drawer is a later change built on this.
     #}
     {% if shows_history %}
-      <nav class="history" aria-labelledby="history-title">
-        <h2 class="history__title" id="history-title">{{ t('chat.history.title') }}</h2>
+      {#
+        ST-53 part B: with the script this list becomes a panel that slides
+        in from the reading side (right in Arabic), opened by the History
+        button; Escape or the close button shuts it and focus returns to
+        the button. It never traps focus: it is a side panel, not a dialog.
+        Without the script it stays exactly what it was, a plain list.
+      #}
+      <nav class="history" id="history-panel" aria-labelledby="history-title" data-history-panel>
+        <div class="history__head">
+          <h2 class="history__title" id="history-title">{{ t('chat.history.title') }}</h2>
+          <button class="btn btn--quiet history__close" type="button" data-history-close hidden>{{ t('chat.history.close') }}</button>
+        </div>
         {% if history %}
           <ul class="history__list">
             {% for item in history %}
@@ -83,6 +100,7 @@
         {% else %}
           <p class="muted">{{ t('chat.history.empty') }}</p>
         {% endif %}
+        <p class="history__foot"><a href="/chat/history/delete">{{ t('chat.delete_history') }}</a></p>
       </nav>
     {% endif %}
 

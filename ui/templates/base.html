@@ -43,7 +43,9 @@
       {# UX spec 4: the workspace selector is never inside a menu, and it
          renders disabled with "No workspace yet" when none exist. #}
       <form class="shell__workspace" method="post" action="/workspace">
-        <label class="shell__label" for="workspace-select">{{ t('shell.active_workspace') }}</label>
+        {# ST-53: the label is read aloud but not shown; the selector sits
+           right after the brand and needs no caption to be understood. #}
+        <label class="visually-hidden" for="workspace-select">{{ t('shell.active_workspace') }}</label>
         {% if workspaces %}
           <select id="workspace-select" name="workspace_id" data-autosubmit>
             {# F-12: "let Sanad choose" -- only offered with something to
@@ -138,13 +140,6 @@
           <button class="btn btn--quiet" type="submit">{{ t('auth.sign_out') }}</button>
         </form>
       {% endif %}
-      <nav class="lang-switch" aria-label="{{ t('shell.language') }}">
-        {% for link in language_links() %}
-          <a class="lang-switch__link{{ ' is-current' if link.current else '' }}"
-             href="{{ link.href }}" hreflang="{{ link.code }}" lang="{{ link.code }}"
-             {% if link.current %}aria-current="true"{% endif %}><span aria-hidden="true">{{ link.short }}</span><span class="visually-hidden">{{ link.name }}</span></a>
-        {% endfor %}
-      </nav>
     </div>
   </header>
 
@@ -167,6 +162,29 @@
   <main id="main" class="main">
     {% block main %}{% endblock %}
   </main>
+
+  {#
+    ST-53: a footer, so the header can stay one row. The language switch
+    lives here now: real links, each language named in itself,
+    `lang`/`hreflang` so a screen reader pronounces "العربية" as Arabic,
+    aria-current on the active one.
+  #}
+  <footer class="footer">
+    <div class="footer__inner">
+      <p class="footer__brand"><span class="shell__seal shell__seal--small" aria-hidden="true" lang="ar">س</span>{{ t('footer.tagline') }}</p>
+      <nav class="footer__links" aria-label="{{ t('shell.nav_label') }}">
+        <a href="/workspaces">{{ t('shell.nav.workspaces') }}</a>
+        <a href="/reports">{{ t('shell.nav.reports') }}</a>
+      </nav>
+      <nav class="lang-switch" aria-label="{{ t('shell.language') }}">
+        {% for link in language_links() %}
+          <a class="lang-switch__link{{ ' is-current' if link.current else '' }}"
+             href="{{ link.href }}" hreflang="{{ link.code }}" lang="{{ link.code }}"
+             {% if link.current %}aria-current="true"{% endif %}><span aria-hidden="true">{{ link.short }}</span><span class="visually-hidden">{{ link.name }}</span></a>
+        {% endfor %}
+      </nav>
+    </div>
+  </footer>
 
   {# The few strings sanad.js can show, in the page's language. `tojson`
      escapes <, > and &, so the block cannot close itself early. #}
