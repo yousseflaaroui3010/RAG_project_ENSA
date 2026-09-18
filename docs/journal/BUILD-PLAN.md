@@ -117,6 +117,11 @@ Sprint-0 baseline exit: all Highest sprint-0 stories Done (target 2026-07-22).
 | ST-49 | STRETCH F-12 workspace routing proposal | YL | F-12 | ST-24 + Aug-15 gate | F-12 criterion passes; same start condition |
 | ST-50 | User interviews (R1): 3 interviews, assumptions updated | MB | R1; PRD §16 | — | Anonymized notes in `docs/`; PRD tags updated in the report (not the signed PRD) |
 
+## After the plan -- stories added by ruling
+| ID | Title | Own | Phase-2 refs | Depends on | Exit gate |
+|---|---|---|---|---|---|
+| ST-53 | Chat history you can see and open, then the drawer, header, footer and chat layout (three pull requests: A data and routes, B drawer, C shell) | YL | UX spec 4, 6.2, 3.1; PRD F-07; law 09-08 rows in DECISIONS | S6 saved chat history | A: many conversations per person with list, open, rename, delete, migration proven by tests that fail without it; B and C: used on the live site, screenshots of two conversations and switching between them |
+
 ## Critical path (V1.0)
 ST-02 → ST-10 → {ST-12, ST-13→ST-14→ST-15→ST-16} → ST-17 → ST-21 → ST-23 →
 ST-24 → {ST-27, ST-51} ; eval branch ST-32 → ST-33 → ST-36 → ST-41. MB's golden

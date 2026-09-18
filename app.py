@@ -175,7 +175,13 @@ class Runtime:
     # turns it on, because that is the only caller building the real
     # server rather than a test double.
     warm_up: bool = False
+    # ST-53: every live conversation, keyed by its OWN id -- many per person
+    # per workspace. Each `Conversation` carries its `user_id` and
+    # `workspace_id`, and every lookup checks the owner (`_cached`), so an id
+    # alone reaches nothing.
     conversations: dict[str, Conversation] = field(default_factory=dict)
+    # F-12's routing screen, one per person, keyed by user id. Never saved.
+    routing_conversations: dict[str, Conversation] = field(default_factory=dict)
     active_workspace_id: str | None = None
     client: Any = None
     # Guards the three fields below, never a whole operation. See `store`.
@@ -424,116 +430,193 @@ class Runtime:
                 skipped=0,
             )
 
-    def conversation(self, workspace_id: str, user_id: str = "local") -> Conversation:
-        """This person's conversation in this workspace.
+    def open_conversation(
+        self, user_id: str, conversation_id: str, workspace_id: str | None = None
+    ) -> Conversation | None:
+        """This person's conversation with this id, or None (ST-53).
 
-        Keyed by workspace alone until S6, because PRD section 6 was
-        single user on one machine. With `AUTH_MODE=keycloak` there IS a
-        second person, so the key carries the user id too: two people
-        signed in to one server must never see each other's transcript,
-        and a shared key is how they would. The separator cannot appear in
-        either half (both are UUIDs or the literal "local", and F-12's
-        sentinel), so two different pairs cannot collide on one key.
+        None when the id is unknown, belongs to someone else, or -- when
+        `workspace_id` is given -- lives in a different workspace. The
+        caller cannot tell those apart and must not: "not yours" and "does
+        not exist" are one answer, so an id learned from somewhere else
+        tells its holder nothing.
 
-        S6: on a cache miss this now LOADS whatever was stored for this
-        exact (person, workspace) pair rather than always starting empty --
-        the law 09-08 ruling (DECISIONS 2026-09-15) that a person's
-        transcript survives a restart. Loaded once per process per key;
-        every later call this process makes for the same key returns the
-        same in-memory object, exactly as before this story.
+        On a cache miss this LOADS the stored row (law 09-08: a
+        transcript survives a restart), once per process per id; every
+        later call returns the same in-memory object.
 
-        LOADED UNDER A LOCK, DOUBLE-CHECKED: the fast path (a key already
+        LOADED UNDER A LOCK, DOUBLE-CHECKED: the fast path (an id already
         in `self.conversations`) takes no lock at all, but two threads
-        racing on the FIRST call for one key -- both seeing `None` before
+        racing on the FIRST call for one id -- both seeing nothing before
         either has stored anything -- used to both load and both build a
         `Conversation`, with only one surviving in the dict and the other
         going on to mutate an object nobody else could ever see again.
-        `_person_lock` serializes exactly that gap; the `get` is repeated
-        once the lock is held in case another thread already finished
-        loading while this one was waiting."""
-        key = f"{user_id}|{workspace_id}"
-        existing = self.conversations.get(key)
-        if existing is not None:
-            return existing
-        with self._person_lock(user_id):
-            existing = self.conversations.get(key)
-            if existing is None:
-                existing = self._load_conversation(user_id, workspace_id)
-                self.conversations[key] = existing
-            return existing
+        `_person_lock` serializes exactly that gap; the lookup is repeated
+        once the lock is held in case another thread finished loading
+        while this one was waiting."""
+        if not conversation_id:
+            return None
+        existing = self._cached(user_id, conversation_id)
+        if existing is None:
+            with self._person_lock(user_id):
+                existing = self._cached(user_id, conversation_id)
+                if existing is None:
+                    existing = self._load_conversation(user_id, conversation_id)
+                    if existing is not None:
+                        self.conversations[conversation_id] = existing
+        if existing is None:
+            return None
+        if workspace_id is not None and existing.workspace_id != workspace_id:
+            return None
+        return existing
 
-    def _load_conversation(self, user_id: str, workspace_id: str) -> Conversation:
-        """`conversation`'s cache-miss path: the stored row for this key,
-        or a fresh empty `Conversation` when there is none, retention is 0,
-        the row has expired, or the payload cannot be read.
+    def _cached(self, user_id: str, conversation_id: str) -> Conversation | None:
+        """The in-memory conversation with this id, if it is this
+        person's. Someone else's cached object is invisible, exactly as
+        someone else's stored row is (`repo.get_conversation`)."""
+        existing = self.conversations.get(conversation_id)
+        if existing is None or existing.user_id != user_id:
+            return None
+        return existing
+
+    def _load_conversation(self, user_id: str, conversation_id: str) -> Conversation | None:
+        """`open_conversation`'s cache-miss path: the stored row, or None
+        when there is none for this person, retention is 0, or it expired.
 
         A corrupt or unreadable payload (bad JSON, an unknown enum value,
         an unknown payload version -- `Conversation.from_payload` raises
-        on any of these) must not crash the chat screen (task rule):
-        caught here, logged as one line naming only the workspace and the
-        exception TYPE -- never the payload itself, which could hold a
-        question or an answer (core law: never log a full request body)."""
-        payload = chat_history.load(
+        on any of these) must not crash the chat screen (task rule): the
+        row still EXISTS and is still theirs, so this returns an empty
+        conversation under the same id -- the next settled answer
+        overwrites the unreadable payload. Logged as one line naming only
+        the workspace and the exception TYPE, never the payload itself,
+        which could hold a question or an answer (core law: never log a
+        full request body)."""
+        stored = chat_history.load(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            retention_days=get_settings().chat_history_retention_days,
+            db_path=self.db_path,
+        )
+        if stored is None:
+            return None
+        try:
+            return Conversation.from_payload(
+                stored.workspace_id,
+                json.loads(stored.payload),
+                conversation_id=stored.id,
+                user_id=user_id,
+            )
+        except Exception as exc:  # noqa: BLE001 -- logged, never left silent
+            logger.warning(
+                "stored chat history for workspace %s is unreadable (%s); "
+                "starting an empty conversation",
+                stored.workspace_id,
+                type(exc).__name__,
+            )
+            return Conversation(
+                workspace_id=stored.workspace_id, id=stored.id, user_id=user_id
+            )
+
+    def new_conversation(self, user_id: str, workspace_id: str) -> Conversation:
+        """A fresh conversation with its own id, live in memory. Not
+        stored until its first question is claimed (`_start` saves right
+        after `begin`), so opening "New conversation" and walking away
+        leaves nothing behind in the history list."""
+        conversation = Conversation(
+            workspace_id=workspace_id, id=repo.new_id(), user_id=user_id
+        )
+        self.conversations[conversation.id] = conversation
+        return conversation
+
+    def latest_conversation(self, user_id: str, workspace_id: str) -> Conversation | None:
+        """What the chat screen opens when its address names no
+        conversation: this person's most recently updated one in this
+        workspace, or None.
+
+        Stored rows first. Then, for `chat_history_retention_days = 0`
+        (nothing is stored, by design), the newest one still in memory --
+        otherwise asking a question would redirect to a screen that could
+        never find it again. Dict order is insertion order, so the last
+        match is the newest. Every conversation in memory has had a
+        question claimed or was loaded from a stored row (the empty chat
+        `_resolve_conversation` returns is never cached), so none of them
+        is a blank the person never used."""
+        latest = chat_history.latest_id(
             user_id=user_id,
             workspace_id=workspace_id,
             retention_days=get_settings().chat_history_retention_days,
             db_path=self.db_path,
         )
-        if payload is None:
-            return Conversation(workspace_id=workspace_id)
-        try:
-            return Conversation.from_payload(workspace_id, json.loads(payload))
-        except Exception as exc:  # noqa: BLE001 -- logged, never left silent
-            logger.warning(
-                "stored chat history for workspace %s is unreadable (%s); "
-                "starting an empty conversation",
-                workspace_id,
-                type(exc).__name__,
-            )
-            return Conversation(workspace_id=workspace_id)
+        if latest is not None:
+            found = self.open_conversation(user_id, latest, workspace_id)
+            if found is not None:
+                return found
+        in_memory = [
+            conversation
+            for conversation in list(self.conversations.values())
+            if conversation.user_id == user_id
+            and conversation.workspace_id == workspace_id
+        ]
+        return in_memory[-1] if in_memory else None
 
-    def save_conversation(self, user_id: str, conversation: Conversation) -> None:
-        """Persist one settled transcript (S6). Called only when
-        `Conversation.settle()` just returned True, from `_context`, so
-        this never runs on a no-op render or the 700ms poll's common case
-        of nothing having changed.
+    def routing_conversation(self, user_id: str) -> Conversation:
+        """F-12's "let Sanad choose" screen, one per person, in memory
+        only. It is never saved: the routing sentinel is not a workspace,
+        and `conversation` is FK'd to `workspace` (db/schema.sql). A
+        confirmed proposal starts a REAL conversation in the chosen
+        workspace (`_start`), which is saved like any other."""
+        existing = self.routing_conversations.get(user_id)
+        if existing is not None:
+            return existing
+        with self._person_lock(user_id):
+            existing = self.routing_conversations.get(user_id)
+            if existing is None:
+                existing = Conversation(
+                    workspace_id=screen.ROUTE_SENTINEL, user_id=user_id
+                )
+                self.routing_conversations[user_id] = existing
+            return existing
 
-        NEVER for the F-12 routing sentinel: `screen.ROUTE_SENTINEL` is
-        not a real workspace id, and `chat_history` is FK'd to `workspace`
-        (db/schema.sql), so writing it would raise. `settle()` never
-        returns True for that conversation today (`_start_routing` calls
-        `begin_route`, never `begin`, so `run` is never set) -- this is a
-        defensive guard against a future path reaching here anyway,
-        proven by a test that calls this directly rather than trusting
-        that today's routes never do.
+    def save_conversation(self, conversation: Conversation) -> None:
+        """Persist one conversation's transcript (S6, ST-53). Called when
+        `Conversation.settle()` just returned True (from `_context`, so
+        never on the 700ms poll's common case of nothing having changed),
+        and once right after a question is claimed (`_start`), so a new
+        conversation shows in the history list at once.
+
+        NEVER for a conversation without an id or for the F-12 routing
+        conversation: `screen.ROUTE_SENTINEL` is not a real workspace id,
+        and `conversation` is FK'd to `workspace` (db/schema.sql), so
+        writing it would raise. Guarded here rather than trusted to every
+        caller, and proven by a test that calls this directly.
 
         THE RACE THIS CLOSES (cold review): a save that snapshots the
         transcript, then writes it, has a gap in between where a
-        concurrent "Delete my saved history" or "New conversation" can
-        remove the very rows this save is about to (re)write -- the
-        delete finishes first, then the stale save resurrects what was
-        just deleted. Closed by ONE check, made under the same per-person
-        lock every delete holds: the write happens only if this
-        `Conversation` is still the one live in `self.conversations`.
-        Every delete drops that object inside the lock, in the same step
-        as the stored rows, and nothing ever puts the same object back --
-        so a save that snapshotted before a delete, or arrives while one
-        runs, finds it gone and skips. The next settled answer saves fine;
-        this one does not get to un-delete anything.
+        concurrent delete can remove the very row this save is about to
+        (re)write -- the delete finishes first, then the stale save
+        resurrects what was just deleted. Closed by ONE check, made under
+        the same per-person lock every delete holds: the write happens
+        only if this `Conversation` is still the one live in
+        `self.conversations`. Every delete drops that object inside the
+        lock, in the same step as the stored row, and nothing ever puts
+        the same object back -- so a save that snapshotted before a
+        delete, or arrives while one runs, finds it gone and skips.
 
         (A per-person "delete counter" used to sit beside this check. A
         cold review removed it and every test still passed: once the
         in-memory drop moved inside the lock it guarded nothing, and a
         comment crediting it could have led someone to weaken the real
         guard. It is gone.)"""
-        if conversation.workspace_id == screen.ROUTE_SENTINEL:
+        if not conversation.id or conversation.workspace_id == screen.ROUTE_SENTINEL:
             return
-        key = f"{user_id}|{conversation.workspace_id}"
+        user_id = conversation.user_id
         payload = conversation.to_payload()
+        first_question = conversation.first_question()
         if self._save_hook is not None:
             self._save_hook()
         with self._person_lock(user_id):
-            if self.conversations.get(key) is not conversation:
+            if self.conversations.get(conversation.id) is not conversation:
                 return
             # A FAILED SAVE MUST NOT FAIL THE PAGE (second cold review).
             # This runs inside the chat screen's render, after the finished
@@ -549,9 +632,11 @@ class Runtime:
             # transcript cannot fail the page either.
             try:
                 chat_history.save(
+                    conversation_id=conversation.id,
                     user_id=user_id,
                     workspace_id=conversation.workspace_id,
                     payload=json.dumps(payload),
+                    first_question=first_question,
                     retention_days=get_settings().chat_history_retention_days,
                     db_path=self.db_path,
                 )
@@ -563,45 +648,77 @@ class Runtime:
                     exc_info=True,
                 )
 
-    def delete_conversation_storage(self, user_id: str, workspace_id: str) -> None:
-        """Drop the stored row for just this one (person, workspace)
-        pair, and the in-memory copy with it -- used by `/chat/new` (New
-        conversation touches only the active workspace) and by an admin
-        revoking a person's access to one workspace (the stored
-        transcript quotes passages they should no longer hold).
+    def _drop_where(self, keep: Any) -> list[Conversation]:
+        """Remove every in-memory conversation `keep` says no to, and
+        return them. `list(...)` copies the items in one step first:
+        another person's first page load can add to this shared dict at
+        any moment, and iterating the live dict raised "dictionary changed
+        size during iteration" (second cold review)."""
+        dropped = []
+        for conversation_id, conversation in list(self.conversations.items()):
+            if not keep(conversation):
+                self.conversations.pop(conversation_id, None)
+                dropped.append(conversation)
+        return dropped
 
-        Under this person's lock it deletes the stored row AND drops the
-        in-memory `Conversation`, in one step, so a save already in flight
-        for this conversation finds it gone and cannot write it back (see
-        `save_conversation`). Any run still being written is cancelled
-        AFTER the lock is released, so the lock is never held while a
-        run's own lock is taken."""
-        key = f"{user_id}|{workspace_id}"
-        # The in-memory copy is dropped INSIDE the lock, in the same step
-        # as the stored row (second cold review). Dropping it after the
-        # lock was released left a gap where a fresh save still found this
-        # conversation live and wrote the deleted transcript back.
+    @staticmethod
+    def _cancel_runs(conversations: list[Conversation]) -> None:
+        """Stop every answer still being written into a conversation that
+        was just deleted -- otherwise it keeps running and spends a paid
+        call writing into an object nothing can reach any more (a cold
+        review found this). Called AFTER the person lock is released, so
+        that lock is never held while a run's own lock is taken."""
+        for conversation in conversations:
+            if conversation.run is not None:
+                conversation.run.cancel()
+
+    def delete_conversation(self, user_id: str, conversation_id: str) -> bool:
+        """Drop one of this person's conversations, stored and in memory
+        (ST-53's per-conversation delete, and no-login "New conversation").
+        False when it was neither stored nor live for them -- someone
+        else's id deletes nothing.
+
+        The stored row and the in-memory copy go in ONE locked step
+        (second cold review): dropping memory after the lock was released
+        left a gap where a fresh save still found the conversation live
+        and wrote the deleted transcript back."""
         with self._person_lock(user_id):
-            chat_history.delete(user_id=user_id, workspace_id=workspace_id, db_path=self.db_path)
-            conversation = self.conversations.pop(key, None)
+            stored = chat_history.delete(
+                conversation_id=conversation_id, user_id=user_id, db_path=self.db_path
+            )
+            dropped = self._drop_where(
+                lambda c: not (c.id == conversation_id and c.user_id == user_id)
+            )
             if self._delete_hook is not None:
                 self._delete_hook()
-        if conversation is not None and conversation.run is not None:
-            conversation.run.cancel()
+        self._cancel_runs(dropped)
+        return stored or bool(dropped)
+
+    def delete_workspace_history(self, user_id: str, workspace_id: str) -> None:
+        """Every conversation one person has in one workspace, stored and
+        in memory -- an admin revoking their access to it (law 09-08, cold
+        review: those transcripts quote passages they should no longer
+        hold). Same one-locked-step rule as `delete_conversation`."""
+        with self._person_lock(user_id):
+            chat_history.delete_in_workspace(
+                user_id=user_id, workspace_id=workspace_id, db_path=self.db_path
+            )
+            dropped = self._drop_where(
+                lambda c: not (c.user_id == user_id and c.workspace_id == workspace_id)
+            )
+            if self._delete_hook is not None:
+                self._delete_hook()
+        self._cancel_runs(dropped)
 
     def forget_conversations(self, user_id: str) -> None:
-        """Drop every IN-MEMORY transcript belonging to one person
-        (ordinary sign-out). Storage is untouched on purpose -- that is
-        the point of an ordinary sign-out: the transcript comes back at
-        the next sign-in. See `delete_all_history` for the law 09-08
-        control that removes the stored copy too."""
-        prefix = f"{user_id}|"
-        # `list(...)` copies the keys in one step first: another person's
-        # first page load can add to this shared dict at any moment, and
-        # iterating the live dict raised "dictionary changed size during
-        # iteration" (second cold review).
-        for key in [k for k in list(self.conversations) if k.startswith(prefix)]:
-            self.conversations.pop(key, None)
+        """Drop every IN-MEMORY conversation belonging to one person
+        (ordinary sign-out), the routing one included. Storage is
+        untouched on purpose -- that is the point of an ordinary sign-out:
+        the history comes back at the next sign-in. See
+        `delete_all_history` for the law 09-08 control that removes the
+        stored copies too."""
+        self._drop_where(lambda c: c.user_id != user_id)
+        self.routing_conversations.pop(user_id, None)
 
     def forget_workspace_conversations(self, workspace_id: str) -> None:
         """Drop every IN-MEMORY conversation for one workspace, whoever it
@@ -610,53 +727,34 @@ class Runtime:
         rows with the workspace when `sync.delete_workspace` runs; this is
         the in-memory half.
 
-        Cold review: the old code did
-        `runtime.conversations.pop(workspace_id, None)`, a leftover from
-        before S6 keyed this dict by workspace alone. Since S6 every key
-        is `"{user_id}|{workspace_id}"`, so that pop matched nothing and
-        every signed-in person's conversation for a deleted workspace
-        stayed in memory -- reachable again if the same workspace id were
-        ever reused (uuid4, so vanishingly unlikely, but a leaked
-        reference regardless) and, worse, `Conversation.run` inside it was
-        never cancelled."""
-        suffix = f"|{workspace_id}"
-        for key in [k for k in list(self.conversations) if k.endswith(suffix)]:
-            conversation = self.conversations.pop(key, None)
-            if conversation is not None and conversation.run is not None:
-                conversation.run.cancel()
+        Cold review (pre-ST-53): an older version popped a key that no
+        longer matched anything, so every conversation for a deleted
+        workspace stayed in memory and its run was never cancelled. The
+        match is now on the conversation's own `workspace_id` field, not
+        on the shape of a key."""
+        self._cancel_runs(self._drop_where(lambda c: c.workspace_id != workspace_id))
 
     def delete_all_history(self, user_id: str) -> None:
         """Law 09-08: every stored conversation this person has, in every
-        workspace, gone -- plus their in-memory transcripts, so nothing of
-        theirs is left in the running process either. Used by the
-        person's own "Delete my saved history" control (`/chat/history/
-        delete`) and by admin "sign out everywhere" (`admin_sign_out_route`),
-        the two places this project has ruled a person's data must be
-        taken out.
+        workspace, gone -- plus their in-memory ones, so nothing of theirs
+        is left in the running process either. Used by the person's own
+        "Delete my saved history" control (`/chat/history/delete`) and by
+        admin "sign out everywhere" (`admin_sign_out_route`), the two
+        places this project has ruled a person's data must be taken out.
 
-        Under this person's lock it deletes every stored row AND drops
-        every in-memory conversation of theirs, in one step, so no save in
-        flight can write one back (see `save_conversation`). Every run of
-        theirs still being written is then cancelled, after the lock is
-        released -- otherwise a question already being answered keeps
-        running and spends a paid call writing into a `Conversation`
-        nothing can reach any more (a cold review found this)."""
-        prefix = f"{user_id}|"
-        # Stored rows AND in-memory copies go in one locked step (second
-        # cold review): removing memory after releasing the lock let a
-        # fresh save find a conversation still live and write it back.
+        Stored rows AND in-memory copies go in one locked step (second
+        cold review), so no save in flight can write one back (see
+        `save_conversation`); runs are cancelled after the lock is
+        released."""
         with self._person_lock(user_id):
             chat_history.delete_for_user(user_id=user_id, db_path=self.db_path)
-            dropped = [
-                self.conversations.pop(key, None)
-                for key in list(self.conversations)
-                if key.startswith(prefix)
-            ]
+            dropped = self._drop_where(lambda c: c.user_id != user_id)
+            routing = self.routing_conversations.pop(user_id, None)
+            if routing is not None:
+                dropped.append(routing)
             if self._delete_hook is not None:
                 self._delete_hook()
-        for conversation in dropped:
-            if conversation is not None and conversation.run is not None:
-                conversation.run.cancel()
+        self._cancel_runs(dropped)
 
 
 def _signed_in_as(request: Request) -> auth.Principal | None:
@@ -816,17 +914,58 @@ def _active(runtime: Runtime, request: Request) -> screen.WorkspaceOption | None
     return chosen or options[0]
 
 
-def _conversation_key(runtime: Runtime, request: Request) -> str | None:
-    """Which `Runtime.conversations` entry the shell is showing right now:
-    the active workspace's id, or F-12's routing sentinel when no
-    workspace is selected and there is something to route between. None
-    only when no workspace exists at all -- there is nothing to show."""
-    active = _active(runtime, request)
-    if active is not None:
-        return active.id
-    if visible_options(runtime, request):
-        return screen.ROUTE_SENTINEL
-    return None
+# ST-53: the value of `?c=` that means "an empty chat, not the latest one".
+# Never a real id: ids are uuid4 hex (`repo.new_id`).
+NEW_CONVERSATION = "new"
+
+
+def _chat_url(conversation_id: str | None) -> str:
+    """The chat screen's address for one conversation (ST-53). The id
+    travels in the address, not in server state, so two browser tabs can
+    hold two different conversations at once and Back goes where it
+    says."""
+    if not conversation_id:
+        return "/"
+    return f"/?c={quote(conversation_id, safe='')}"
+
+
+def _resolve_conversation(
+    runtime: Runtime, request: Request, active: screen.WorkspaceOption
+) -> Conversation:
+    """Which conversation S1 shows in the active workspace (ST-53).
+
+    In order: `?c=new` is an empty chat; `?c=<id>` is that conversation
+    IF it is this person's AND in this workspace; anything else -- no `c`,
+    an unknown id, someone else's id, an id from another workspace after
+    a switch -- is this person's latest conversation here, or an empty
+    chat when they have none.
+
+    The empty chat is NOT kept in memory and never stored: it gets an id
+    only when its first question is asked (`_start`). A page load
+    therefore never creates anything, and a stranger with a grant who
+    only looks at the screen leaves no row behind."""
+    user_id = principal_of(request).id
+    requested = request.query_params.get("c", "")
+    if requested != NEW_CONVERSATION:
+        if requested:
+            found = runtime.open_conversation(user_id, requested, active.id)
+            if found is not None:
+                return found
+        latest = runtime.latest_conversation(user_id, active.id)
+        if latest is not None:
+            return latest
+    return Conversation(workspace_id=active.id, user_id=user_id)
+
+
+def _shows_history(request: Request) -> bool:
+    """Whether S1 lists this person's past conversations (ST-53).
+
+    Only for a signed-in person. In the login-free modes everyone is the
+    same unrestricted "local" principal, so a list would show one shared
+    pile to whoever sits at the machine -- YL's ruling (DECISIONS
+    2026-09-18) is to hide it there; "New conversation" then replaces the
+    current chat instead of piling up ones nobody can see."""
+    return not principal_of(request).unrestricted
 
 
 def _workspace_is_arabic(workspace_id: str | None) -> bool:
@@ -901,21 +1040,21 @@ def _context(runtime: Runtime, request: Request) -> dict:
     is_routing = active is None and bool(options)
     if active is not None:
         documents = screen.answerable_documents(active.id, db_path=runtime.db_path)
-        conversation = runtime.conversation(active.id, principal.id)
+        conversation = _resolve_conversation(runtime, request, active)
         # S6 saved chat history: persist only when settle() actually folded
         # a finished run into the transcript, not on every render -- this
         # function also runs on the 700ms poll while the page is open.
         if conversation.settle():
-            runtime.save_conversation(principal.id, conversation)
+            runtime.save_conversation(conversation)
     elif is_routing:
-        conversation = runtime.conversation(screen.ROUTE_SENTINEL, principal.id)
-        # The routing sentinel conversation never gets a real `Run`
-        # (`_start_routing` calls `begin_route`, never `begin`), so
-        # `settle()` is always a no-op here -- never persisted, and there
-        # is nothing FK-safe to persist it against (ROUTE_SENTINEL is not
-        # a real workspace id).
+        conversation = runtime.routing_conversation(principal.id)
+        # The routing conversation never gets a real `Run` (`_start_routing`
+        # calls `begin_route`, never `begin`), so `settle()` is always a
+        # no-op here -- and `save_conversation` refuses it anyway: there is
+        # nothing FK-safe to persist it against (ROUTE_SENTINEL is not a
+        # real workspace id).
         if conversation.settle():
-            runtime.save_conversation(principal.id, conversation)
+            runtime.save_conversation(conversation)
     state = screen.state_for(
         options=options,
         documents=documents,
@@ -926,11 +1065,27 @@ def _context(runtime: Runtime, request: Request) -> dict:
     busy = bool(conversation and conversation.busy)
     stage = run.shown_stage if (run and busy) else None
     active_id = active.id if active else None
+    shows_history = _shows_history(request) and active is not None
     return {
         "request": request,
         "dir": _direction(request, active_id),
         "lang": _lang(active_id),
         "current_screen": "chat",
+        # ST-53: which conversation this render shows ("" for an empty chat
+        # not yet asked anything), carried by every form that acts on it,
+        # and this person's list of past ones in this workspace.
+        "conversation_id": conversation.id if conversation else "",
+        "shows_history": shows_history,
+        "history": (
+            chat_history.list_for(
+                user_id=principal.id,
+                workspace_id=active.id,
+                retention_days=get_settings().chat_history_retention_days,
+                db_path=runtime.db_path,
+            )
+            if shows_history and active is not None
+            else []
+        ),
         "signed_in_as": _signed_in_as(request),
         # UX spec 4: "Changing it clears nothing and interrupts nothing,
         # but the chat area shows a one-line notice that the conversation
@@ -1720,7 +1875,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             # S6, law 09-08 (cold review): a revoked workspace's stored
             # transcript quotes passages this person should no longer
             # hold, so it leaves with the grant -- not just their access.
-            runtime.delete_conversation_storage(user_id, workspace_id)
+            runtime.delete_workspace_history(user_id, workspace_id)
         return RedirectResponse("/admin", status_code=SEE_OTHER)
 
     @app.post("/admin/people/{user_id}/sign-out")
@@ -1757,31 +1912,144 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         # an extra `workspace_id` field, naming which candidate to answer
         # from. Ordinary asks never carry this field, so `form.get`
         # returns None and nothing here changes for them.
+        # ST-53: `conversation_id` names the conversation this question
+        # continues; empty (an empty chat, or a routing candidate) starts
+        # a new one.
         return _start(
-            runtime, request, form.get("question", ""), form.get("workspace_id") or None
+            runtime,
+            request,
+            form.get("question", ""),
+            form.get("workspace_id") or None,
+            conversation_id=form.get("conversation_id", ""),
         )
 
     @app.post("/chat/cancel")
-    def cancel(request: Request) -> Response:
-        key = _conversation_key(runtime, request)
-        if key is not None:
-            run = runtime.conversation(key, principal_of(request).id).run
-            if run is not None:
-                run.cancel()
-        return RedirectResponse("/", status_code=SEE_OTHER)
+    async def cancel(request: Request) -> Response:
+        """Stop the answer being written in ONE conversation (ST-53: others
+        of this person's may be running too, and are left alone)."""
+        form = await _form(request)
+        conversation = runtime.open_conversation(
+            principal_of(request).id, form.get("conversation_id", "")
+        )
+        if conversation is not None and conversation.run is not None:
+            conversation.run.cancel()
+        return RedirectResponse(
+            _chat_url(conversation.id if conversation else None), status_code=SEE_OTHER
+        )
 
     @app.post("/chat/new")
-    def new_conversation(request: Request) -> Response:
-        key = _conversation_key(runtime, request)
-        if key is not None:
-            principal_id = principal_of(request).id
-            runtime.conversation(key, principal_id).reset()
-            # S6 saved chat history: a new conversation also drops the
-            # stored row for this one workspace, so it is not silently
-            # resurrected on the next load -- only this workspace's row,
-            # never this person's others (that is `/chat/history/delete`,
-            # below).
-            runtime.delete_conversation_storage(principal_id, key)
+    async def new_conversation(request: Request) -> Response:
+        """UX spec 6.2's New conversation, ST-53 edition.
+
+        Signed in: the current conversation is KEPT -- it stays in the
+        history list, still running if it was -- and the screen opens an
+        empty chat. Login-free: there is no list to find it in again
+        (`_shows_history`), so the current one is deleted first, stored
+        and in memory, exactly as before ST-53; nothing piles up unseen.
+        On F-12's routing screen the routing conversation is emptied,
+        as before."""
+        form = await _form(request)
+        principal = principal_of(request)
+        if _active(runtime, request) is None:
+            if visible_options(runtime, request):
+                runtime.routing_conversation(principal.id).reset()
+            return RedirectResponse("/", status_code=SEE_OTHER)
+        current = form.get("conversation_id", "")
+        if current and not _shows_history(request):
+            runtime.delete_conversation(principal.id, current)
+        return RedirectResponse(_chat_url(NEW_CONVERSATION), status_code=SEE_OTHER)
+
+    def _own_conversation(request: Request, conversation_id: str) -> Conversation | None:
+        """ST-53: this person's conversation, in a workspace they may still
+        see -- or None, which every route turns into the same 404 whether
+        the id is unknown, someone else's, or behind a revoked grant."""
+        conversation = runtime.open_conversation(principal_of(request).id, conversation_id)
+        if conversation is None or not _may_see(request, conversation.workspace_id):
+            return None
+        return conversation
+
+    def _no_such_conversation() -> Response:
+        return Response(
+            "No such conversation.", status_code=404, media_type="text/plain; charset=utf-8"
+        )
+
+    def _manage_page(
+        request: Request, conversation_id: str, *, title: str, error: str = ""
+    ) -> Response:
+        return templates.TemplateResponse(
+            request,
+            "conversation_manage.html",
+            {
+                **_ws_context(runtime, request),
+                "conversation_id": conversation_id,
+                "conversation_title": title,
+                "title_error": error,
+                "title_max_chars": chat_history.TITLE_MAX_CHARS,
+            },
+            status_code=400 if error else 200,
+        )
+
+    def _stored_title(request: Request, conversation: Conversation) -> str:
+        """The title the history list shows for this conversation, "" for
+        untitled or never stored."""
+        for summary in chat_history.list_for(
+            user_id=principal_of(request).id,
+            workspace_id=conversation.workspace_id,
+            retention_days=get_settings().chat_history_retention_days,
+            db_path=runtime.db_path,
+        ):
+            if summary.id == conversation.id:
+                return summary.title or ""
+        return ""
+
+    @app.get("/chat/conversations/{conversation_id}", response_class=HTMLResponse)
+    def manage_conversation(request: Request, conversation_id: str) -> Response:
+        """ST-53: rename or delete one conversation. A real page, so it
+        works with scripting off; deleting is the POST its own form sends
+        -- this GET never changes anything (the ConfirmDialog pattern of
+        UX spec 5, 7.2)."""
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
+        conversation = _own_conversation(request, conversation_id)
+        if conversation is None:
+            return _no_such_conversation()
+        return _manage_page(
+            request, conversation_id, title=_stored_title(request, conversation)
+        )
+
+    @app.post("/chat/conversations/{conversation_id}/rename")
+    async def rename_conversation_route(request: Request, conversation_id: str) -> Response:
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
+        if _own_conversation(request, conversation_id) is None:
+            return _no_such_conversation()
+        form = await _form(request)
+        title = form.get("title", "")
+        try:
+            renamed = chat_history.rename(
+                conversation_id=conversation_id,
+                user_id=principal_of(request).id,
+                title=title,
+                db_path=runtime.db_path,
+            )
+        except chat_history.InvalidTitleError:
+            error = "chat.conv.title_empty" if not title.strip() else "chat.conv.title_too_long"
+            return _manage_page(request, conversation_id, title=title, error=error)
+        if not renamed:
+            # Live but never stored: retention 0 keeps nothing to rename.
+            return _no_such_conversation()
+        return RedirectResponse(_chat_url(conversation_id), status_code=SEE_OTHER)
+
+    @app.post("/chat/conversations/{conversation_id}/delete")
+    def delete_conversation_route(request: Request, conversation_id: str) -> Response:
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
+        if _own_conversation(request, conversation_id) is None:
+            return _no_such_conversation()
+        runtime.delete_conversation(principal_of(request).id, conversation_id)
         return RedirectResponse("/", status_code=SEE_OTHER)
 
     @app.get("/chat/history/delete", response_class=HTMLResponse)
@@ -1847,8 +2115,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         message_id = form.get("message_id", "")
         verdict = form.get("verdict", "")
         comment = form.get("comment") or None
-        conversation = runtime.conversations.get(
-            f"{principal_of(request).id}|{workspace_id}"
+        conversation_id = form.get("conversation_id", "")
+        conversation = runtime.open_conversation(
+            principal_of(request).id, conversation_id, workspace_id
         )
         messages = conversation.messages if conversation is not None else []
         try:
@@ -1876,7 +2145,9 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             )
         else:
             runtime.feedback_errors.pop(workspace_id, None)
-        return RedirectResponse("/", status_code=SEE_OTHER)
+        return RedirectResponse(
+            _chat_url(conversation.id if conversation else None), status_code=SEE_OTHER
+        )
 
     @app.post("/workspace")
     async def switch(request: Request) -> Response:
@@ -1930,10 +2201,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         )
 
     @app.get(
-        "/chat/passage/{workspace_id}/{message}/{index}", response_class=HTMLResponse
+        "/chat/passage/{conversation_id}/{message}/{index}", response_class=HTMLResponse
     )
     def passage(
-        request: Request, workspace_id: str, message: int, index: int
+        request: Request, conversation_id: str, message: int, index: int
     ) -> HTMLResponse:
         """One source card's sections, as a page of their own.
 
@@ -1943,9 +2214,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         render `_passage.html`, so there is one description of a passage
         and not two.
 
-        ADDRESSED BY WORKSPACE, THEN MESSAGE, THEN CARD. Every one of the
-        three is load-bearing and each was added after the previous
-        addressing scheme was shown to open the wrong text:
+        ADDRESSED BY CONVERSATION, THEN MESSAGE, THEN CARD. Every one of
+        the three is load-bearing and each was added after the previous
+        addressing scheme was shown to open the wrong text (ST-53 moved the
+        first from workspace to conversation, because a workspace now holds
+        many conversations):
 
         * by card alone, an older answer's card opened the NEWEST answer's
           section, because every answer keeps its own cards visible (UX
@@ -1958,12 +2231,12 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         Both failures look completely correct on screen, which is what
         makes them worth the extra path segment: the reader has no way to
         tell they are reading the wrong document's section."""
-        # S6: this person's transcript in that workspace, never anyone
-        # else's -- the passage a card opens must come from the answer the
-        # SAME reader was given.
-        conversation = runtime.conversations.get(
-            f"{principal_of(request).id}|{workspace_id}"
-        )
+        # S6: this person's transcript, never anyone else's -- the passage
+        # a card opens must come from the answer the SAME reader was given.
+        denied = _no_role_page(request)
+        if denied is not None:
+            return denied
+        conversation = _own_conversation(request, conversation_id)
         messages = conversation.messages if conversation else []
         card = None
         if 0 <= message < len(messages):
@@ -2392,6 +2665,8 @@ def _start(
     request: Request,
     question: str,
     workspace_override: str | None = None,
+    *,
+    conversation_id: str = "",
 ) -> Response:
     """Put one question in flight (or say why it cannot be).
 
@@ -2405,7 +2680,13 @@ def _start(
     workspace AND makes it the selected one (the F-12 card's own words) in
     one step -- a stale or hand-crafted id is silently ignored rather than
     switching the shell to nothing, and the request then falls through to
-    ordinary routing-mode handling exactly as if nothing had been chosen."""
+    ordinary routing-mode handling exactly as if nothing had been chosen.
+
+    `conversation_id` (ST-53) is the conversation this question continues.
+    Empty, unknown, someone else's, or from another workspace, it starts a
+    NEW conversation instead -- never an error, and never someone else's
+    transcript. The new one is saved as soon as its question is claimed,
+    so it is in the history list before the answer arrives."""
     options = visible_options(runtime, request)
     if workspace_override and any(opt.id == workspace_override for opt in options):
         runtime.active_workspace_id = workspace_override
@@ -2422,14 +2703,17 @@ def _start(
         # anyway, because "unreachable through the screen" is a statement
         # about today's templates, not about what a POST can carry.
         return _refuse_action(runtime, request)
-    conversation = runtime.conversation(active.id, principal.id)
+    existing = runtime.open_conversation(principal.id, conversation_id, active.id)
     asked = question.strip()
     # A blank submit is not an error to show the operator; the input is
     # `required` and an empty box means they pressed Send by accident.
     # `ask` would raise on it (openapi AskRequest, minLength 1) and that
     # would print an error panel for a question nobody asked.
     if not asked:
-        return RedirectResponse("/", status_code=SEE_OTHER)
+        return RedirectResponse(
+            _chat_url(existing.id if existing else NEW_CONVERSATION), status_code=SEE_OTHER
+        )
+    conversation = existing or runtime.new_conversation(principal.id, active.id)
     run = Run(
         question=asked,
         workspace_id=active.id,
@@ -2443,12 +2727,15 @@ def _start(
     # The first then ran to completion, spent a real provider call, and
     # had its answer discarded. See `Conversation.begin`.
     if not conversation.begin(run, asked):
-        return RedirectResponse("/", status_code=SEE_OTHER)
+        return RedirectResponse(_chat_url(conversation.id), status_code=SEE_OTHER)
+    # ST-53: stored now, with its question, so it is in the history list
+    # (and its title set) while the answer is still being written.
+    runtime.save_conversation(conversation)
     # The worker enters this context itself, so embedded Qdrant stays open
     # through every split query and closes only after the answer settles.
     # Opening errors reach the same visible ErrorPanel as model-call errors.
     run.start_with(runtime.ports())
-    return RedirectResponse("/", status_code=SEE_OTHER)
+    return RedirectResponse(_chat_url(conversation.id), status_code=SEE_OTHER)
 
 
 def _start_routing(
@@ -2473,7 +2760,7 @@ def _start_routing(
     asked = question.strip()
     if not asked:
         return RedirectResponse("/", status_code=SEE_OTHER)
-    conversation = runtime.conversation(screen.ROUTE_SENTINEL, principal_of(request).id)
+    conversation = runtime.routing_conversation(principal_of(request).id)
     # The length bound is normally enforced by the graph when a run starts
     # (agent/graph.py). Routing never starts a run, so without this an
     # over-long question would be proposed a workspace and only fail after

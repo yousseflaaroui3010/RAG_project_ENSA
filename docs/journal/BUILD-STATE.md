@@ -1,6 +1,47 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-18, SCREEN-READER PASS DROPPED (read this block first)
+## STATE AT 2026-09-18, ST-53 PART A: MANY CONVERSATIONS (read this block first)
+
+**What changed for a person.** A chat is no longer one transcript per
+workspace. Every conversation has its own id, carried in the address
+(`/?c=<id>`), so a signed-in person sees a plain list of their past
+conversations in this workspace, opens any of them, renames or deletes one
+(`/chat/conversations/<id>`), and New conversation keeps the old one. The
+title is the first question. Without sign-in (none, password) the list is
+hidden and New conversation still replaces the chat on screen (YL's ruling).
+One answer may run per conversation, so several can run at once.
+
+**Where it lives.** `db/schema.sql` (table `conversation`), `db/repo.py`
+(plain queries that always match the owner, plus the one-time move from
+`chat_history`, which is then DROPPED -- undo plan in DECISIONS),
+`chat_history.py` (retention, titles, rename rules), `app.py` (`Runtime`
+store keyed by conversation id, `_resolve_conversation`, the routes),
+`ui/templates/chat.html` (the list), `conversation_manage.html` (rename and
+delete), and the conversation id on every chat form and the poll.
+
+**Proof.** Full suite: **1336 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose,
+one at a time, and caught by a test: **17 of 17** (owner check live and
+stored, workspace check, grant check, no-login replace, signed-in keep, list
+hidden without sign-in, title never overwritten, old table dropped, title
+from first question, save skips a deleted chat, delete inside the lock, `?c=`
+opens that chat, `?c=new` is empty, a follow-up continues the named chat,
+admin revoke takes every chat in the workspace).
+
+**Not done yet, and not claimed:** the slide-out drawer (part B), the header,
+footer and chat layout (part C), and any check on the live site. **Before
+this merges, back up the live database** -- the migration drops a table.
+From `C:\sanad-railway`:
+`MSYS_NO_PATHCONV=1 railway ssh --service sanad-web -- cp /app/data/sanad.db /app/data/sanad.db.bak-2026-09-18`
+
+**A working hazard found today:** VS Code's auto-save (`files.autoSave:
+afterDelay`) wrote stale open tabs over edits made from outside the editor
+three times (db/schema.sql, ui/conversation.py, app.py, a test file and a
+defense doc). Close or revert those tabs before editing from the terminal,
+and commit often.
+
+---
+
+## STATE AT 2026-09-18, SCREEN-READER PASS DROPPED (history now; the ST-53 block above is current)
 
 **YL's ruling, for YL and MB: the human screen-reader pass is out of the
 plan.** ST-38's six blocked rows (S1-LOAD-01, S2-NORMAL-02, S3-LOAD-01,

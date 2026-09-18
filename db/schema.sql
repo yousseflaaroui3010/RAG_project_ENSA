@@ -172,22 +172,32 @@ CREATE TABLE IF NOT EXISTS activity_event (
   created_at     TEXT    NOT NULL
 );
 
--- S6 saved chat history (law 09-08): one person's stored chat transcript for one
--- workspace, surviving a server restart. `user_id` is NOT a foreign key
--- to app_user -- the login-free modes key every conversation "local"
--- (app.py Runtime.conversation), and that literal is never a row in
--- app_user. `payload` is the whole transcript (messages, summary, turns,
--- session_id -- never the in-flight `run` or `pending_clarification`) as
--- one JSON blob: see ui/conversation.py's Conversation.to_payload /
--- from_payload for the exact shape. `workspace_id` cascades on purpose,
--- the same as every other workspace-derived row (PRD F-01): deleting a
--- workspace takes its stored transcripts with it. `updated_at` is what
--- `db/repo.py`'s retention sweep compares against
--- `chat_history_retention_days` (config.py).
-CREATE TABLE IF NOT EXISTS chat_history (
+-- S6 saved chat history (law 09-08), ST-53 conversations: every stored chat
+-- a person has had, MANY per workspace, each with its own id. Replaces the
+-- pre-ST-53 `chat_history` table (one transcript per person per workspace,
+-- which "New conversation" deleted); `db/repo.py`'s
+-- `_migrate_chat_history_to_conversation` copies those rows in and drops the
+-- old table. `user_id` is NOT a foreign key to app_user -- the login-free
+-- modes key every conversation "local" (app.py Runtime), and that literal is
+-- never a row in app_user. `payload` is the whole transcript (messages,
+-- summary, turns, session_id -- never the in-flight `run` or
+-- `pending_clarification`) as one JSON blob: see ui/conversation.py's
+-- Conversation.to_payload / from_payload for the exact shape. `title` is the
+-- first question until the person renames it; NULL shows as "untitled".
+-- `workspace_id` cascades on purpose, the same as every other
+-- workspace-derived row (PRD F-01): deleting a workspace takes its stored
+-- transcripts with it. `updated_at` orders the history list and is what the
+-- retention sweep compares against `chat_history_retention_days`
+-- (config.py). The index serves the one list query: one person, one
+-- workspace, newest first.
+CREATE TABLE IF NOT EXISTS conversation (
+  id             TEXT    PRIMARY KEY,
   user_id        TEXT    NOT NULL,
   workspace_id   TEXT    NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  title          TEXT,
   payload        TEXT    NOT NULL,
-  updated_at     TEXT    NOT NULL,
-  PRIMARY KEY (user_id, workspace_id)
+  created_at     TEXT    NOT NULL,
+  updated_at     TEXT    NOT NULL
 );
+CREATE INDEX IF NOT EXISTS conversation_owner_recent
+  ON conversation (user_id, workspace_id, updated_at);

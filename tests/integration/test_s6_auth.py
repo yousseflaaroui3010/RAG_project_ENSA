@@ -660,7 +660,7 @@ def test_two_people_never_share_a_conversation(keycloak):
         repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
         repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
     sign_in(READER_CLAIMS)
-    runtime.conversation(ws.id, "kc-reader").messages.append(
+    runtime.new_conversation("kc-reader", ws.id).messages.append(
         __import__("ui.conversation", fromlist=["Message"]).Message(
             kind=__import__("ui.conversation", fromlist=["MessageKind"]).MessageKind.USER,
             text="QUESTION-DE-OMAR",
@@ -680,11 +680,11 @@ def test_signing_out_forgets_that_person_transcript(keycloak):
     sign_in(READER_CLAIMS)
     with repo.session(db_path) as conn:
         repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
-    runtime.conversation(ws.id, "kc-reader")
+    runtime.new_conversation("kc-reader", ws.id)
 
     client.post("/auth/logout", follow_redirects=False)
 
-    assert not any(key.startswith("kc-reader|") for key in runtime.conversations)
+    assert not [c for c in runtime.conversations.values() if c.user_id == "kc-reader"]
 
 
 def test_signing_out_keeps_the_stored_transcript_for_next_time(keycloak):
@@ -697,25 +697,199 @@ def test_signing_out_keeps_the_stored_transcript_for_next_time(keycloak):
     sign_in(READER_CLAIMS)
     with repo.session(db_path) as conn:
         repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
-    conversation = runtime.conversation(ws.id, "kc-reader")
+    conversation = runtime.new_conversation("kc-reader", ws.id)
     conversation.messages.append(Message(kind=MessageKind.ANSWER, text="reader's answer"))
-    runtime.save_conversation("kc-reader", conversation)
+    runtime.save_conversation(conversation)
 
     client.post("/auth/logout", follow_redirects=False)
 
     with repo.session(db_path) as conn:
         assert (
             conn.execute(
-                "SELECT COUNT(*) FROM chat_history WHERE user_id = 'kc-reader'"
+                "SELECT COUNT(*) FROM conversation WHERE user_id = 'kc-reader'"
             ).fetchone()[0]
             == 1
         )
 
     sign_in(READER_CLAIMS)
-    restored = runtime.conversation(ws.id, "kc-reader")
+    restored = runtime.latest_conversation("kc-reader", ws.id)
+    assert restored is not conversation, "sign-out must have dropped the live copy"
     assert [m.text for m in restored.messages] == ["reader's answer"], (
         "the transcript must reload from storage at the next sign-in"
     )
+
+
+# --- ST-53: many conversations, a list, rename, delete ---------------------
+
+
+def _reader_with_a_workspace(keycloak, name: str = "HR"):
+    client, runtime, db_path, _, sign_in = keycloak
+    ws = workspaces.create_workspace(name=name, folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(READER_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
+    return client, runtime, db_path, sign_in, ws
+
+
+def _stored(runtime, user_id, ws_id, question, answer):
+    conversation = runtime.new_conversation(user_id, ws_id)
+    conversation.messages.append(Message(kind=MessageKind.USER, text=question))
+    conversation.messages.append(Message(kind=MessageKind.ANSWER, text=answer))
+    runtime.save_conversation(conversation)
+    return conversation
+
+
+def test_a_signed_in_person_sees_their_conversations_and_can_open_an_older_one(keycloak):
+    client, runtime, _, _, ws = _reader_with_a_workspace(keycloak)
+    older = _stored(runtime, "kc-reader", ws.id, "OLDER-QUESTION", "OLDER-ANSWER")
+    newer = _stored(runtime, "kc-reader", ws.id, "NEWER-QUESTION", "NEWER-ANSWER")
+
+    page = client.get("/").text
+
+    assert 'class="history"' in page
+    assert page.index(f'href="/?c={newer.id}"') < page.index(f'href="/?c={older.id}"'), (
+        "the list is newest first"
+    )
+    assert "NEWER-ANSWER" in page and "OLDER-ANSWER" not in page, "no ?c= opens the latest"
+
+    opened = client.get(f"/?c={older.id}").text
+    assert "OLDER-ANSWER" in opened and "NEWER-ANSWER" not in opened
+    assert f'name="conversation_id" value="{older.id}"' in opened, (
+        "the next question must continue the conversation that was opened"
+    )
+
+
+def test_the_list_never_shows_someone_elses_conversation(keycloak):
+    client, runtime, db_path, sign_in, ws = _reader_with_a_workspace(keycloak)
+    sign_in(CURATOR_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
+    theirs = _stored(runtime, "kc-curator", ws.id, "CURATOR-QUESTION", "CURATOR-ANSWER")
+    sign_in(READER_CLAIMS)
+
+    page = client.get("/").text
+    forced = client.get(f"/?c={theirs.id}").text
+
+    assert theirs.id not in page and "CURATOR-QUESTION" not in page
+    assert "CURATOR-ANSWER" not in forced, "an id in the address must not open their chat"
+
+
+def test_new_conversation_when_signed_in_keeps_the_one_on_screen(keycloak):
+    """YL's ST-53 ruling: signed in, New conversation opens an empty chat
+    and the previous one stays -- stored, listed, still openable."""
+    client, runtime, db_path, _, ws = _reader_with_a_workspace(keycloak)
+    kept = _stored(runtime, "kc-reader", ws.id, "KEPT-QUESTION", "KEPT-ANSWER")
+
+    response = client.post(
+        "/chat/new", data={"conversation_id": kept.id}, follow_redirects=False
+    )
+
+    assert response.headers["location"] == "/?c=new"
+    with repo.session(db_path) as conn:
+        assert [row[0] for row in conn.execute("SELECT id FROM conversation")] == [kept.id]
+    empty = client.get("/?c=new").text
+    assert "KEPT-ANSWER" not in empty
+    assert 'name="conversation_id" value=""' in empty
+    assert f'href="/?c={kept.id}"' in empty, "the kept one is one click away"
+
+
+def test_someone_elses_conversation_is_not_found_on_every_route(keycloak):
+    """Not yours and does not exist are the same 404 -- on the page that
+    only renders too, not just on the actions -- and nothing changes."""
+    client, runtime, db_path, sign_in, ws = _reader_with_a_workspace(keycloak)
+    sign_in(CURATOR_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
+    theirs = _stored(runtime, "kc-curator", ws.id, "CURATOR-QUESTION", "CURATOR-ANSWER")
+    sign_in(READER_CLAIMS)
+
+    manage = client.get(f"/chat/conversations/{theirs.id}")
+    rename = client.post(
+        f"/chat/conversations/{theirs.id}/rename", data={"title": "mine now"},
+        follow_redirects=False,
+    )
+    delete = client.post(f"/chat/conversations/{theirs.id}/delete", follow_redirects=False)
+    unknown = client.get("/chat/conversations/does-not-exist")
+
+    assert [manage.status_code, rename.status_code, delete.status_code, unknown.status_code] == [
+        404, 404, 404, 404,
+    ]
+    assert manage.text == unknown.text, "the two cases must be indistinguishable"
+    with repo.session(db_path) as conn:
+        row = conn.execute("SELECT title FROM conversation WHERE id = ?", (theirs.id,)).fetchone()
+    assert row is not None and row[0] == "CURATOR-QUESTION"
+
+
+def test_a_conversation_in_a_workspace_no_longer_granted_is_not_found(keycloak):
+    """A stored conversation in a workspace the person can no longer see
+    must not be reachable -- by id, through any route."""
+    client, runtime, db_path, _, _ = _reader_with_a_workspace(keycloak)
+    locked = workspaces.create_workspace(
+        name="Locked", folder_path=str(db_path.parent), db_path=db_path
+    )
+    stranded = _stored(runtime, "kc-reader", locked.id, "LOCKED-QUESTION", "LOCKED-ANSWER")
+
+    assert client.get(f"/chat/conversations/{stranded.id}").status_code == 404
+    assert client.post(
+        f"/chat/conversations/{stranded.id}/delete", follow_redirects=False
+    ).status_code == 404
+    passage = client.get(f"/chat/passage/{stranded.id}/1/0").text
+    assert "LOCKED-ANSWER" not in passage
+
+
+def test_renaming_a_conversation_shows_the_new_title_in_the_list(keycloak):
+    client, runtime, _, _, ws = _reader_with_a_workspace(keycloak)
+    conversation = _stored(runtime, "kc-reader", ws.id, "FIRST-QUESTION", "ANSWER")
+    assert client.get(f"/chat/conversations/{conversation.id}").status_code == 200
+
+    response = client.post(
+        f"/chat/conversations/{conversation.id}/rename",
+        data={"title": "  Notes   préavis  "},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/?c={conversation.id}"
+    page = client.get("/").text
+    assert "Notes préavis" in page
+    assert "FIRST-QUESTION</a>" not in page
+
+
+def test_an_empty_or_over_long_title_is_refused_with_the_reason_on_the_page(keycloak):
+    client, runtime, db_path, _, ws = _reader_with_a_workspace(keycloak)
+    conversation = _stored(runtime, "kc-reader", ws.id, "KEPT-TITLE", "ANSWER")
+
+    empty = client.post(
+        f"/chat/conversations/{conversation.id}/rename", data={"title": "   "},
+        follow_redirects=False,
+    )
+    too_long = client.post(
+        f"/chat/conversations/{conversation.id}/rename", data={"title": "x" * 81},
+        follow_redirects=False,
+    )
+
+    assert (empty.status_code, too_long.status_code) == (400, 400)
+    assert 'aria-invalid="true"' in empty.text and 'aria-invalid="true"' in too_long.text
+    assert empty.text != too_long.text, "each refusal names its own reason"
+    with repo.session(db_path) as conn:
+        assert conn.execute("SELECT title FROM conversation").fetchone()[0] == "KEPT-TITLE"
+
+
+def test_deleting_one_conversation_keeps_the_others_and_a_get_deletes_nothing(keycloak):
+    client, runtime, db_path, _, ws = _reader_with_a_workspace(keycloak)
+    gone = _stored(runtime, "kc-reader", ws.id, "GONE-QUESTION", "GONE-ANSWER")
+    kept = _stored(runtime, "kc-reader", ws.id, "KEPT-QUESTION", "KEPT-ANSWER")
+
+    client.get(f"/chat/conversations/{gone.id}")
+    with repo.session(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM conversation").fetchone()[0] == 2
+
+    response = client.post(f"/chat/conversations/{gone.id}/delete", follow_redirects=False)
+
+    assert response.status_code == 303
+    with repo.session(db_path) as conn:
+        assert [row[0] for row in conn.execute("SELECT id FROM conversation")] == [kept.id]
+    assert "GONE-ANSWER" not in client.get(f"/?c={gone.id}").text
 
 
 def test_a_reader_is_offered_no_control_they_may_not_use(keycloak):

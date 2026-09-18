@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ t('title.conversation_manage') }}{% endblock %}
+
+{#
+  ST-53: rename or delete ONE conversation. A real page with two real
+  forms, so it works with scripting off -- the same no-JS pattern as
+  chat_history_delete_confirm.html. Reaching this page changes nothing;
+  only the two POSTs below do. The delete form is on this page rather
+  than behind a second confirmation because this page IS the step between
+  the list and the action: nothing is deleted by one stray click in the
+  history list.
+#}
+{% block main %}
+<section class="panel">
+  <h1>{{ t('chat.conv.heading') }}</h1>
+
+  <form method="post" action="/chat/conversations/{{ conversation_id | urlencode }}/rename">
+    <label for="conversation-title">{{ t('chat.conv.title_label') }}</label>
+    <input id="conversation-title" name="title" type="text" dir="auto" required
+           maxlength="{{ title_max_chars }}" value="{{ conversation_title }}"
+           {% if title_error %}aria-invalid="true" aria-describedby="conversation-title-error"{% endif %}>
+    {% if title_error %}
+      <p class="form-error" id="conversation-title-error" role="alert">{{ t(title_error, max=title_max_chars) }}</p>
+    {% endif %}
+    <button class="btn btn--primary" type="submit">{{ t('chat.conv.rename') }}</button>
+  </form>
+
+  <h2>{{ t('chat.conv.delete_heading') }}</h2>
+  <p>{{ t('chat.conv.delete_body') }}</p>
+  <form method="post" action="/chat/conversations/{{ conversation_id | urlencode }}/delete">
+    <button class="btn btn--primary" type="submit">{{ t('chat.conv.delete') }}</button>
+  </form>
+
+  <p><a href="/?c={{ conversation_id | urlencode }}">{{ t('chat.conv.back') }}</a></p>
+</section>
+{% endblock %}

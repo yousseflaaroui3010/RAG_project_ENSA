@@ -32,6 +32,7 @@ from agent.ports import AgentPorts
 from app import Runtime, create_app
 from config import get_settings
 from db import repo
+from tests.conversations import live_conversation
 from tests.fake_chat import ScriptedChat
 from tests.fake_encoders import install as install_fake_encoders
 from ui.ports import build_ports
@@ -251,7 +252,7 @@ def test_confirming_answers_from_the_proposed_workspace_and_selects_it(three_wor
     )
     assert confirm.status_code == 303
 
-    conversation = runtime.conversation(ws["manuals"].id)
+    conversation = live_conversation(runtime, ws["manuals"].id)
     for _ in range(WAIT * 100):
         if not conversation.busy:
             break
@@ -286,7 +287,7 @@ def test_a_secondary_candidate_button_answers_from_that_workspace_instead(three_
         data={"question": QUESTION_PYTHON, "workspace_id": secondary_id},
         follow_redirects=False,
     )
-    conversation = runtime.conversation(secondary_id)
+    conversation = live_conversation(runtime, secondary_id)
     for _ in range(WAIT * 100):
         if not conversation.busy:
             break

@@ -608,7 +608,11 @@
   }
 
   function tick() {
-    fetch("/chat/messages", { headers: { "X-Requested-With": "fetch" } })
+    // ST-53: the page's own `?c=`, so the poll renders the SAME
+    // conversation this page shows, not whichever is latest.
+    fetch("/chat/messages" + window.location.search, {
+      headers: { "X-Requested-With": "fetch" },
+    })
       .then(function (response) {
         return response.ok ? response.text() : null;
       })

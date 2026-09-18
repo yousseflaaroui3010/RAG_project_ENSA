@@ -658,139 +658,274 @@ def test_writer_contention_waits_for_the_timeout_instead_of_failing_instantly(
     )
 
 
-# --- S6 saved chat history: plain CRUD, no policy (law 09-08) -------------
+# --- S6 saved chat history, ST-53 conversations: plain CRUD, no policy --------
 #
-# db/repo.py carries no retention rule any more (a cold review moved it to
+# db/repo.py carries no retention rule (a cold review moved it to
 # chat_history.py -- see tests/unit/test_chat_history.py for the policy:
-# what 0 means, when a row is expired, how a cutoff is computed). These
-# tests exercise exactly the five plain operations that are left: upsert,
-# get, delete one, delete all for a user, delete older than a given cutoff.
+# what 0 means, when a row is expired, how a cutoff is computed, what a
+# title is). These tests exercise the plain operations, that each one
+# matches the OWNER as well as the id, and the one-time migration from the
+# pre-ST-53 `chat_history` table.
 
 
-def test_upsert_then_get_chat_history_round_trips(conn):
+def _conversation(conn, conversation_id, ws_id, *, user="local", payload="p", title=None,
+                  updated_at=None):
+    repo.upsert_conversation(
+        conn,
+        conversation_id=conversation_id,
+        user_id=user,
+        workspace_id=ws_id,
+        title=title,
+        payload=payload,
+        updated_at=updated_at or repo.utc_now(),
+    )
+    conn.commit()
+
+
+def test_upsert_then_get_conversation_round_trips(conn):
     ws_id = repo.create_workspace(conn, name="ws-history", folder_path="/tmp/wsh")
     conn.commit()
 
-    repo.upsert_chat_history(
-        conn,
-        user_id="local",
-        workspace_id=ws_id,
-        payload='{"messages": []}',
-        updated_at=repo.utc_now(),
-    )
-    conn.commit()
+    _conversation(conn, "c1", ws_id, payload='{"messages": []}', title="Q?")
 
-    row = repo.get_chat_history(conn, user_id="local", workspace_id=ws_id)
-    assert row["payload"] == '{"messages": []}'
+    row = repo.get_conversation(conn, conversation_id="c1", user_id="local")
+    assert (row["payload"], row["title"], row["workspace_id"]) == ('{"messages": []}', "Q?", ws_id)
+    assert row["created_at"] == row["updated_at"]
 
 
-def test_upsert_replaces_rather_than_raising_on_a_second_call(conn):
-    """Two settled answers in the same conversation both upsert; the
-    second must update the one row, not collide on the PRIMARY KEY."""
+def test_a_second_upsert_updates_payload_and_time_but_never_title_or_start(conn):
+    """Every settled answer upserts. The second must update the one row --
+    not collide on the key -- and must leave the title (a rename must
+    survive) and `created_at` (when it began) alone."""
     ws_id = repo.create_workspace(conn, name="ws-upsert", folder_path="/tmp/wsu")
     conn.commit()
+    _conversation(conn, "c1", ws_id, payload="first", title="original",
+                  updated_at="2026-01-01T00:00:00+00:00")
 
-    repo.upsert_chat_history(
-        conn, user_id="local", workspace_id=ws_id, payload="first", updated_at=repo.utc_now()
-    )
-    conn.commit()
-    repo.upsert_chat_history(
-        conn, user_id="local", workspace_id=ws_id, payload="second", updated_at=repo.utc_now()
-    )
-    conn.commit()
+    _conversation(conn, "c1", ws_id, payload="second", title="ignored",
+                  updated_at="2026-01-02T00:00:00+00:00")
 
-    row = repo.get_chat_history(conn, user_id="local", workspace_id=ws_id)
+    row = repo.get_conversation(conn, conversation_id="c1", user_id="local")
     assert row["payload"] == "second"
-    assert conn.execute(
-        "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?", (ws_id,)
-    ).fetchone()[0] == 1
+    assert row["title"] == "original"
+    assert row["created_at"] == "2026-01-01T00:00:00+00:00"
+    assert row["updated_at"] == "2026-01-02T00:00:00+00:00"
+    assert conn.execute("SELECT COUNT(*) FROM conversation").fetchone()[0] == 1
 
 
-def test_get_chat_history_returns_none_for_an_unknown_pair(conn):
-    ws_id = repo.create_workspace(conn, name="ws-empty", folder_path="/tmp/wse2")
+def test_get_conversation_matches_the_owner_not_just_the_id(conn):
+    ws_id = repo.create_workspace(conn, name="ws-owner", folder_path="/tmp/wso")
     conn.commit()
+    _conversation(conn, "c1", ws_id, user="alice")
 
-    assert repo.get_chat_history(conn, user_id="local", workspace_id=ws_id) is None
+    assert repo.get_conversation(conn, conversation_id="c1", user_id="bob") is None
+    assert repo.get_conversation(conn, conversation_id="unknown", user_id="alice") is None
+    assert repo.get_conversation(conn, conversation_id="c1", user_id="alice") is not None
 
 
-def test_delete_chat_history_removes_only_that_one_workspace(conn):
+def test_rename_and_delete_touch_only_the_owners_row(conn):
+    ws_id = repo.create_workspace(conn, name="ws-own-ops", folder_path="/tmp/wsoo")
+    conn.commit()
+    _conversation(conn, "c1", ws_id, user="alice", title="alice's")
+
+    assert repo.rename_conversation(conn, conversation_id="c1", user_id="bob", title="x") == 0
+    assert repo.delete_conversation(conn, conversation_id="c1", user_id="bob") == 0
+    conn.commit()
+    assert repo.get_conversation(conn, conversation_id="c1", user_id="alice")["title"] == "alice's"
+
+    assert repo.rename_conversation(conn, conversation_id="c1", user_id="alice", title="new") == 1
+    assert repo.delete_conversation(conn, conversation_id="c1", user_id="alice") == 1
+
+
+def test_delete_conversations_in_workspace_and_for_user(conn):
     ws1 = repo.create_workspace(conn, name="ws-del-a", folder_path="/tmp/wsda")
     ws2 = repo.create_workspace(conn, name="ws-del-b", folder_path="/tmp/wsdb")
     conn.commit()
-    repo.upsert_chat_history(
-        conn, user_id="local", workspace_id=ws1, payload="a", updated_at=repo.utc_now()
+    for conversation_id, ws_id, user in [
+        ("a1", ws1, "alice"), ("a2", ws1, "alice"), ("a3", ws2, "alice"), ("b1", ws1, "bob"),
+    ]:
+        _conversation(conn, conversation_id, ws_id, user=user)
+
+    assert repo.delete_conversations_in_workspace(conn, user_id="alice", workspace_id=ws1) == 2
+    conn.commit()
+    left = {row[0] for row in conn.execute("SELECT id FROM conversation")}
+    assert left == {"a3", "b1"}
+
+    assert repo.delete_conversations_for_user(conn, user_id="alice") == 1
+    conn.commit()
+    assert {row[0] for row in conn.execute("SELECT id FROM conversation")} == {"b1"}
+
+
+def test_list_conversations_is_newest_first_and_carries_no_payload(conn):
+    ws_id = repo.create_workspace(conn, name="ws-list", folder_path="/tmp/wsl")
+    conn.commit()
+    _conversation(conn, "old", ws_id, updated_at="2026-01-01T00:00:00+00:00")
+    _conversation(conn, "new", ws_id, updated_at="2026-01-03T00:00:00+00:00")
+    _conversation(conn, "mid", ws_id, updated_at="2026-01-02T00:00:00+00:00")
+
+    rows = repo.list_conversations(
+        conn, user_id="local", workspace_id=ws_id, newer_than="2026-01-01T12:00:00+00:00"
     )
-    repo.upsert_chat_history(
-        conn, user_id="local", workspace_id=ws2, payload="b", updated_at=repo.utc_now()
-    )
-    conn.commit()
 
-    repo.delete_chat_history(conn, user_id="local", workspace_id=ws1)
-    conn.commit()
-
-    assert repo.get_chat_history(conn, user_id="local", workspace_id=ws1) is None
-    assert repo.get_chat_history(conn, user_id="local", workspace_id=ws2)["payload"] == "b"
+    assert [row["id"] for row in rows] == ["new", "mid"]
+    assert "payload" not in rows[0].keys()
 
 
-def test_delete_chat_history_for_user_leaves_other_people_alone(conn):
-    ws_id = repo.create_workspace(conn, name="ws-two-people", folder_path="/tmp/wstp")
-    conn.commit()
-    repo.upsert_chat_history(
-        conn, user_id="alice", workspace_id=ws_id, payload="alice's", updated_at=repo.utc_now()
-    )
-    repo.upsert_chat_history(
-        conn, user_id="bob", workspace_id=ws_id, payload="bob's", updated_at=repo.utc_now()
-    )
-    conn.commit()
-
-    removed = repo.delete_chat_history_for_user(conn, user_id="alice")
-    conn.commit()
-
-    assert removed == 1
-    assert repo.get_chat_history(conn, user_id="alice", workspace_id=ws_id) is None
-    assert repo.get_chat_history(conn, user_id="bob", workspace_id=ws_id)["payload"] == "bob's"
-
-
-def test_delete_chat_history_older_than_removes_rows_at_or_before_the_cutoff(conn):
+def test_delete_conversations_older_than_removes_rows_at_or_before_the_cutoff(conn):
     """A plain timestamp comparison, no notion of 'retention days' here --
     that arithmetic belongs to chat_history.py, which computes the cutoff
     this function is handed."""
     ws_id = repo.create_workspace(conn, name="ws-cutoff", folder_path="/tmp/wsco")
     conn.commit()
-    older = (datetime.now(UTC) - timedelta(days=2)).isoformat()
     cutoff = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-    newer = datetime.now(UTC).isoformat()
-    conn.execute(
-        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
-        "VALUES ('old-user', ?, 'old', ?)",
-        (ws_id, older),
-    )
-    conn.execute(
-        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
-        "VALUES ('new-user', ?, 'new', ?)",
-        (ws_id, newer),
-    )
+    older = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    _conversation(conn, "old", ws_id, updated_at=older)
+    _conversation(conn, "edge", ws_id, updated_at=cutoff)
+    _conversation(conn, "new", ws_id, updated_at=datetime.now(UTC).isoformat())
+
+    removed = repo.delete_conversations_older_than(conn, cutoff=cutoff)
     conn.commit()
 
-    removed = repo.delete_chat_history_older_than(conn, cutoff=cutoff)
-    conn.commit()
-
-    assert removed == 1
-    assert repo.get_chat_history(conn, user_id="old-user", workspace_id=ws_id) is None
-    assert repo.get_chat_history(conn, user_id="new-user", workspace_id=ws_id)["payload"] == "new"
+    assert removed == 2
+    assert {row[0] for row in conn.execute("SELECT id FROM conversation")} == {"new"}
 
 
-def test_deleting_a_workspace_cascades_to_its_stored_chat_history(conn):
+def test_deleting_a_workspace_cascades_to_its_stored_conversations(conn):
     ws_id = repo.create_workspace(conn, name="ws-cascade-history", folder_path="/tmp/wsch")
     conn.commit()
-    repo.upsert_chat_history(
-        conn, user_id="local", workspace_id=ws_id, payload="gone soon", updated_at=repo.utc_now()
-    )
-    conn.commit()
+    _conversation(conn, "c1", ws_id, payload="gone soon")
+    _conversation(conn, "c2", ws_id, payload="gone too")
 
     repo.delete_workspace(conn, ws_id)
     conn.commit()
 
     assert conn.execute(
-        "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?", (ws_id,)
+        "SELECT COUNT(*) FROM conversation WHERE workspace_id = ?", (ws_id,)
     ).fetchone()[0] == 0
+
+
+# --- the one-time move from `chat_history` (ST-53) ---------------------------
+
+_OLD_TABLE = (
+    "CREATE TABLE chat_history (user_id TEXT NOT NULL, workspace_id TEXT NOT NULL "
+    "REFERENCES workspace(id) ON DELETE CASCADE, payload TEXT NOT NULL, "
+    "updated_at TEXT NOT NULL, PRIMARY KEY (user_id, workspace_id))"
+)
+
+
+def _pre_st53_database(tmp_path, rows):
+    """A database as a pre-ST-53 server left it: today's schema plus the
+    old `chat_history` table holding `rows` (user, workspace name,
+    payload, updated_at). Returns the path and {workspace name: id}."""
+    db_path = tmp_path / "old.db"
+    repo.ensure_schema(db_path)
+    connection = repo.get_connection(db_path)
+    try:
+        names = {name for _, name, _, _ in rows}
+        ids = {
+            name: repo.create_workspace(connection, name=name, folder_path=f"/tmp/{name}")
+            for name in sorted(names)
+        }
+        connection.execute(_OLD_TABLE)
+        for user, name, payload, updated_at in rows:
+            connection.execute(
+                "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
+                "VALUES (?, ?, ?, ?)",
+                (user, ids[name], payload, updated_at),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+    return db_path, ids
+
+
+def _payload(*questions):
+    return (
+        '{"v": 1, "messages": ['
+        + ", ".join(f'{{"kind": "user", "text": "{q}"}}' for q in questions)
+        + "]}"
+    )
+
+
+def _tables(db_path):
+    connection = repo.get_connection(db_path)
+    try:
+        return {row[0] for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )}
+    finally:
+        connection.close()
+
+
+def test_the_migration_copies_every_old_row_then_drops_the_old_table(tmp_path):
+    db_path, ids = _pre_st53_database(tmp_path, [
+        (
+            "alice", "hr", _payload("Durée du préavis ?", "Et pour un cadre ?"),
+            "2026-09-01T10:00:00+00:00",
+        ),
+        ("bob", "hr", '{"v": 1, "messages": []}', "2026-09-02T10:00:00+00:00"),
+        ("alice", "legal", "not json at all", "2026-09-03T10:00:00+00:00"),
+    ])
+
+    repo.ensure_schema(db_path)
+
+    assert "chat_history" not in _tables(db_path)
+    connection = repo.get_connection(db_path)
+    try:
+        rows = {
+            (row["user_id"], row["workspace_id"]): row
+            for row in connection.execute("SELECT * FROM conversation")
+        }
+    finally:
+        connection.close()
+    assert set(rows) == {("alice", ids["hr"]), ("bob", ids["hr"]), ("alice", ids["legal"])}
+    moved = rows[("alice", ids["hr"])]
+    assert moved["title"] == "Durée du préavis ?", "the title is the FIRST question"
+    assert moved["payload"] == _payload("Durée du préavis ?", "Et pour un cadre ?")
+    assert moved["created_at"] == moved["updated_at"] == "2026-09-01T10:00:00+00:00"
+    assert rows[("bob", ids["hr"])]["title"] is None, "no question, no title"
+    assert rows[("alice", ids["legal"])]["title"] is None, "an unreadable payload still moves"
+    assert rows[("alice", ids["legal"])]["payload"] == "not json at all"
+    assert len({row["id"] for row in rows.values()}) == 3, "every row gets its own id"
+
+
+def test_the_migration_runs_once_and_later_start_ups_change_nothing(tmp_path):
+    db_path, _ = _pre_st53_database(tmp_path, [
+        ("alice", "hr", _payload("Q?"), "2026-09-01T10:00:00+00:00"),
+    ])
+    repo.ensure_schema(db_path)
+    connection = repo.get_connection(db_path)
+    try:
+        first = [tuple(row) for row in connection.execute("SELECT * FROM conversation")]
+    finally:
+        connection.close()
+
+    repo.ensure_schema(db_path)
+
+    connection = repo.get_connection(db_path)
+    try:
+        assert [tuple(row) for row in connection.execute("SELECT * FROM conversation")] == first
+    finally:
+        connection.close()
+
+
+def test_a_migration_that_fails_part_way_keeps_the_old_table_whole(tmp_path, monkeypatch):
+    """Copy, check and drop are ONE transaction: if anything fails, the
+    old table is still there with every row, and nothing half-copied is
+    left in the new one. Forced here by giving two rows the same id."""
+    db_path, _ = _pre_st53_database(tmp_path, [
+        ("alice", "hr", _payload("one"), "2026-09-01T10:00:00+00:00"),
+        ("bob", "hr", _payload("two"), "2026-09-02T10:00:00+00:00"),
+    ])
+    monkeypatch.setattr(repo, "new_id", lambda: "same-id-twice")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        repo.ensure_schema(db_path)
+
+    assert "chat_history" in _tables(db_path)
+    connection = repo.get_connection(db_path)
+    try:
+        assert connection.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 2
+        assert connection.execute("SELECT COUNT(*) FROM conversation").fetchone()[0] == 0
+    finally:
+        connection.close()

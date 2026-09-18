@@ -49,6 +49,7 @@ from agent.trace import StepKind, Trace, TraceStep
 from app import Runtime, create_app
 from config import get_settings
 from db import repo
+from tests.conversations import conversation_id_on, live_conversation
 from tests.fake_chat import ScriptedChat
 from tests.fake_encoders import install as install_fake_encoders
 from ui.conversation import Message, MessageKind, message_for
@@ -277,9 +278,25 @@ def _hold(runtime, gate: Gate, port: str) -> None:
 
 
 def _ask(client, question: str = QUESTION):
-    """Ask, and come back with the page that resulted."""
-    client.post("/chat/ask", data={"question": question}, follow_redirects=False)
+    """Ask, and come back with the page that resulted.
+
+    Sends the conversation id the chat screen carries, exactly as the
+    browser's form does (ST-53): a follow-up continues the conversation on
+    screen because the page named it."""
+    current = conversation_id_on(client.get("/").text)
+    client.post(
+        "/chat/ask",
+        data={"question": question, "conversation_id": current},
+        follow_redirects=False,
+    )
     return client.get("/").text
+
+
+def _post_current(client, path: str):
+    """POST to a chat action that acts on the conversation on screen
+    (cancel, New conversation), carrying its id as the page's form does."""
+    current = conversation_id_on(client.get("/").text)
+    return client.post(path, data={"conversation_id": current}, follow_redirects=False)
 
 
 def _settled(client, runtime, workspace_id: str) -> str:
@@ -288,7 +305,7 @@ def _settled(client, runtime, workspace_id: str) -> str:
     Polls the runtime object rather than sleeping a fixed time: a fixed
     sleep is the flaky-test generator this project has already paid for
     elsewhere."""
-    conversation = runtime.conversation(workspace_id)
+    conversation = live_conversation(runtime, workspace_id)
     for _ in range(WAIT * 100):
         if not conversation.busy:
             break
@@ -693,7 +710,7 @@ def test_cancelling_leaves_something_marked_incomplete_and_never_final(sanad):
 
     client.post("/chat/ask", data={"question": QUESTION}, follow_redirects=False)
     assert gate.reached.wait(WAIT), "the run never reached query planning"
-    client.post("/chat/cancel", follow_redirects=False)
+    _post_current(client, "/chat/cancel")
     gate.release.set()
     page = _settled(client, runtime, workspace.id)
 
@@ -727,7 +744,7 @@ def test_cancelling_a_resumed_query_plan_discards_its_result(sanad):
         follow_redirects=False,
     )
     assert gate.reached.wait(WAIT), "the resumed run never reached query planning"
-    client.post("/chat/cancel", follow_redirects=False)
+    _post_current(client, "/chat/cancel")
     gate.release.set()
     page = _settled(client, runtime, workspace.id)
 
@@ -857,7 +874,7 @@ def test_a_follow_up_uses_the_completed_trial_period_exchange(sanad):
 
     assert renewal_answer in _visible(page)
     assert summary in model.calls[4][1]
-    assert runtime.conversation(workspace.id).messages[-1].searched == (
+    assert live_conversation(runtime, workspace.id).messages[-1].searched == (
         "renouvellement periode essai",
     )
 
@@ -894,7 +911,7 @@ def test_a_follow_up_after_new_conversation_gets_no_earlier_context(sanad):
 
     _ask(client)
     _settled(client, runtime, workspace.id)
-    client.post("/chat/new", follow_redirects=False)
+    _post_current(client, "/chat/new")
     _ask(client, "Et combien de renouvellements ?")
     page = _settled(client, runtime, workspace.id)
 
@@ -909,7 +926,7 @@ def test_a_new_conversation_clears_the_transcript(sanad):
 
     _ask(client)
     _settled(client, runtime, workspace.id)
-    client.post("/chat/new", follow_redirects=False)
+    _post_current(client, "/chat/new")
     page = client.get("/").text
 
     assert WRITTEN_ANSWER not in _visible(page)
@@ -937,47 +954,60 @@ def test_a_settled_answer_survives_a_real_restart(sanad):
     assert SOURCE_FILE in page
 
 
-def test_new_conversation_deletes_only_that_workspaces_stored_row(sanad, tmp_path):
-    """A cold review found this test used only ONE workspace, so swapping
-    'New conversation' (scoped to the active workspace) for 'Delete my
-    saved history' (every workspace) would still leave it green -- both
-    routes leave zero rows behind when there is only one to begin with.
-    A second workspace with its own saved row is what makes the two
-    behaviours distinguishable: New conversation must leave it alone."""
+def test_new_conversation_without_sign_in_deletes_only_the_one_on_screen(sanad, tmp_path):
+    """Login-free New conversation (ST-53 ruling: no history list there, so
+    the one on screen is replaced) deletes exactly the conversation on
+    screen -- not another conversation in the SAME workspace, and not a
+    different workspace's. A cold review found an older version of this
+    test used one workspace and one row, which a "delete everything" route
+    also passed; the two survivors here are what tell them apart."""
     build, workspace, db_path = sanad
     client, runtime = build()
     other = workspaces.create_workspace(
         name="Legal", folder_path=str(tmp_path / "legal"), db_path=db_path
     )
-    other_conversation = runtime.conversation(other.id, "local")
-    other_conversation.messages.append(
-        Message(kind=MessageKind.ANSWER, text="the other workspace's own answer")
-    )
-    runtime.save_conversation("local", other_conversation)
+    survivors = []
+    for workspace_id in (other.id, workspace.id):
+        kept = runtime.new_conversation("local", workspace_id)
+        kept.messages.append(
+            Message(kind=MessageKind.USER, text=f"an older question in {workspace_id}")
+        )
+        runtime.save_conversation(kept)
+        survivors.append(kept.id)
 
+    # A fresh chat (no conversation id), as the page at /?c=new would send.
+    client.post("/chat/ask", data={"question": QUESTION}, follow_redirects=False)
+    _settled(client, runtime, workspace.id)
+    on_screen = conversation_id_on(client.get("/").text)
+    assert on_screen and on_screen not in survivors
+    with repo.session(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM conversation").fetchone()[0] == 3
+
+    response = _post_current(client, "/chat/new")
+
+    assert response.headers["location"] == "/?c=new"
+    with repo.session(db_path) as conn:
+        left = {row[0] for row in conn.execute("SELECT id FROM conversation")}
+    assert left == set(survivors), "only the conversation on screen may go"
+    assert on_screen not in runtime.conversations
+
+
+def test_without_sign_in_there_is_no_history_list(sanad):
+    """YL's ST-53 ruling: in the login-free modes everyone is the same
+    "local" person, so a list would show one shared pile to whoever sits
+    at the machine. Hidden there -- even when there IS history to list."""
+    build, workspace, _ = sanad
+    client, runtime = build()
     _ask(client)
     _settled(client, runtime, workspace.id)
-    with repo.session(db_path) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 2
+    older = runtime.new_conversation("local", workspace.id)
+    older.messages.append(Message(kind=MessageKind.USER, text="an older question"))
+    runtime.save_conversation(older)
 
-    client.post("/chat/new", follow_redirects=False)
+    page = client.get("/").text
 
-    with repo.session(db_path) as conn:
-        assert (
-            conn.execute(
-                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
-                (workspace.id,),
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            conn.execute(
-                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
-                (other.id,),
-            ).fetchone()[0]
-            == 1
-        ), "New conversation must not touch a different workspace's saved row"
-
+    assert 'class="history"' not in page
+    assert f'href="/?c={older.id}"' not in page
 
 def test_a_get_on_delete_history_never_deletes_anything(sanad):
     """UX spec 5/7.2: the confirmation page is a real GET, and a GET must
@@ -993,7 +1023,7 @@ def test_a_get_on_delete_history_never_deletes_anything(sanad):
     with repo.session(db_path) as conn:
         assert (
             conn.execute(
-                "SELECT COUNT(*) FROM chat_history WHERE workspace_id = ?",
+                "SELECT COUNT(*) FROM conversation WHERE workspace_id = ?",
                 (workspace.id,),
             ).fetchone()[0]
             == 1
@@ -1009,24 +1039,23 @@ def test_deleting_my_history_removes_every_workspace_for_that_person(sanad, tmp_
     other = workspaces.create_workspace(
         name="Legal", folder_path=str(tmp_path / "legal"), db_path=db_path
     )
-    other_conversation = runtime.conversation(other.id, "local")
+    other_conversation = runtime.new_conversation("local", other.id)
     other_conversation.messages.append(
         Message(kind=MessageKind.ANSWER, text="the other workspace's own answer")
     )
-    runtime.save_conversation("local", other_conversation)
+    runtime.save_conversation(other_conversation)
 
     _ask(client)
     _settled(client, runtime, workspace.id)
     with repo.session(db_path) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM conversation").fetchone()[0] == 2
 
     response = client.post("/chat/history/delete", follow_redirects=False)
 
     assert response.status_code == 303
     with repo.session(db_path) as conn:
-        assert conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0] == 0
-    assert f"local|{workspace.id}" not in runtime.conversations
-    assert f"local|{other.id}" not in runtime.conversations
+        assert conn.execute("SELECT COUNT(*) FROM conversation").fetchone()[0] == 0
+    assert not [c for c in runtime.conversations.values() if c.user_id == "local"]
 
 
 # --- the shell (UX spec 4) -------------------------------------------
@@ -1067,7 +1096,7 @@ def test_default_chat_ports_hold_qdrant_for_the_whole_context(tmp_path, monkeypa
         assert reopened is not None
 
 
-def test_a_passage_link_never_resolves_against_another_workspace(sanad):
+def test_a_passage_link_never_resolves_against_another_conversation(sanad):
     """F-01 isolation, at the URL.
 
     Addressed by message and index alone, the link resolved against
@@ -1075,22 +1104,25 @@ def test_a_passage_link_never_resolves_against_another_workspace(sanad):
     switching workspace and pressing Back served message 3, card 1 of a
     different conversation, looking entirely correct.
 
-    The second workspace here holds no conversation at all, so its
+    ST-53: the link names its CONVERSATION (a workspace now holds many).
+    The other conversation here, in a second workspace, is empty, so its
     message index cannot exist: the page must say the passage is gone
-    rather than quietly serve the other workspace's section."""
+    rather than quietly serve the first conversation's section."""
     build, workspace, db_path = sanad
     client, runtime = build()
     _ask(client)
     page = _settled(client, runtime, workspace.id)
     href = page.split('href="/chat/passage/')[1].split('"')[0]
-    assert workspace.id in href, "the link must name its own workspace"
+    own = conversation_id_on(page)
+    assert own and href.startswith(f"{own}/"), "the link must name its own conversation"
 
     other = workspaces.create_workspace(
         name="Manuals", folder_path="/tmp/manuals", db_path=db_path
     )
-    # Follow the SAME message/card coordinates against the other workspace.
-    _ws, message, index = href.split("/")
-    served = client.get(f"/chat/passage/{other.id}/{message}/{index}").text
+    elsewhere = runtime.new_conversation("local", other.id)
+    # Follow the SAME message/card coordinates against the other conversation.
+    _conversation, message, index = href.split("/")
+    served = client.get(f"/chat/passage/{elsewhere.id}/{message}/{index}").text
 
     assert "no longer on screen" in served
     assert "MARQUEUR" not in served
@@ -1413,7 +1445,7 @@ def _trace_answer(
 
 
 def _show(client, runtime, workspace_id: str, message: Message) -> str:
-    runtime.conversation(workspace_id).messages.append(message)
+    live_conversation(runtime, workspace_id).messages.append(message)
     return client.get("/").text
 
 
@@ -1519,7 +1551,7 @@ def _feedback_rows(db_path):
 
 
 def _answer_id(runtime, workspace_id: str, index: int = -1) -> str:
-    return runtime.conversation(workspace_id).messages[index].id
+    return live_conversation(runtime, workspace_id).messages[index].id
 
 
 def test_thumbs_down_with_a_comment_is_saved_and_shown_as_the_current_verdict(sanad):
@@ -1537,6 +1569,7 @@ def test_thumbs_down_with_a_comment_is_saved_and_shown_as_the_current_verdict(sa
         "/chat/feedback",
         data={
             "workspace_id": workspace.id,
+            "conversation_id": live_conversation(runtime, workspace.id).id,
             "message_id": message_id,
             "verdict": "down",
             "comment": "Cited the wrong article.",
@@ -1580,13 +1613,19 @@ def test_giving_feedback_on_the_same_answer_twice_keeps_one_row_with_the_latest_
 
     client.post(
         "/chat/feedback",
-        data={"workspace_id": workspace.id, "message_id": message_id, "verdict": "up"},
+        data={
+            "workspace_id": workspace.id,
+            "conversation_id": live_conversation(runtime, workspace.id).id,
+            "message_id": message_id,
+            "verdict": "up",
+        },
         follow_redirects=False,
     )
     client.post(
         "/chat/feedback",
         data={
             "workspace_id": workspace.id,
+            "conversation_id": live_conversation(runtime, workspace.id).id,
             "message_id": message_id,
             "verdict": "down",
             "comment": "Changed my mind.",
@@ -1624,7 +1663,7 @@ def test_feedback_lands_on_the_right_answer_not_a_neighboring_one(sanad):
     _ask(client, "Et combien de renouvellements ?")
     _settled(client, runtime, workspace.id)
 
-    messages = runtime.conversation(workspace.id).messages
+    messages = live_conversation(runtime, workspace.id).messages
     assert [m.kind for m in messages] == [
         MessageKind.USER,
         MessageKind.ANSWER,
@@ -1638,6 +1677,7 @@ def test_feedback_lands_on_the_right_answer_not_a_neighboring_one(sanad):
         "/chat/feedback",
         data={
             "workspace_id": workspace.id,
+            "conversation_id": live_conversation(runtime, workspace.id).id,
             "message_id": second_id,
             "verdict": "down",
             "comment": "Only the second answer was wrong.",
@@ -1669,6 +1709,7 @@ def test_a_bad_verdict_is_rejected_with_no_row_written(sanad):
         "/chat/feedback",
         data={
             "workspace_id": workspace.id,
+            "conversation_id": live_conversation(runtime, workspace.id).id,
             "message_id": message_id,
             "verdict": "sideways",
         },
@@ -1693,6 +1734,7 @@ def test_an_over_long_comment_is_rejected_with_no_row_written(sanad):
         "/chat/feedback",
         data={
             "workspace_id": workspace.id,
+            "conversation_id": live_conversation(runtime, workspace.id).id,
             "message_id": message_id,
             "verdict": "down",
             "comment": too_long,
@@ -1716,6 +1758,7 @@ def test_an_unknown_answer_id_is_a_clear_error_not_a_500(sanad):
         "/chat/feedback",
         data={
             "workspace_id": workspace.id,
+            "conversation_id": live_conversation(runtime, workspace.id).id,
             "message_id": "no-such-message-id",
             "verdict": "up",
         },
@@ -1749,6 +1792,7 @@ def test_feedback_is_declined_harmlessly_in_evidence_only_mode(tmp_path, monkeyp
         "/chat/feedback",
         data={
             "workspace_id": workspace.id,
+            "conversation_id": live_conversation(runtime, workspace.id).id,
             "message_id": "whatever",
             "verdict": "up",
         },
@@ -1777,7 +1821,12 @@ def test_feedback_route_is_behind_the_access_gate_when_a_password_is_set(
 
     response = gated_client.post(
         "/chat/feedback",
-        data={"workspace_id": workspace.id, "message_id": message_id, "verdict": "up"},
+        data={
+            "workspace_id": workspace.id,
+            "conversation_id": live_conversation(runtime, workspace.id).id,
+            "message_id": message_id,
+            "verdict": "up",
+        },
         follow_redirects=False,
     )
 
@@ -1858,7 +1907,7 @@ def test_cancelling_while_writing_stops_the_stream_and_keeps_the_text_marked_unf
 
     client.post("/chat/ask", data={"question": QUESTION}, follow_redirects=False)
     assert model.paused.wait(WAIT)
-    client.post("/chat/cancel", follow_redirects=False)
+    _post_current(client, "/chat/cancel")
     model.resume.set()
     page = _settled(client, runtime, workspace.id)
 

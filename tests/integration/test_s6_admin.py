@@ -111,12 +111,15 @@ def test_revoking_access_deletes_that_workspaces_saved_history(keycloak):  # noq
         data={"user_id": "kc-reader", "workspace_id": [hr.id, legal.id]},
         follow_redirects=False,
     )
-    hr_conversation = runtime.conversation(hr.id, "kc-reader")
+    hr_conversation = runtime.new_conversation("kc-reader", hr.id)
     hr_conversation.messages.append(Message(kind=MessageKind.ANSWER, text="HR answer"))
-    runtime.save_conversation("kc-reader", hr_conversation)
-    legal_conversation = runtime.conversation(legal.id, "kc-reader")
+    runtime.save_conversation(hr_conversation)
+    second_hr = runtime.new_conversation("kc-reader", hr.id)
+    second_hr.messages.append(Message(kind=MessageKind.ANSWER, text="a second HR answer"))
+    runtime.save_conversation(second_hr)
+    legal_conversation = runtime.new_conversation("kc-reader", legal.id)
     legal_conversation.messages.append(Message(kind=MessageKind.ANSWER, text="Legal answer"))
-    runtime.save_conversation("kc-reader", legal_conversation)
+    runtime.save_conversation(legal_conversation)
 
     # Revoke HR only (keep Legal ticked).
     client.post(
@@ -128,7 +131,7 @@ def test_revoking_access_deletes_that_workspaces_saved_history(keycloak):  # noq
     with repo.session(db_path) as conn:
         assert (
             conn.execute(
-                "SELECT COUNT(*) FROM chat_history "
+                "SELECT COUNT(*) FROM conversation "
                 "WHERE user_id = 'kc-reader' AND workspace_id = ?",
                 (hr.id,),
             ).fetchone()[0]
@@ -136,12 +139,17 @@ def test_revoking_access_deletes_that_workspaces_saved_history(keycloak):  # noq
         )
         assert (
             conn.execute(
-                "SELECT COUNT(*) FROM chat_history "
+                "SELECT COUNT(*) FROM conversation "
                 "WHERE user_id = 'kc-reader' AND workspace_id = ?",
                 (legal.id,),
             ).fetchone()[0]
             == 1
         ), "a workspace still granted must keep its saved history"
+    # EVERY conversation in the revoked workspace goes, from memory too --
+    # there were two, and a delete of "the" conversation would leave one.
+    assert hr_conversation.id not in runtime.conversations
+    assert second_hr.id not in runtime.conversations
+    assert legal_conversation.id in runtime.conversations
 
 
 def test_two_ticked_boxes_both_land(keycloak):  # noqa: F811
@@ -185,7 +193,7 @@ def test_signing_a_person_out_everywhere_ends_their_session(keycloak):  # noqa: 
     client, runtime, db_path, _, sign_in = keycloak
     ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
     sign_in(READER_CLAIMS)
-    runtime.conversation(ws.id, "kc-reader")
+    runtime.new_conversation("kc-reader", ws.id)
     reader_cookie = client.cookies[auth.SESSION_COOKIE]
     sign_in(ADMIN_CLAIMS)
 
@@ -193,7 +201,7 @@ def test_signing_a_person_out_everywhere_ends_their_session(keycloak):  # noqa: 
 
     with repo.session(db_path) as conn:
         assert repo.get_session(conn, auth.hash_token(reader_cookie)) is None
-    assert not any(key.startswith("kc-reader|") for key in runtime.conversations)
+    assert not [c for c in runtime.conversations.values() if c.user_id == "kc-reader"]
     assert "signed a person out everywhere" in _actions(db_path)
 
 
@@ -205,13 +213,13 @@ def test_signing_a_person_out_everywhere_also_deletes_their_stored_history(keycl
     client, runtime, db_path, _, sign_in = keycloak
     ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
     sign_in(READER_CLAIMS)
-    reader_conversation = runtime.conversation(ws.id, "kc-reader")
+    reader_conversation = runtime.new_conversation("kc-reader", ws.id)
     reader_conversation.messages.append(Message(kind=MessageKind.ANSWER, text="reader's answer"))
-    runtime.save_conversation("kc-reader", reader_conversation)
+    runtime.save_conversation(reader_conversation)
     sign_in(CURATOR_CLAIMS)
-    curator_conversation = runtime.conversation(ws.id, "kc-curator")
+    curator_conversation = runtime.new_conversation("kc-curator", ws.id)
     curator_conversation.messages.append(Message(kind=MessageKind.ANSWER, text="curator's answer"))
-    runtime.save_conversation("kc-curator", curator_conversation)
+    runtime.save_conversation(curator_conversation)
     sign_in(ADMIN_CLAIMS)
 
     client.post("/admin/people/kc-reader/sign-out", follow_redirects=False)
@@ -219,13 +227,13 @@ def test_signing_a_person_out_everywhere_also_deletes_their_stored_history(keycl
     with repo.session(db_path) as conn:
         assert (
             conn.execute(
-                "SELECT COUNT(*) FROM chat_history WHERE user_id = 'kc-reader'"
+                "SELECT COUNT(*) FROM conversation WHERE user_id = 'kc-reader'"
             ).fetchone()[0]
             == 0
         )
         assert (
             conn.execute(
-                "SELECT COUNT(*) FROM chat_history WHERE user_id = 'kc-curator'"
+                "SELECT COUNT(*) FROM conversation WHERE user_id = 'kc-curator'"
             ).fetchone()[0]
             == 1
         ), "another person's stored history must survive"

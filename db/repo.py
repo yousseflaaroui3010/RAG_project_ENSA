@@ -17,6 +17,7 @@ this module.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
 from collections.abc import Iterator, Sequence
@@ -172,6 +173,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         if statement:
             conn.execute(statement)
     _migrate_incremental_evaluation(conn)
+    _migrate_chat_history_to_conversation(conn)
 
 
 def _migrate_incremental_evaluation(conn: sqlite3.Connection) -> None:
@@ -889,76 +891,198 @@ def list_activity(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Ro
     )
 
 
-# --- S6 saved chat history (law 09-08) -------------------------------------
+# --- S6 saved chat history (law 09-08), ST-53 conversations ----------------
 #
 # Plain operations only -- no retention policy, no notion of "expired", no
-# cutoff arithmetic. What 0 or a negative retention setting MEANS, when a
-# row counts as expired, and how a cutoff timestamp is computed all belong
-# to `chat_history.py`, built on top of this module exactly as `workspaces.py`
-# and `sync.py` are (module docstring above: business logic is not this
-# module's job). A cold review moved this here from four functions that each
-# re-decided the same "retention_days <= 0" rule inline.
+# cutoff arithmetic, no ownership rule beyond the WHERE clause each caller
+# asks for. What 0 or a negative retention setting MEANS, when a row
+# counts as expired, how a cutoff is computed and how a title is derived
+# all belong to `chat_history.py`, built on top of this module exactly as
+# `workspaces.py` and `sync.py` are (module docstring above: business
+# logic is not this module's job).
+#
+# EVERY read and write that names one conversation also names its owner
+# (`user_id`), so no caller can reach someone else's row by knowing an id:
+# a wrong owner simply matches nothing.
 
 
-def upsert_chat_history(
+def upsert_conversation(
     conn: sqlite3.Connection,
     *,
+    conversation_id: str,
     user_id: str,
     workspace_id: str,
+    title: str | None,
     payload: str,
     updated_at: str,
 ) -> None:
-    """Write one person's whole transcript for one workspace, replacing
-    whatever was there. `updated_at` is the caller's to set (`chat_history.py`
-    passes `utc_now()`), never computed here.
+    """Write one conversation's whole transcript.
 
-    `ON CONFLICT ... DO UPDATE` rather than delete-then-insert, the same
-    reason `upsert_answer_feedback` uses it: this is called on every
-    settled answer, not only the first one for a given (user, workspace),
-    and a plain INSERT would raise on the second call against the
-    PRIMARY KEY."""
+    The FIRST write inserts the row, with `title` and `created_at`
+    (= `updated_at`). Every later write for the same id replaces only
+    `payload` and `updated_at`: the title a person gave it by renaming
+    must survive the next answer being saved, and `created_at` is when the
+    conversation began, not when it last changed. `ON CONFLICT(id) DO
+    UPDATE` for the same reason `upsert_answer_feedback` uses it: this runs
+    on every settled answer, not only the first.
+
+    The UPDATE half is scoped to the same owner and workspace: a row whose
+    id somehow matched but belonged to someone else is left untouched
+    rather than overwritten."""
     conn.execute(
-        "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
-        "VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(user_id, workspace_id) DO UPDATE SET "
-        "payload = excluded.payload, updated_at = excluded.updated_at",
-        (user_id, workspace_id, payload, updated_at),
+        "INSERT INTO conversation "
+        "(id, user_id, workspace_id, title, payload, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET "
+        "payload = excluded.payload, updated_at = excluded.updated_at "
+        "WHERE conversation.user_id = excluded.user_id "
+        "AND conversation.workspace_id = excluded.workspace_id",
+        (conversation_id, user_id, workspace_id, title, payload, updated_at, updated_at),
     )
 
 
-def get_chat_history(
-    conn: sqlite3.Connection, *, user_id: str, workspace_id: str
+def get_conversation(
+    conn: sqlite3.Connection, *, conversation_id: str, user_id: str
 ) -> sqlite3.Row | None:
-    """The raw stored row (`payload`, `updated_at`) for this person and
-    workspace, or None. Whether it is too old to use is the caller's call,
-    not this function's."""
+    """This person's conversation with this id, or None -- including when
+    the id exists but belongs to somebody else. Whether it is too old to
+    use is the caller's call, not this function's."""
     return conn.execute(
-        "SELECT payload, updated_at FROM chat_history "
-        "WHERE user_id = ? AND workspace_id = ?",
-        (user_id, workspace_id),
+        "SELECT id, user_id, workspace_id, title, payload, created_at, updated_at "
+        "FROM conversation WHERE id = ? AND user_id = ?",
+        (conversation_id, user_id),
     ).fetchone()
 
 
-def delete_chat_history(conn: sqlite3.Connection, *, user_id: str, workspace_id: str) -> None:
-    """Drop the stored row for just this one (person, workspace) pair."""
-    conn.execute(
-        "DELETE FROM chat_history WHERE user_id = ? AND workspace_id = ?",
-        (user_id, workspace_id),
+def list_conversations(
+    conn: sqlite3.Connection, *, user_id: str, workspace_id: str, newer_than: str
+) -> list[sqlite3.Row]:
+    """This person's conversations in this workspace updated after
+    `newer_than`, newest first -- the history list. No payloads: a list
+    needs a title and a date, not every transcript."""
+    return list(
+        conn.execute(
+            "SELECT id, title, created_at, updated_at FROM conversation "
+            "WHERE user_id = ? AND workspace_id = ? AND updated_at > ? "
+            "ORDER BY updated_at DESC, id DESC",
+            (user_id, workspace_id, newer_than),
+        )
     )
 
 
-def delete_chat_history_for_user(conn: sqlite3.Connection, *, user_id: str) -> int:
-    """Every stored conversation belonging to one person, across every
+def rename_conversation(
+    conn: sqlite3.Connection, *, conversation_id: str, user_id: str, title: str
+) -> int:
+    """Set the title of this person's conversation. Returns 1 if it was
+    theirs and existed, 0 otherwise -- the caller turns 0 into a 404.
+    `updated_at` is left alone on purpose: renaming is not new
+    conversation, and must not move it to the top of the list."""
+    cursor = conn.execute(
+        "UPDATE conversation SET title = ? WHERE id = ? AND user_id = ?",
+        (title, conversation_id, user_id),
+    )
+    return cursor.rowcount
+
+
+def delete_conversation(
+    conn: sqlite3.Connection, *, conversation_id: str, user_id: str
+) -> int:
+    """Drop one of this person's conversations. Returns the row count."""
+    cursor = conn.execute(
+        "DELETE FROM conversation WHERE id = ? AND user_id = ?",
+        (conversation_id, user_id),
+    )
+    return cursor.rowcount
+
+
+def delete_conversations_in_workspace(
+    conn: sqlite3.Connection, *, user_id: str, workspace_id: str
+) -> int:
+    """Every conversation one person has in one workspace (an admin
+    revoking their access: those transcripts quote passages they should
+    no longer hold). Returns the row count."""
+    cursor = conn.execute(
+        "DELETE FROM conversation WHERE user_id = ? AND workspace_id = ?",
+        (user_id, workspace_id),
+    )
+    return cursor.rowcount
+
+
+def delete_conversations_for_user(conn: sqlite3.Connection, *, user_id: str) -> int:
+    """Every conversation belonging to one person, across every
     workspace. Returns the row count deleted."""
-    cursor = conn.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
+    cursor = conn.execute("DELETE FROM conversation WHERE user_id = ?", (user_id,))
     return cursor.rowcount
 
 
-def delete_chat_history_older_than(conn: sqlite3.Connection, *, cutoff: str) -> int:
-    """Every row whose `updated_at` is at or before `cutoff` (an ISO-8601
-    UTC timestamp the caller computed), gone. Returns the row count
-    deleted. No idea here of what a retention window is or how `cutoff`
-    was chosen -- `chat_history.py` computes it, including the "delete
-    everything" case (retention 0), which it gets by passing `utc_now()`."""
-    cursor = conn.execute("DELETE FROM chat_history WHERE updated_at <= ?", (cutoff,))
+def delete_conversations_older_than(conn: sqlite3.Connection, *, cutoff: str) -> int:
+    """Every conversation whose `updated_at` is at or before `cutoff` (an
+    ISO-8601 UTC timestamp the caller computed), gone. Returns the row
+    count. No idea here of what a retention window is -- `chat_history.py`
+    computes the cutoff, including "delete everything" (retention 0)."""
+    cursor = conn.execute("DELETE FROM conversation WHERE updated_at <= ?", (cutoff,))
     return cursor.rowcount
+
+
+def _first_question(payload: str) -> str | None:
+    """The first question a stored transcript contains, for a migrated
+    row's title. Deliberately tolerant: a payload this cannot read gets no
+    title (NULL, shown as "untitled") rather than failing the migration --
+    losing a title is recoverable by renaming, losing the migration is not.
+    Reads the raw JSON rather than `ui.conversation`, which this module
+    must not import (db/ sits below ui/)."""
+    try:
+        data = json.loads(payload)
+        for message in data.get("messages", []):
+            if message.get("kind") == "user" and str(message.get("text", "")).strip():
+                return str(message["text"])
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return None
+
+
+def _migrate_chat_history_to_conversation(conn: sqlite3.Connection) -> None:
+    """ST-53: move every pre-ST-53 `chat_history` row into `conversation`,
+    then DROP `chat_history` (YL's ruling, DECISIONS 2026-09-18).
+
+    ONE TRANSACTION, COPY BEFORE DROP, COUNT CHECKED IN BETWEEN. This runs
+    inside `ensure_schema`'s `BEGIN IMMEDIATE`, and `DROP TABLE` is
+    transactional in SQLite, so the copy, the check and the drop commit
+    together or not at all: a failure anywhere leaves `chat_history`
+    exactly as it was. The check refuses to drop unless every source row
+    has a copy -- a table that cannot be undropped is only dropped once
+    its contents provably exist elsewhere.
+
+    Idempotent: once the table is gone this returns at the first line, so
+    it costs one catalogue lookup on every later `ensure_schema`.
+
+    Undo, if it is ever needed, is written down in DECISIONS: recreate
+    `chat_history` and fill it with each (user, workspace)'s most recent
+    conversation -- the only row the old design could hold."""
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'chat_history'"
+    ).fetchone()
+    if exists is None:
+        return
+    rows = conn.execute(
+        "SELECT user_id, workspace_id, payload, updated_at FROM chat_history"
+    ).fetchall()
+    for row in rows:
+        title = _first_question(row[2])
+        conn.execute(
+            "INSERT INTO conversation "
+            "(id, user_id, workspace_id, title, payload, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (new_id(), row[0], row[1], title, row[2], row[3], row[3]),
+        )
+    copied = conn.execute(
+        "SELECT COUNT(*) FROM conversation c WHERE EXISTS ("
+        "SELECT 1 FROM chat_history h WHERE h.user_id = c.user_id "
+        "AND h.workspace_id = c.workspace_id AND h.payload = c.payload)"
+    ).fetchone()[0]
+    if copied < len(rows):
+        raise RuntimeError(
+            f"chat_history migration copied {copied} of {len(rows)} rows; "
+            "refusing to drop the source table"
+        )
+    conn.execute("DROP TABLE chat_history")

@@ -19,6 +19,7 @@ import vector_store
 from agent import nodes
 from app import Runtime, create_app
 from db import repo
+from tests.conversations import live_conversation
 from tests.integration.test_s1_chat_screen import (  # noqa: F401 -- fixture reuse
     _ask,
     _settled,
@@ -88,7 +89,7 @@ def test_an_honest_refusal_is_localised_too(sanad, lang):  # noqa: F811
     build, workspace, _ = sanad
     client, runtime = build()
     client.get(f"/?lang={lang}")
-    conversation = runtime.conversation(workspace.id)
+    conversation = live_conversation(runtime, workspace.id)
     conversation.messages.append(
         Message(
             kind=MessageKind.REFUSAL,

@@ -117,6 +117,26 @@ MESSAGES: dict[str, str] = {
     ),
     "chat.history_delete.yes": "Oui, supprimer mon historique",
     "chat.history_delete.cancel": "Annuler, conserver mon historique",
+    "title.conversation_manage": "Conversation — Sanad",
+    "chat.history.title": "Vos conversations",
+    "chat.history.untitled": "Conversation sans titre",
+    "chat.history.manage": "Renommer ou supprimer",
+    "chat.history.manage_label": f"Renommer ou supprimer «{NNBSP}{{title}}{NNBSP}»",
+    "chat.history.empty": (
+        "Aucune conversation enregistrée dans cet espace de travail pour l’instant."
+    ),
+    "chat.conv.heading": "Renommer ou supprimer cette conversation",
+    "chat.conv.title_label": "Titre",
+    "chat.conv.rename": "Renommer",
+    "chat.conv.title_empty": "Un titre ne peut pas être vide.",
+    "chat.conv.title_too_long": "Un titre ne peut pas dépasser {max} caractères.",
+    "chat.conv.delete_heading": "Supprimer cette conversation",
+    "chat.conv.delete_body": (
+        "Elle est retirée de votre historique définitivement. "
+        "Vos autres conversations sont conservées."
+    ),
+    "chat.conv.delete": "Supprimer cette conversation",
+    "chat.conv.back": "Retour à la conversation",
     "chat.your_question": "Votre question",
     "chat.placeholder": "Posez une question sur cet espace",
     "chat.send": "Envoyer",

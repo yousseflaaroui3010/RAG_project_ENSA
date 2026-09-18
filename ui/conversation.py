@@ -554,6 +554,13 @@ class Conversation:
     turns: list[Turn] = field(default_factory=list)
     run: Run | None = None
     pending_clarification: ClarificationContext | None = None
+    # ST-53: which stored conversation this is, and whose. Neither is in
+    # the payload: both are the row's own columns, so a transcript copied
+    # between rows can never claim another row's identity. Empty on a
+    # conversation that has never been given an id (the routing screen's,
+    # which is never saved).
+    id: str = ""
+    user_id: str = ""
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
@@ -743,8 +750,23 @@ class Conversation:
                 "messages": [message.to_dict() for message in self.messages],
             }
 
+    def first_question(self) -> str | None:
+        """The first question asked here, or None -- the automatic title
+        of a stored conversation (`chat_history.title_from`)."""
+        with self._lock:
+            for message in self.messages:
+                if message.kind is MessageKind.USER and message.text.strip():
+                    return message.text
+        return None
+
     @staticmethod
-    def from_payload(workspace_id: str, data: Mapping[str, Any]) -> Conversation:
+    def from_payload(
+        workspace_id: str,
+        data: Mapping[str, Any],
+        *,
+        conversation_id: str = "",
+        user_id: str = "",
+    ) -> Conversation:
         """The inverse of `to_payload`. Raises on anything unreadable --
         corrupt JSON already failed before this is called
         (`json.loads`), but a field of the wrong shape, an unknown enum
@@ -769,4 +791,6 @@ class Conversation:
             messages=messages,
             summary=str(data.get("summary", "")),
             turns=turns,
+            id=conversation_id,
+            user_id=user_id,
         )
