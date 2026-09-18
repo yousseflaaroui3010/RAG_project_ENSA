@@ -15,8 +15,8 @@ and asks, nobody changes. The machine API is closed when accounts are on.
 The selected workspace is per person now (it was one value for the whole
 server).
 
-**Proof.** Full suite: **1323 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose and
-caught: **20 of 20** (14, then 6 for the review fixes).
+**Proof.** Full suite: **1324 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose and
+caught: **25 of 25** (14, 6 for the first review's fixes, 5 for the second's). Second review: 0 blocking; its three should-fix items are fixed (tests wrote empty folders into the real `data/` -- the folder root now follows the app's own database, and the 8 stray empty folders were removed; the path-hiding had no failing test; the Sync error box still printed a server path).
 
 **Cold review of #148: 1 blocking, fixed.** Anyone who signed up could type
 any server folder when creating a workspace -- the shared demo's included --
