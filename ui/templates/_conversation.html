@@ -354,6 +354,8 @@
                     <form method="post" action="/chat/ask">
                       <input type="hidden" name="question" value="{{ message.route_question }}">
                       <input type="hidden" name="workspace_id" value="{{ candidate.workspace_id }}">
+                      {# ST-53: one proposed id per page, so a double click answers once. #}
+                      <input type="hidden" name="conversation_id" value="{{ conversation_id }}">
                       <button class="sample" type="submit">
                         {# F-14: a workspace name may be Arabic inside an English label. #}
                         {% if loop.first %}{{ th('conv.route.yes_html', name=candidate.name) }}{% else %}<bdi>{{ candidate.name }}</bdi>{% endif %}

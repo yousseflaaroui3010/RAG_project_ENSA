@@ -545,8 +545,12 @@ class Runtime:
                     conversation = Conversation(
                         workspace_id=workspace_id, id=proposed_id, user_id=user_id
                     )
-                    self.conversations[conversation.id] = conversation
-                    return conversation
+                    # `setdefault`, not a plain assignment: this lock is
+                    # per PERSON, so two people proposing the same unused
+                    # id at once are not serialized by it. The loser gets
+                    # a fresh id below instead of overwriting the winner.
+                    if self.conversations.setdefault(proposed_id, conversation) is conversation:
+                        return conversation
             conversation = Conversation(
                 workspace_id=workspace_id, id=repo.new_id(), user_id=user_id
             )
@@ -1111,7 +1115,15 @@ def _context(runtime: Runtime, request: Request) -> dict:
         # ST-53: which conversation this render shows ("" for an empty chat
         # not yet asked anything), carried by every form that acts on it,
         # and this person's list of past ones in this workspace.
-        "conversation_id": conversation.id if conversation else "",
+        # F-12's routing conversation has no id of its own and is never
+        # stored; its candidate buttons carry a PROPOSED id instead, so a
+        # double-clicked "use this workspace" starts one answer, not two
+        # (second cold review) -- the same rule as the empty chat's Send.
+        "conversation_id": (
+            conversation.id
+            if conversation is not None and conversation.id
+            else repo.new_id() if is_routing else ""
+        ),
         "shows_history": shows_history,
         "history": (
             chat_history.list_for(
