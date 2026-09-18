@@ -88,6 +88,29 @@ def test_a_flood_of_new_keys_cannot_grow_memory_without_limit(monkeypatch):
     assert ("test", "address-0") not in limiter._hits, "the stalest goes first"
 
 
+def test_a_full_table_drops_expired_keys_before_a_live_one(monkeypatch):
+    """Second review of #150, its counterexample: someone creates
+    workspaces (a one-hour window) at t=0, an address hits sign-in (five
+    minutes) at t=100. At t=1000 a newcomer arrives in a full table. The
+    sign-in key has expired; the workspace key has not, and must survive --
+    least-recently-used alone would drop it and reset that person's count."""
+    monkeypatch.setattr(rate_limit, "_MAX_KEYS", 2)
+    clock = Clock()
+    clock.now = 0.0
+    limiter = Limiter(clock=clock)
+    hourly = Rule("create", "POST", re.compile(r"^/w$"), 1, 3600, "person")
+    short = Rule("sign-in", "GET", re.compile(r"^/l$"), 5, 300, "address")
+
+    limiter.take(hourly, "amina")
+    clock.now = 100.0
+    limiter.take(short, "203.0.113.9")
+    clock.now = 1000.0
+    limiter.take(short, "198.51.100.7")
+
+    assert limiter.take(hourly, "amina") > 0, "her hourly count was reset"
+    assert ("sign-in", "203.0.113.9") not in limiter._hits
+
+
 def _request(forwarded: str | None, host: str = "10.0.0.1"):
     headers = {"x-forwarded-for": forwarded} if forwarded is not None else {}
     return types.SimpleNamespace(headers=headers, client=types.SimpleNamespace(host=host))
@@ -143,3 +166,27 @@ def test_each_rule_covers_exactly_its_real_routes(method, path, rule):
     One sign-in is ONE count: the return from Keycloak is not counted."""
     matched = [r.name for r in rate_limit.RULES if r.method == method and r.path.match(path)]
     assert matched == ([rule] if rule else [])
+
+
+def test_every_post_route_is_capped_or_deliberately_exempt():
+    """Second review of #150: the rule table was checked against paths
+    written by hand, so a renamed route or a new costly POST would have
+    passed silently uncapped. This walks the real app instead."""
+    from app import Runtime, create_app
+
+    exempt = {
+        "/auth/logout",
+        "/chat/cancel",
+        "/workspace",
+        "/workspaces/{workspace_id}/sync/cancel",
+    }
+    uncovered = []
+    for route in create_app(Runtime()).routes:
+        methods = getattr(route, "methods", None) or set()
+        if "POST" not in methods or route.path.startswith("/api/") or route.path in exempt:
+            continue
+        concrete = re.sub(r"\{[^}]+\}", "abc", route.path)
+        if not any(r.method == "POST" and r.path.match(concrete) for r in rate_limit.RULES):
+            uncovered.append(route.path)
+
+    assert uncovered == []

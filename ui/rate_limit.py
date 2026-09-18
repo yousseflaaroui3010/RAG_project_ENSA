@@ -25,12 +25,13 @@ IN PROCESS, NO NEW DEPENDENCY. A sliding window per (rule, key): the times of
 the last requests, oldest dropped as they age out. The demo runs ONE process
 (Railway, one replica), so one process's memory is the whole picture; a
 second replica would need a shared store, and DECISIONS says so. The number
-of keys is bounded (`_MAX_KEYS`): when full, the least recently used key
-goes. Keys are kept in order of last use, and a use either records a hit or
-is refused while the window is full, so the least recently used keys are
-exactly the ones whose windows have passed -- they go before any live one.
-(A separate "clear expired keys first" pass was written after review of
-#150 and removed: it could never change which key went.)
+of keys is bounded (`_MAX_KEYS`): when full, keys whose OWN window has
+passed go first, and only if none has does the least recently used live key
+go. Least-recently-used alone is not enough, and an earlier version of this
+note wrongly said it was: the rules have different windows (5 minutes to an
+hour), so a key used long ago can still be live while a newer one has
+expired, and a refused try moves a key forward without recording anything
+(second review of #150, with a counterexample now in the tests).
 
 THE LIMITS ARE CONSTANTS HERE, not settings, for one recorded reason: every
 setting must be documented in `.env.example`, which the coding agent is not
@@ -120,6 +121,9 @@ class Limiter:
         self._clock = clock
         self._lock = threading.Lock()
         self._hits: OrderedDict[tuple[str, str], deque[float]] = OrderedDict()
+        # Each rule's window by name, learned as rules are used, so a full
+        # table can tell which keys have expired under their own rule.
+        self._windows: dict[str, int] = {}
 
     def take(self, rule: Rule, key: str) -> int:
         """Record one request. 0 if allowed, else the whole seconds to wait
@@ -127,11 +131,13 @@ class Limiter:
         slot = (rule.name, key)
         with self._lock:
             now = self._clock()
+            self._windows[rule.name] = rule.window_seconds
             hits = self._hits.get(slot)
             if hits is None:
-                # Room is made BEFORE the new key goes in.
-                while len(self._hits) >= _MAX_KEYS:
-                    self._hits.popitem(last=False)
+                # Room is made BEFORE the new key goes in: made after, the
+                # new key's still-empty window would look expired.
+                if len(self._hits) >= _MAX_KEYS:
+                    self._make_room(now)
                 hits = deque()
                 self._hits[slot] = hits
             else:
@@ -142,6 +148,19 @@ class Limiter:
                 return max(1, math.ceil(hits[0] + rule.window_seconds - now))
             hits.append(now)
             return 0
+
+    def _make_room(self, now: float) -> None:
+        """Expired keys first, each judged by its own rule's window; then,
+        only if the table is still full, the least recently used."""
+        expired = [
+            slot
+            for slot, hits in self._hits.items()
+            if not hits or hits[-1] <= now - self._windows.get(slot[0], 0)
+        ]
+        for slot in expired:
+            del self._hits[slot]
+        while len(self._hits) >= _MAX_KEYS:
+            self._hits.popitem(last=False)
 
 class RateLimit(BaseHTTPMiddleware):
     """Refuses, with 429 and `Retry-After`, a request over its rule's cap.
