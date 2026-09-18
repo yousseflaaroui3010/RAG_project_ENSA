@@ -583,7 +583,10 @@ def test_anyone_signed_in_creates_a_workspace_and_owns_it(keycloak):
     [created] = workspaces.list_workspaces(db_path=db_path)
     with repo.session(db_path) as conn:
         assert repo.workspace_owners(conn) == {created.id: READER_CLAIMS["sub"]}
-    assert Path(created.folder_path) == workspaces.managed_folder_root() / created.id
+    assert Path(created.folder_path) == workspaces.managed_folder_root(db_path) / created.id
+    assert Path(created.folder_path).parent.parent == db_path.parent.resolve(), (
+        "the folder sits next to the app's own database, not the real data/"
+    )
     assert Path(created.folder_path).is_dir()
     sign_in(CURATOR_CLAIMS)
     assert "Mine" not in client.get("/workspaces").text, "private to its owner"
@@ -620,7 +623,33 @@ def test_nobody_signed_in_can_point_a_workspace_at_a_server_folder(keycloak):
     assert (demo / "note.txt").read_text(encoding="utf-8") == "DEMO-TEXT"
     page = client.get(f"/workspaces?ws={mine.id}").text
     assert 'name="folder_path"' not in page, "no path field when accounts are on"
-    assert str(demo) not in client.get("/workspaces").text, "no server path shown"
+
+
+def test_no_server_path_is_shown_to_a_signed_in_person(keycloak):
+    """Shared demo, own workspace, both confirmation pages and a failed
+    Sync: none may print where on the server the files sit. Each page is
+    one the person may actually open, so the check can fail."""
+    client, runtime, db_path, _, sign_in = keycloak
+    demo = db_path.parent / "corpus-demo-path"
+    demo.mkdir()
+    shared = workspaces.create_workspace(name="Demo", folder_path=str(demo), db_path=db_path)
+    sign_in(READER_CLAIMS)
+    client.post("/workspaces", data={"name": "Mine"}, follow_redirects=False)
+    mine = next(w for w in workspaces.list_workspaces(db_path=db_path) if w.name == "Mine")
+    (Path(mine.folder_path) / "note.txt").write_text("x", encoding="utf-8")
+    runtime.sync_errors[mine.id] = f"folder not found: {mine.folder_path}"
+
+    pages = {
+        "shared demo": client.get(f"/workspaces?ws={shared.id}").text,
+        "own workspace": client.get(f"/workspaces?ws={mine.id}").text,
+        "delete confirmation": client.get(f"/workspaces/{mine.id}/delete").text,
+        "remove confirmation": client.get(
+            f"/workspaces/{mine.id}/documents/note.txt/remove"
+        ).text,
+    }
+    for label, page in pages.items():
+        assert str(demo) not in page, label
+        assert mine.folder_path not in page, label
 
 
 def test_only_the_owner_deletes_a_workspace(keycloak):

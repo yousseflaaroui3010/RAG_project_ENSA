@@ -105,9 +105,13 @@ def _normalize_name(name: str) -> str:
 MANAGED_FOLDER_NAME = "workspaces"
 
 
-def managed_folder_root() -> Path:
-    """Where the server makes each workspace's folder when accounts are on."""
-    return Path(get_settings().sqlite_db_path).parent / MANAGED_FOLDER_NAME
+def managed_folder_root(db_path: str | Path | None = None) -> Path:
+    """Where the server makes each workspace's folder when accounts are on:
+    next to the database THIS app is using (second review of #148: reading
+    the setting alone made tests write into the real `data/`), as a full
+    path, so a script run from another directory finds the same folder."""
+    path = db_path if db_path is not None else get_settings().sqlite_db_path
+    return Path(path).resolve().parent / MANAGED_FOLDER_NAME
 
 
 def _validate_folder_path(folder_path: str) -> None:

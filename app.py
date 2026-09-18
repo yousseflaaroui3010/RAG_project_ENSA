@@ -2218,7 +2218,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         managed = None
         if not principal.unrestricted:
             new_id = repo.new_id()
-            managed = workspaces.managed_folder_root() / new_id
+            managed = workspaces.managed_folder_root(runtime.db_path) / new_id
             managed.mkdir(parents=True, exist_ok=False)
             submitted["folder_path"] = str(managed)
         try:
@@ -2242,6 +2242,13 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 },
                 status_code=422,
             )
+        except Exception:
+            # Any other failure (a locked database, say) must not leave an
+            # empty folder behind. `rmdir` refuses a non-empty folder, so
+            # this can never delete a file.
+            if managed is not None:
+                managed.rmdir()
+            raise
         runtime.set_active(principal.id, created.id)
         return RedirectResponse(f"/workspaces?ws={created.id}", status_code=SEE_OTHER)
 
