@@ -608,9 +608,15 @@
   }
 
   function tick() {
-    // ST-53: the page's own `?c=`, so the poll renders the SAME
-    // conversation this page shows, not whichever is latest.
-    fetch("/chat/messages" + window.location.search, {
+    // ST-53: the conversation this page's Send continues, so the poll
+    // renders the SAME one -- not whichever became latest meanwhile (a
+    // second tab starting a chat would otherwise swap it in under a Send
+    // that still names the old one).
+    var current = document.querySelector('[data-composer] input[name="conversation_id"]');
+    var query = current && current.value
+      ? "?c=" + encodeURIComponent(current.value)
+      : window.location.search;
+    fetch("/chat/messages" + query, {
       headers: { "X-Requested-With": "fetch" },
     })
       .then(function (response) {

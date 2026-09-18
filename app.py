@@ -35,6 +35,7 @@ import sqlite3
 import threading
 import time
 import tomllib
+import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -518,16 +519,39 @@ class Runtime:
                 workspace_id=stored.workspace_id, id=stored.id, user_id=user_id
             )
 
-    def new_conversation(self, user_id: str, workspace_id: str) -> Conversation:
-        """A fresh conversation with its own id, live in memory. Not
-        stored until its first question is claimed (`_start` saves right
-        after `begin`), so opening "New conversation" and walking away
-        leaves nothing behind in the history list."""
-        conversation = Conversation(
-            workspace_id=workspace_id, id=repo.new_id(), user_id=user_id
-        )
-        self.conversations[conversation.id] = conversation
-        return conversation
+    def new_conversation(
+        self, user_id: str, workspace_id: str, proposed_id: str = ""
+    ) -> Conversation:
+        """A fresh conversation, live in memory. Not stored until its first
+        question is claimed (`_start` saves right after `begin`), so opening
+        "New conversation" and walking away leaves nothing behind in the
+        history list.
+
+        `proposed_id` is the id the empty chat's page already carries
+        (`_context`). Using it is what makes a double-clicked first Send
+        harmless (cold review): both posts name the SAME id, the first
+        creates the conversation under this person's lock, the second finds
+        it here and its `begin` is refused -- one paid answer, not two.
+        The proposal is used only when it is a well-formed id nobody holds;
+        otherwise a fresh one is minted, so a page cannot claim an id that
+        is already someone's."""
+        with self._person_lock(user_id):
+            if _is_conversation_id(proposed_id):
+                live = self.conversations.get(proposed_id)
+                if live is not None:
+                    if live.user_id == user_id and live.workspace_id == workspace_id:
+                        return live
+                elif not chat_history.id_taken(proposed_id, db_path=self.db_path):
+                    conversation = Conversation(
+                        workspace_id=workspace_id, id=proposed_id, user_id=user_id
+                    )
+                    self.conversations[conversation.id] = conversation
+                    return conversation
+            conversation = Conversation(
+                workspace_id=workspace_id, id=repo.new_id(), user_id=user_id
+            )
+            self.conversations[conversation.id] = conversation
+            return conversation
 
     def latest_conversation(self, user_id: str, workspace_id: str) -> Conversation | None:
         """What the chat screen opens when its address names no
@@ -919,6 +943,16 @@ def _active(runtime: Runtime, request: Request) -> screen.WorkspaceOption | None
 NEW_CONVERSATION = "new"
 
 
+def _is_conversation_id(value: str) -> bool:
+    """A well-formed conversation id: the canonical text of a uuid, as
+    `repo.new_id` writes it. Anything else a page sends is not trusted as
+    an id to create under."""
+    try:
+        return str(uuid.UUID(value)) == value
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
 def _chat_url(conversation_id: str | None) -> str:
     """The chat screen's address for one conversation (ST-53). The id
     travels in the address, not in server state, so two browser tabs can
@@ -934,27 +968,30 @@ def _resolve_conversation(
 ) -> Conversation:
     """Which conversation S1 shows in the active workspace (ST-53).
 
-    In order: `?c=new` is an empty chat; `?c=<id>` is that conversation
-    IF it is this person's AND in this workspace; anything else -- no `c`,
-    an unknown id, someone else's id, an id from another workspace after
-    a switch -- is this person's latest conversation here, or an empty
-    chat when they have none.
+    In order: no `c` is this person's latest conversation here (or an
+    empty chat when they have none); `?c=<id>` is that conversation IF it
+    is this person's AND in this workspace; anything else -- `?c=new`, an
+    id not yet used, someone else's id, an id from another workspace after
+    a switch -- is an empty chat.
 
-    The empty chat is NOT kept in memory and never stored: it gets an id
-    only when its first question is asked (`_start`). A page load
+    The empty chat is NOT kept in memory and never stored. It carries a
+    PROPOSED id for its first question (`new_conversation`): the one in
+    the address when that is a well-formed id, so the page's poll and its
+    Send agree on one conversation, else a fresh one. A page load
     therefore never creates anything, and a stranger with a grant who
     only looks at the screen leaves no row behind."""
     user_id = principal_of(request).id
     requested = request.query_params.get("c", "")
-    if requested != NEW_CONVERSATION:
-        if requested:
-            found = runtime.open_conversation(user_id, requested, active.id)
-            if found is not None:
-                return found
+    if not requested:
         latest = runtime.latest_conversation(user_id, active.id)
         if latest is not None:
             return latest
-    return Conversation(workspace_id=active.id, user_id=user_id)
+    elif requested != NEW_CONVERSATION:
+        found = runtime.open_conversation(user_id, requested, active.id)
+        if found is not None:
+            return found
+    proposed = requested if _is_conversation_id(requested) else repo.new_id()
+    return Conversation(workspace_id=active.id, user_id=user_id, id=proposed)
 
 
 def _shows_history(request: Request) -> bool:
@@ -1928,9 +1965,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         """Stop the answer being written in ONE conversation (ST-53: others
         of this person's may be running too, and are left alone)."""
         form = await _form(request)
-        conversation = runtime.open_conversation(
-            principal_of(request).id, form.get("conversation_id", "")
-        )
+        conversation = _own_conversation(request, form.get("conversation_id", ""))
         if conversation is not None and conversation.run is not None:
             conversation.run.cancel()
         return RedirectResponse(
@@ -2244,7 +2279,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             if 0 <= index < len(cards):
                 card = cards[index]
         return templates.TemplateResponse(
-            request, "passage.html", {**_context(runtime, request), "card": card}
+            request,
+            "passage.html",
+            {
+                **_context(runtime, request),
+                "card": card,
+                # Back goes to the conversation the card came from, not the
+                # latest one (cold review).
+                "back_url": _chat_url(conversation.id if conversation else None),
+            },
         )
 
     @app.get("/workspaces", response_class=HTMLResponse)
@@ -2713,7 +2756,9 @@ def _start(
         return RedirectResponse(
             _chat_url(existing.id if existing else NEW_CONVERSATION), status_code=SEE_OTHER
         )
-    conversation = existing or runtime.new_conversation(principal.id, active.id)
+    conversation = existing or runtime.new_conversation(
+        principal.id, active.id, proposed_id=conversation_id
+    )
     run = Run(
         question=asked,
         workspace_id=active.id,

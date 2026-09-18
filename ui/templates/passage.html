@@ -19,7 +19,7 @@
         {% endif %}
       </h1>
       {{ viewer.passage_body(card) }}
-      <p><a class="btn btn--quiet" href="/">{{ t('passage.back') }}</a></p>
+      <p><a class="btn btn--quiet" href="{{ back_url }}">{{ t('passage.back') }}</a></p>
     </article>
   {% else %}
     {#
@@ -31,7 +31,7 @@
       <h1>{{ t('passage.gone.title') }}</h1>
       <p>{{ t('passage.gone.body') }}</p>
       <p class="error__hint">{{ t('passage.gone.hint') }}</p>
-      <p><a class="btn btn--quiet" href="/">{{ t('passage.back') }}</a></p>
+      <p><a class="btn btn--quiet" href="{{ back_url }}">{{ t('passage.back') }}</a></p>
     </section>
   {% endif %}
 {% endblock %}

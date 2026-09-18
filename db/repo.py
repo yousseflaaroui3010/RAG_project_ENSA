@@ -972,6 +972,16 @@ def list_conversations(
     )
 
 
+def conversation_exists(conn: sqlite3.Connection, *, conversation_id: str) -> bool:
+    """Whether ANY row, whoever owns it, has this id. Used only to refuse
+    an id a page proposed for a new conversation when it is already
+    taken -- never to read anything, so it says nothing about whose it is."""
+    return (
+        conn.execute("SELECT 1 FROM conversation WHERE id = ?", (conversation_id,)).fetchone()
+        is not None
+    )
+
+
 def rename_conversation(
     conn: sqlite3.Connection, *, conversation_id: str, user_id: str, title: str
 ) -> int:

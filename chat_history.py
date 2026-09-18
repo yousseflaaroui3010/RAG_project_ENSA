@@ -217,6 +217,12 @@ def latest_id(
     return summaries[0].id if summaries else None
 
 
+def id_taken(conversation_id: str, *, db_path: str | Path | None = None) -> bool:
+    """Whether any stored conversation, anyone's, already has this id."""
+    with repo.session(db_path) as conn:
+        return repo.conversation_exists(conn, conversation_id=conversation_id)
+
+
 def rename(
     *, conversation_id: str, user_id: str, title: str, db_path: str | Path | None = None
 ) -> bool:
