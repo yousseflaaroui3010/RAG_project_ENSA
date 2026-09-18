@@ -1495,3 +1495,39 @@ def test_the_script_is_told_whether_the_sync_really_started(keycloak):
 
     assert (started.status_code, started.json()) == (202, {"started": True})
     assert refused.status_code == 409 and refused.json()["started"] is False
+# --- ST-55: rate limits -------------------------------------------------------
+
+
+def test_too_many_sign_in_attempts_from_one_address_are_refused(keycloak):
+    client, _, _, _, _ = keycloak
+
+    answers = [client.get("/auth/login", follow_redirects=False).status_code for _ in range(21)]
+
+    assert answers[:20] == [303] * 20
+    assert answers[20] == 429
+    refused = client.get("/auth/login", follow_redirects=False)
+    assert int(refused.headers["Retry-After"]) > 0
+
+
+def test_one_person_asking_too_often_is_refused_and_another_is_not(keycloak):
+    client, _, db_path, _, sign_in = keycloak
+    workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(READER_CLAIMS)
+
+    # Empty questions: counted like any ask, but never start a paid run.
+    answers = [
+        client.post("/chat/ask", data={"question": ""}, follow_redirects=False).status_code
+        for _ in range(21)
+    ]
+    fetched = client.post(
+        "/chat/ask", data={"question": ""}, headers={"X-Requested-With": "fetch"}
+    )
+
+    assert answers[:20] == [303] * 20
+    assert answers[20] == 429
+    assert fetched.status_code == 429 and fetched.json()["error"]
+
+    sign_in(CURATOR_CLAIMS)
+    assert client.post(
+        "/chat/ask", data={"question": ""}, follow_redirects=False
+    ).status_code == 303, "the cap is per person"

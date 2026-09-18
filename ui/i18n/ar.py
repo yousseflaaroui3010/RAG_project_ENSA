@@ -228,6 +228,7 @@ MESSAGES: dict[str, str] = {
     "ws.create.nothing": "لم يُعثر على أي ملف مدعوم في هذا المجلد.",
     "ws.create.skipped_nested": "ملفات المجلدات الفرعية المتجاهلة: {name}",
     "ws.create.open": "فتح الفضاء",
+    "rate.limited": "طلبات كثيرة جدًا. انتظر {seconds} ث ثم أعد المحاولة.",
     "ws.first.title": "أنشئ فضاء العمل الأول",
     "ws.shared.note": "فضاء مشترك: يمكنك قراءته وطرح الأسئلة. وحده مالكه يستطيع تعديله.",
     "ws.first.body": (

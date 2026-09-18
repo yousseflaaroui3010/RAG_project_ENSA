@@ -1041,6 +1041,19 @@ def test_the_passage_page_back_link_returns_to_the_conversation_it_came_from(san
     assert f'href="/?c={own}"' in standalone, "Back must not land on the newer chat"
 
 
+def test_without_sign_in_nothing_is_rate_limited(sanad):
+    """ST-55: the login-free modes are one person on their own machine; a
+    cap would only get in their way."""
+    build, _workspace, _ = sanad
+    client, _runtime = build()
+
+    answers = {
+        client.post("/chat/ask", data={"question": ""}, follow_redirects=False).status_code
+        for _ in range(30)
+    }
+
+    assert answers == {303}
+
 def test_without_sign_in_there_is_no_history_list(sanad):
     """YL's ST-53 ruling: in the login-free modes everyone is the same
     "local" person, so a list would show one shared pile to whoever sits
