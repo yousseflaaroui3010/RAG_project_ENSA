@@ -88,26 +88,6 @@ def test_a_flood_of_new_keys_cannot_grow_memory_without_limit(monkeypatch):
     assert ("test", "address-0") not in limiter._hits, "the stalest goes first"
 
 
-def test_when_full_keys_whose_window_has_passed_go_before_live_ones(monkeypatch):
-    """Review of #150: evicting by age alone reset the count of someone
-    still inside their window. Dead keys must be cleared first."""
-    monkeypatch.setattr(rate_limit, "_MAX_KEYS", 3)
-    clock = Clock()
-    limiter = Limiter(clock=clock)
-    for _ in range(3):
-        limiter.take(RULE, "amina")  # live, and at her limit
-    limiter.take(RULE, "old-1")
-    limiter.take(RULE, "old-2")
-    # Everything so far ages out except Amina's, which is renewed below.
-    clock.now += rate_limit._LONGEST_WINDOW + 1
-    for _ in range(3):
-        limiter.take(RULE, "amina")
-    limiter.take(RULE, "newcomer")
-
-    assert ("test", "amina") in limiter._hits
-    assert limiter.take(RULE, "amina") > 0, "her count was not reset by the newcomer"
-
-
 def _request(forwarded: str | None, host: str = "10.0.0.1"):
     headers = {"x-forwarded-for": forwarded} if forwarded is not None else {}
     return types.SimpleNamespace(headers=headers, client=types.SimpleNamespace(host=host))

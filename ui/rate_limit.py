@@ -25,8 +25,12 @@ IN PROCESS, NO NEW DEPENDENCY. A sliding window per (rule, key): the times of
 the last requests, oldest dropped as they age out. The demo runs ONE process
 (Railway, one replica), so one process's memory is the whole picture; a
 second replica would need a shared store, and DECISIONS says so. The number
-of keys is bounded (`_MAX_KEYS`): when full, keys whose window has fully
-passed go first, and only then the stalest live one.
+of keys is bounded (`_MAX_KEYS`): when full, the least recently used key
+goes. Keys are kept in order of last use, and a use either records a hit or
+is refused while the window is full, so the least recently used keys are
+exactly the ones whose windows have passed -- they go before any live one.
+(A separate "clear expired keys first" pass was written after review of
+#150 and removed: it could never change which key went.)
 
 THE LIMITS ARE CONSTANTS HERE, not settings, for one recorded reason: every
 setting must be documented in `.env.example`, which the coding agent is not
@@ -91,7 +95,6 @@ RULES: tuple[Rule, ...] = (
         "person",
     ),
 )
-_LONGEST_WINDOW = max(rule.window_seconds for rule in RULES)
 
 
 def _behind_a_proxy() -> bool:
@@ -126,11 +129,9 @@ class Limiter:
             now = self._clock()
             hits = self._hits.get(slot)
             if hits is None:
-                # Room is made BEFORE the new key goes in: made after, the
-                # new key's still-empty window looked dead and was thrown
-                # straight out (caught by the flood test).
-                if len(self._hits) >= _MAX_KEYS:
-                    self._make_room(now)
+                # Room is made BEFORE the new key goes in.
+                while len(self._hits) >= _MAX_KEYS:
+                    self._hits.popitem(last=False)
                 hits = deque()
                 self._hits[slot] = hits
             else:
@@ -141,19 +142,6 @@ class Limiter:
                 return max(1, math.ceil(hits[0] + rule.window_seconds - now))
             hits.append(now)
             return 0
-
-    def _make_room(self, now: float) -> None:
-        """Keys whose every hit is older than the longest window are dead
-        weight: they go first. Only if that frees nothing does the stalest
-        live key go -- a flood of new keys must not quietly reset the count
-        of someone still inside their window when it can be avoided."""
-        dead = [slot for slot, hits in self._hits.items()
-                if not hits or hits[-1] <= now - _LONGEST_WINDOW]
-        for slot in dead:
-            del self._hits[slot]
-        while len(self._hits) >= _MAX_KEYS:
-            self._hits.popitem(last=False)
-
 
 class RateLimit(BaseHTTPMiddleware):
     """Refuses, with 429 and `Retry-After`, a request over its rule's cap.
