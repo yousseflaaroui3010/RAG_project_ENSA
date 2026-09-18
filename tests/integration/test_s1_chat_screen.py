@@ -992,6 +992,55 @@ def test_new_conversation_without_sign_in_deletes_only_the_one_on_screen(sanad, 
     assert on_screen not in runtime.conversations
 
 
+def test_a_double_clicked_first_send_starts_one_answer_not_two(sanad):
+    """Cold review: the first question of an empty chat used to carry no
+    id, so two quick Sends each made their own conversation and each
+    started a PAID answer. The empty chat's page now proposes one id, and
+    both posts name it: the second finds the first's conversation busy."""
+    build, workspace, db_path = sanad
+    gate = Gate()
+    client, runtime = build()
+    _hold(runtime, gate, "summarize")
+    proposed = conversation_id_on(client.get("/").text)
+    assert proposed, "an empty chat must carry a proposed id"
+
+    first = client.post(
+        "/chat/ask", data={"question": QUESTION, "conversation_id": proposed},
+        follow_redirects=False,
+    )
+    assert gate.reached.wait(WAIT), "the first run never started"
+    second = client.post(
+        "/chat/ask", data={"question": QUESTION, "conversation_id": proposed},
+        follow_redirects=False,
+    )
+    gate.release.set()
+    _settled(client, runtime, workspace.id)
+
+    assert first.headers["location"] == second.headers["location"] == f"/?c={proposed}"
+    assert [c.id for c in runtime.conversations.values()] == [proposed]
+    with repo.session(db_path) as conn:
+        assert [row[0] for row in conn.execute("SELECT id FROM conversation")] == [proposed]
+    asked = [m for m in live_conversation(runtime, workspace.id).messages
+             if m.kind is MessageKind.USER]
+    assert len(asked) == 1, "the second Send must not add a second question"
+
+
+def test_the_passage_page_back_link_returns_to_the_conversation_it_came_from(sanad):
+    build, workspace, _ = sanad
+    client, runtime = build()
+    _ask(client)
+    page = _settled(client, runtime, workspace.id)
+    own = conversation_id_on(page)
+    href = page.split('href="/chat/passage/')[1].split('"')[0]
+    newer = runtime.new_conversation("local", workspace.id)
+    newer.messages.append(Message(kind=MessageKind.USER, text="a newer question"))
+    runtime.save_conversation(newer)
+
+    standalone = client.get(f"/chat/passage/{href}").text
+
+    assert f'href="/?c={own}"' in standalone, "Back must not land on the newer chat"
+
+
 def test_without_sign_in_there_is_no_history_list(sanad):
     """YL's ST-53 ruling: in the login-free modes everyone is the same
     "local" person, so a list would show one shared pile to whoever sits

@@ -79,6 +79,39 @@ def _theirs(runtime, user_id: str) -> list:
     return [c for c in runtime.conversations.values() if c.user_id == user_id]
 
 
+# --- the id an empty chat's page proposes (cold review) ---------------------
+
+
+def test_a_proposed_id_is_used_once_and_a_second_claim_gets_the_same_conversation(tmp_path):
+    import uuid
+
+    db_path = _db(tmp_path)
+    ws_id = _workspace(db_path)
+    runtime = Runtime(db_path=db_path)
+    proposed = str(uuid.uuid4())
+
+    first = runtime.new_conversation("alice", ws_id, proposed_id=proposed)
+    again = runtime.new_conversation("alice", ws_id, proposed_id=proposed)
+
+    assert first.id == proposed
+    assert again is first, "a double-clicked Send must reach the SAME conversation"
+
+
+def test_a_proposed_id_already_someones_is_never_taken(tmp_path):
+    """Stored or live, another person's id is refused: a page cannot
+    create under an id that is already theirs, nor a malformed one."""
+    db_path = _db(tmp_path)
+    ws_id = _workspace(db_path)
+    runtime = Runtime(db_path=db_path)
+    bobs_stored = _saved(Runtime(db_path=db_path), "bob", ws_id, "bob's")
+    bobs_live = runtime.new_conversation("bob", ws_id)
+
+    for proposed in (bobs_stored.id, bobs_live.id, "not-an-id", ""):
+        mine = runtime.new_conversation("alice", ws_id, proposed_id=proposed)
+        assert mine.id != proposed and mine.user_id == "alice"
+    assert runtime.conversations[bobs_live.id] is bobs_live
+
+
 # --- restart survival ---------------------------------------------------
 
 

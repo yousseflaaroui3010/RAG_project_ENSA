@@ -739,6 +739,44 @@ def _stored(runtime, user_id, ws_id, question, answer):
     return conversation
 
 
+def _with_a_source(runtime, user_id, ws_id, passage_text):
+    """A stored conversation whose answer has one real source card, so the
+    passage viewer WOULD show `passage_text` if it served this card."""
+    from ui.conversation import Passage, SourceCard, segments_for
+
+    card = SourceCard(
+        index=0,
+        file_name="contrat.pdf",
+        section_label="Article 1",
+        passages=(Passage(
+            file_name="contrat.pdf", section_label="Article 1",
+            segments=segments_for(passage_text, []), highlighted=False,
+        ),),
+    )
+    conversation = runtime.new_conversation(user_id, ws_id)
+    conversation.messages.append(Message(kind=MessageKind.USER, text="a question"))
+    conversation.messages.append(
+        Message(kind=MessageKind.ANSWER, text="an answer", sources=(card,))
+    )
+    runtime.save_conversation(conversation)
+    return conversation
+
+
+def test_the_passage_viewer_serves_only_the_owners_card(keycloak):
+    """Positive control first -- the owner DOES see the card's text -- so
+    the refusal below is proven to be the owner check, not an empty card."""
+    client, runtime, db_path, sign_in, ws = _reader_with_a_workspace(keycloak)
+    sign_in(CURATOR_CLAIMS)
+    with repo.session(db_path) as conn:
+        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
+    theirs = _with_a_source(runtime, "kc-curator", ws.id, "CURATOR-PASSAGE-TEXT")
+    assert "CURATOR-PASSAGE-TEXT" in client.get(f"/chat/passage/{theirs.id}/1/0").text
+
+    sign_in(READER_CLAIMS)
+
+    assert "CURATOR-PASSAGE-TEXT" not in client.get(f"/chat/passage/{theirs.id}/1/0").text
+
+
 def test_a_signed_in_person_sees_their_conversations_and_can_open_an_older_one(keycloak):
     client, runtime, _, _, ws = _reader_with_a_workspace(keycloak)
     older = _stored(runtime, "kc-reader", ws.id, "OLDER-QUESTION", "OLDER-ANSWER")
@@ -789,7 +827,9 @@ def test_new_conversation_when_signed_in_keeps_the_one_on_screen(keycloak):
         assert [row[0] for row in conn.execute("SELECT id FROM conversation")] == [kept.id]
     empty = client.get("/?c=new").text
     assert "KEPT-ANSWER" not in empty
-    assert 'name="conversation_id" value=""' in empty
+    assert f'name="conversation_id" value="{kept.id}"' not in empty, (
+        "the empty chat must not continue the kept one"
+    )
     assert f'href="/?c={kept.id}"' in empty, "the kept one is one click away"
 
 
@@ -827,14 +867,15 @@ def test_a_conversation_in_a_workspace_no_longer_granted_is_not_found(keycloak):
     locked = workspaces.create_workspace(
         name="Locked", folder_path=str(db_path.parent), db_path=db_path
     )
-    stranded = _stored(runtime, "kc-reader", locked.id, "LOCKED-QUESTION", "LOCKED-ANSWER")
+    stranded = _with_a_source(runtime, "kc-reader", locked.id, "LOCKED-PASSAGE-TEXT")
 
     assert client.get(f"/chat/conversations/{stranded.id}").status_code == 404
     assert client.post(
         f"/chat/conversations/{stranded.id}/delete", follow_redirects=False
     ).status_code == 404
     passage = client.get(f"/chat/passage/{stranded.id}/1/0").text
-    assert "LOCKED-ANSWER" not in passage
+    assert "LOCKED-PASSAGE-TEXT" not in passage
+    assert stranded.id in runtime.conversations, "still stored and live: only the route refused"
 
 
 def test_renaming_a_conversation_shows_the_new_title_in_the_list(keycloak):
