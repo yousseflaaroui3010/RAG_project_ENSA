@@ -126,10 +126,13 @@ class Limiter:
             now = self._clock()
             hits = self._hits.get(slot)
             if hits is None:
+                # Room is made BEFORE the new key goes in: made after, the
+                # new key's still-empty window looked dead and was thrown
+                # straight out (caught by the flood test).
+                if len(self._hits) >= _MAX_KEYS:
+                    self._make_room(now)
                 hits = deque()
                 self._hits[slot] = hits
-                if len(self._hits) > _MAX_KEYS:
-                    self._make_room(now)
             else:
                 self._hits.move_to_end(slot)
             while hits and hits[0] <= now - rule.window_seconds:
@@ -148,7 +151,7 @@ class Limiter:
                 if not hits or hits[-1] <= now - _LONGEST_WINDOW]
         for slot in dead:
             del self._hits[slot]
-        while len(self._hits) > _MAX_KEYS:
+        while len(self._hits) >= _MAX_KEYS:
             self._hits.popitem(last=False)
 
 

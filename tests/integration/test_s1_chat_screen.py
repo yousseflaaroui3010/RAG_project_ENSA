@@ -1054,6 +1054,7 @@ def test_without_sign_in_nothing_is_rate_limited(sanad):
 
     assert answers == {303}
 
+
 def test_without_sign_in_there_is_no_history_list(sanad):
     """YL's ST-53 ruling: in the login-free modes everyone is the same
     "local" person, so a list would show one shared pile to whoever sits

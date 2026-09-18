@@ -1499,14 +1499,33 @@ def test_the_script_is_told_whether_the_sync_really_started(keycloak):
 
 
 def test_too_many_sign_in_attempts_from_one_address_are_refused(keycloak):
-    client, _, _, _, _ = keycloak
+    """Far above a class sharing one school address (review of #150), and
+    each real sign-in is one count, so a whole class gets in."""
+    client, _, _, _, sign_in = keycloak
 
+    for _ in range(40):
+        sign_in(READER_CLAIMS)  # login + callback: must cost one count each
     answers = [client.get("/auth/login", follow_redirects=False).status_code for _ in range(21)]
 
     assert answers[:20] == [303] * 20
     assert answers[20] == 429
     refused = client.get("/auth/login", follow_redirects=False)
     assert int(refused.headers["Retry-After"]) > 0
+    assert '<a href="/">' in refused.text, "a refused page offers a way back"
+
+
+def test_creating_too_many_workspaces_is_refused(keycloak):
+    client, _, db_path, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+
+    answers = [
+        client.post("/workspaces", data={"name": f"W{n}"}, follow_redirects=False).status_code
+        for n in range(11)
+    ]
+
+    assert answers[:10] == [303] * 10
+    assert answers[10] == 429
+    assert len(workspaces.list_workspaces(db_path=db_path)) == 10
 
 
 def test_one_person_asking_too_often_is_refused_and_another_is_not(keycloak):
