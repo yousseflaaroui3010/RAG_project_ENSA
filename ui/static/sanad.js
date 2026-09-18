@@ -410,6 +410,13 @@
     // No focus trap, so focus may leave -- and then the panel closes, so a
     // keyboard user is never focused on something the panel hides (WCAG
     // 2.4.11; review of #151).
+    // The header can wrap to a second row when the window narrows, and the
+    // panel's top was measured on opening: close rather than be covered.
+    window.addEventListener("resize", function () {
+      if (historyPanel.classList.contains("is-open")) {
+        setHistory(false);
+      }
+    });
     document.addEventListener("focusin", function (event) {
       var next = event.target;
       if (
