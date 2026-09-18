@@ -472,6 +472,7 @@
           creating.textContent = uiString("ws.create.created", "Workspace created.");
           creating.className = "dropzone__line dropzone__line--done";
           var landed = 0;
+          var tried = 0;
           var nested = 0;
           var trouble = false;
           return files
@@ -490,6 +491,7 @@
                   folderLine(named("ws.create.skipped", "{name}: skipped", file.name), "failed");
                   return null;
                 }
+                tried += 1;
                 return upload(created.upload_url, file).then(function (ok) {
                   if (ok) {
                     landed += 1;
@@ -508,8 +510,13 @@
                 );
               }
               if (!landed) {
+                // "Nothing found" only when nothing was even tried; files
+                // that were tried and refused already have their own red
+                // line, and the closing sentence must not contradict them.
                 trouble = true;
-                folderLine(uiString("ws.create.nothing", "No supported file was found."), "failed");
+                if (!tried) {
+                  folderLine(uiString("ws.create.nothing", "No supported file was found."), "failed");
+                }
                 return false;
               }
               // With the script's header the Sync route answers whether it
