@@ -385,7 +385,7 @@
     // "hidden" (a system file like .DS_Store or desktop.ini: left out
     // silently), "unsupported" (named), or "ok".
     var SYSTEM_FILES = ["desktop.ini", "thumbs.db"];
-    function sort(file) {
+    function classify(file) {
       var path = file.webkitRelativePath || file.name;
       if (path.split("/").length > 2) {
         return "nested";
@@ -469,6 +469,7 @@
           // press would only be told the name is taken), and every path
           // below ends with a way into it.
           created = answer.data;
+          creating.textContent = uiString("ws.create.created", "Workspace created.");
           creating.className = "dropzone__line dropzone__line--done";
           var landed = 0;
           var nested = 0;
@@ -476,7 +477,7 @@
           return files
             .reduce(function (chain, file) {
               return chain.then(function () {
-                var kind = sort(file);
+                var kind = classify(file);
                 if (kind === "nested") {
                   nested += 1;
                   return null;
@@ -507,18 +508,31 @@
                 );
               }
               if (!landed) {
+                trouble = true;
+                folderLine(uiString("ws.create.nothing", "No supported file was found."), "failed");
                 return false;
               }
+              // With the script's header the Sync route answers whether it
+              // really started (202) or why not (409), instead of the
+              // redirect a form gets, which a fetch would follow to "ok".
               return fetch(created.sync_url, {
                 method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                headers: {
+                  "X-Requested-With": "fetch",
+                  "Content-Type": "application/x-www-form-urlencoded"
+                },
                 body: ""
               })
                 .then(function (response) {
-                  if (response.ok) {
-                    folderLine(uiString("docs.upload.syncing", "Sync started."), "done");
-                  }
-                  return true;
+                  return response.json().then(function (data) {
+                    if (response.ok && data.started) {
+                      folderLine(uiString("docs.upload.syncing", "Sync started."), "done");
+                    } else {
+                      trouble = true;
+                      folderLine(data.error || "—", "failed");
+                    }
+                    return true;
+                  });
                 })
                 .catch(function () {
                   return true;

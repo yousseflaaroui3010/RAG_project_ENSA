@@ -428,3 +428,37 @@ def test_removing_refuses_a_typed_folder_even_inside_the_managed_area(tmp_path):
     assert not made.exists()
 
 
+def _link(link, target):
+    """A directory link: a symlink where allowed, else a Windows junction
+    (no special rights needed). Skips the test where neither can be made."""
+    import os
+
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return
+    except (OSError, NotImplementedError):
+        pass
+    try:
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    except (ImportError, OSError):
+        pytest.skip("this machine cannot make directory links")
+
+
+def test_a_link_named_after_the_workspace_never_leads_a_delete_outside(tmp_path):
+    """Second review of #149: checked with junctions by hand; now in the
+    suite. A link inside the managed area, named like a workspace id, that
+    points at someone's own folder must not count as server-made."""
+    db_path = tmp_path / "sanad.db"
+    outside = tmp_path / "my-own-files"
+    outside.mkdir()
+    (outside / "contrat.pdf").write_bytes(b"mine")
+    root = ws.managed_folder_root(db_path)
+    root.mkdir(parents=True)
+    link = root / WS_ID
+    _link(link, outside)
+
+    assert not ws.is_managed_folder(str(link), WS_ID, "kc-amina", db_path)
+    assert ws.remove_managed_folder(str(link), WS_ID, "kc-amina", db_path) is False
+    assert (outside / "contrat.pdf").read_bytes() == b"mine"

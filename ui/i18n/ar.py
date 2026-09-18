@@ -224,6 +224,8 @@ MESSAGES: dict[str, str] = {
     ),
     "ws.create.skipped": "{name}: تم تجاهله (داخل مجلد فرعي، أو صيغة غير مدعومة)",
     "ws.create.creating": "جارٍ إنشاء الفضاء…",
+    "ws.create.created": "تم إنشاء الفضاء.",
+    "ws.create.nothing": "لم يُعثر على أي ملف مدعوم في هذا المجلد.",
     "ws.create.skipped_nested": "ملفات المجلدات الفرعية المتجاهلة: {name}",
     "ws.create.open": "فتح الفضاء",
     "ws.first.title": "أنشئ فضاء العمل الأول",

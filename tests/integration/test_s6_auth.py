@@ -1450,3 +1450,48 @@ def test_the_folder_picker_is_offered_only_with_accounts_on(keycloak):
     page = client.get("/workspaces").text
 
     assert "webkitdirectory" in page and "data-folder-pick" in page
+
+
+def test_the_dialog_shown_again_after_a_refused_delete_still_says_files_go(keycloak, monkeypatch):
+    """Second review of #149: a delete refused while a Sync runs shows the
+    dialog again, and its Yes button still deletes -- it must say so too."""
+    from db import repo as repo_module
+
+    client, _, _, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+    created = client.post(
+        "/workspaces", data={"name": "Mine"}, headers={"X-Requested-With": "fetch"}
+    ).json()
+    monkeypatch.setattr(repo_module, "get_running_sync_run", lambda conn, wid: {"id": "run"})
+
+    page = client.post(f"/workspaces/{created['id']}/delete", follow_redirects=False)
+
+    assert page.status_code == 409
+    assert "the files uploaded to it" in page.text
+    assert "not touched" not in page.text
+
+
+def test_the_script_is_told_whether_the_sync_really_started(keycloak):
+    """Every Sync outcome is a redirect for a form, which a script's fetch
+    follows to an "ok" page either way. With the script's header it gets
+    a plain answer instead."""
+    import sync as sync_module
+
+    client, runtime, _, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+    created = client.post(
+        "/workspaces", data={"name": "Mine"}, headers={"X-Requested-With": "fetch"}
+    ).json()
+    fetch = {"X-Requested-With": "fetch"}
+
+    runtime.start_sync = lambda workspace_id: None
+    started = client.post(created["sync_url"], headers=fetch)
+
+    def busy(workspace_id):
+        raise sync_module.SyncInProgressError(workspace_id, "run-1", "2026-09-18T00:00:00+00:00")
+
+    runtime.start_sync = busy
+    refused = client.post(created["sync_url"], headers=fetch)
+
+    assert (started.status_code, started.json()) == (202, {"started": True})
+    assert refused.status_code == 409 and refused.json()["started"] is False

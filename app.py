@@ -2312,6 +2312,14 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             pass
         return RedirectResponse(f"/workspaces?ws={workspace_id}", status_code=SEE_OTHER)
 
+    def _deletes_files(target: workspaces.Workspace) -> bool:
+        """Whether deleting this workspace deletes files too: only its
+        server-made upload folder (ST-54 part 2). ONE answer for every
+        render of the delete dialog, so no render can promise otherwise."""
+        return workspaces.is_managed_folder(
+            target.folder_path, target.id, _owner_of(runtime, target.id)[1], runtime.db_path
+        )
+
     @app.get("/workspaces/{workspace_id}/delete", response_class=HTMLResponse)
     def confirm_delete_workspace(request: Request, workspace_id: str) -> Response:
         """The no-JS `ConfirmDialog` (UX spec 5, 7.2): a real page, so a
@@ -2332,12 +2340,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             {
                 **_ws_context(runtime, request),
                 "target": target,
-                "deletes_files": workspaces.is_managed_folder(
-                    target.folder_path,
-                    target.id,
-                    _owner_of(runtime, target.id)[1],
-                    runtime.db_path,
-                ),
+                "deletes_files": _deletes_files(target),
             },
         )
 
@@ -2360,6 +2363,10 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                     **_ws_context(runtime, request),
                     "target": target,
                     "delete_error": message,
+                    # Shown again after a refusal (a Sync running), and its
+                    # Yes button still deletes: it must say the same thing
+                    # as the first time (second review of #149).
+                    "deletes_files": _deletes_files(target),
                 },
                 status_code=409,
             )
@@ -2429,6 +2436,22 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         clicked sees it; see that method for why the claim moved here."""
         if not _may_manage(request, workspace_id):
             return _refuse_action(runtime, request)
+        # ST-54 part 2: the folder picker's script needs to know whether the
+        # Sync really started -- every outcome below is a redirect, which a
+        # script's fetch follows to an "ok" page either way (second review
+        # of #149). Asked with the script's header, it answers plainly.
+        if request.headers.get("x-requested-with") == "fetch":
+            lang = context_language(request)
+            try:
+                runtime.start_sync(workspace_id)
+            except (sync.EvidenceOnlyError, sync.SyncInProgressError) as exc:
+                return JSONResponse(
+                    status_code=409,
+                    content={"started": False, "error": str(i18n.translate_text(lang, str(exc)))},
+                )
+            except workspaces.WorkspaceNotFoundError:
+                return JSONResponse(status_code=404, content={"started": False, "error": ""})
+            return JSONResponse(status_code=202, content={"started": True})
         try:
             runtime.start_sync(workspace_id)
         except sync.EvidenceOnlyError as exc:

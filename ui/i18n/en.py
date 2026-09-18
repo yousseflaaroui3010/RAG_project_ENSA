@@ -236,6 +236,8 @@ MESSAGES: dict[str, str] = {
     ),
     "ws.create.skipped": "{name}: skipped (in a subfolder, or not a supported type)",
     "ws.create.creating": "Creating the workspace…",
+    "ws.create.created": "Workspace created.",
+    "ws.create.nothing": "No supported file was found in this folder.",
     "ws.create.skipped_nested": "Files inside subfolders skipped: {name}",
     "ws.create.open": "Open the workspace",
     "ws.first.title": "Create your first workspace",

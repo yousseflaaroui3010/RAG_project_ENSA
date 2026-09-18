@@ -251,6 +251,8 @@ MESSAGES: dict[str, str] = {
         f"{{name}}{NNBSP}: ignoré (dans un sous-dossier, ou format non pris en charge)"
     ),
     "ws.create.creating": "Création de l’espace…",
+    "ws.create.created": "Espace créé.",
+    "ws.create.nothing": "Aucun fichier pris en charge dans ce dossier.",
     "ws.create.skipped_nested": f"Fichiers des sous-dossiers ignorés{NNBSP}: {{name}}",
     "ws.create.open": "Ouvrir l’espace",
     "ws.first.title": "Créez votre premier espace",
