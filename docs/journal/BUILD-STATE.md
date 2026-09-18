@@ -19,8 +19,8 @@ store keyed by conversation id, `_resolve_conversation`, the routes),
 `ui/templates/chat.html` (the list), `conversation_manage.html` (rename and
 delete), and the conversation id on every chat form and the poll.
 
-**Proof.** Full suite: **1343 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose,
-one at a time, and caught by a test: **25 of 25** (17 first, then 8 for the review fixes below) (owner check live and
+**Proof.** Full suite: **1344 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose,
+one at a time, and caught by a test: **26 of 26** (17 first, 8 for the first review's fixes, 1 for the second's). Second cold review: 0 blocking; its one should-fix (a double-clicked workspace suggestion on the routing screen started two answers) is fixed, and the cross-person id race it noted is closed (owner check live and
 stored, workspace check, grant check, no-login replace, signed-in keep, list
 hidden without sign-in, title never overwritten, old table dropped, title
 from first question, save skips a deleted chat, delete inside the lock, `?c=`
