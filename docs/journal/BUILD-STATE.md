@@ -15,8 +15,22 @@ and asks, nobody changes. The machine API is closed when accounts are on.
 The selected workspace is per person now (it was one value for the whole
 server).
 
-**Proof.** Full suite: **1319 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose and
-caught: **14 of 14**.
+**Proof.** Full suite: **1323 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose and
+caught: **20 of 20** (14, then 6 for the review fixes).
+
+**Cold review of #148: 1 blocking, fixed.** Anyone who signed up could type
+any server folder when creating a workspace -- the shared demo's included --
+and then read, add or delete its files. Now, with accounts on, the server
+makes the folder itself (`workspaces/<id>` next to the database, on the
+live volume) and ignores a typed path; server paths are no longer shown to
+signed-in people. Four more routes got tests (ask with a foreign workspace
+id, feedback, sync cancel, remove confirmation). Recorded as known issues:
+names unique across everyone, feedback on the shared demo seen by nobody,
+deleted workspaces leave their uploaded files (PR 2).
+
+The live database holds ONE workspace (the demo) and zero grants, checked
+read-only on 2026-09-18, so making every old workspace shared exposes
+nothing.
 
 **Not in this PR:** creating a workspace by picking a folder on your
 computer (PR 2); dropping the now-unread `workspace_grant` and
