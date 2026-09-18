@@ -231,12 +231,6 @@ class Settings(BaseSettings):
     qdrant_storage_path: str = "data/qdrant/"
     parent_store_path: str = "data/parents/"
     sqlite_db_path: str = "data/sanad.db"
-    # ST-54: where the server keeps the folders of workspaces created with
-    # accounts on. Nobody signed in may name a server folder (cold review of
-    # #148: that let anyone read or delete any folder the server can reach,
-    # the shared demo's included), so the server makes one per workspace
-    # here. Empty = a `workspaces` folder next to the database.
-    workspace_files_root: str = ""
     reports_path: str = "data/reports/"
     # Seconds a connection waits for a writer lock before raising
     # "database is locked". SQLite's own default is 5.0, which is too short

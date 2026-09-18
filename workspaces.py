@@ -98,14 +98,16 @@ def _normalize_name(name: str) -> str:
     return normalized
 
 
+# ST-54: with accounts on, nobody may name a server folder (cold review of
+# #148: that let anyone read or delete any folder the server can reach, the
+# shared demo's included), so the server makes one folder per workspace,
+# here, next to the database -- on the same persistent volume in deployment.
+MANAGED_FOLDER_NAME = "workspaces"
+
+
 def managed_folder_root() -> Path:
-    """Where the server makes each workspace's folder when accounts are on
-    (ST-54): `workspace_files_root`, or a `workspaces` folder next to the
-    database."""
-    settings = get_settings()
-    if settings.workspace_files_root:
-        return Path(settings.workspace_files_root)
-    return Path(settings.sqlite_db_path).parent / "workspaces"
+    """Where the server makes each workspace's folder when accounts are on."""
+    return Path(get_settings().sqlite_db_path).parent / MANAGED_FOLDER_NAME
 
 
 def _validate_folder_path(folder_path: str) -> None:
