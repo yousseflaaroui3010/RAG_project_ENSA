@@ -96,6 +96,7 @@ from ui.conversation import (
 )
 from ui.i18n.request import LanguageMiddleware, context_language, language_links
 from ui.ports import build_default_ports
+from ui.rate_limit import RateLimit
 from ui.runs import STAGE_LABELS, Run, Stage
 from ui.security_headers import SecurityHeaders
 
@@ -169,6 +170,9 @@ class Runtime:
     # S6: the Keycloak seam. None means "build the configured one"; tests
     # pass a scripted fake, exactly as they pass a scripted chat model.
     oidc_provider: Any = None
+    # ST-55: the rate limiter's memory. None builds a fresh one; tests pass
+    # one with a scripted clock, exactly as they pass a scripted provider.
+    rate_limiter: Any = None
     # ST-39 warm-up. Off by default so a test that builds a `Runtime`
     # directly -- which is every test in this codebase -- never spends a
     # real model download by accident. `main()` is the only place that
@@ -1561,6 +1565,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     # middleware passes every request straight through, so ADR-13's
     # local-first behaviour is unchanged.
     app.add_middleware(AccessGate, password=get_settings().access_password)
+    # ST-55: caps on sign-in attempts, questions, workspace creation,
+    # uploads and conversation changes (ui/rate_limit.py). Added BEFORE the
+    # gate below so the gate wraps it: the signed-in person is known here.
+    # Inert without accounts.
+    app.add_middleware(RateLimit, limiter=runtime.rate_limiter)
     # S6: attaches who is signed in, and refuses anything that is not,
     # when AUTH_MODE is 'keycloak'. Inert in the other two modes.
     app.add_middleware(AuthGate, db_path=runtime.db_path)

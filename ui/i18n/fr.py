@@ -255,6 +255,8 @@ MESSAGES: dict[str, str] = {
     "ws.create.nothing": "Aucun fichier pris en charge dans ce dossier.",
     "ws.create.skipped_nested": f"Fichiers des sous-dossiers ignorés{NNBSP}: {{name}}",
     "ws.create.open": "Ouvrir l’espace",
+    "rate.limited": f"Trop de demandes. Patientez {{seconds}}{NNBSP}s, puis réessayez.",
+    "rate.back": "Retour à Sanad",
     "ws.first.title": "Créez votre premier espace",
     "ws.shared.note": (
         f"Espace partagé{NNBSP}: vous pouvez le consulter et poser des questions. "

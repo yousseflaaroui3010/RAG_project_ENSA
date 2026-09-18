@@ -23,6 +23,25 @@ a Sync started. Not yet tried on the live site.
 ---
 
 ## STATE AT 2026-09-18, ST-54 PR 1: NO ROLES, OWNED WORKSPACES (merged as #148; the part-2 block above is current)
+## STATE AT 2026-09-18, ST-55 RATE LIMITS (read this block first)
+
+**What changed.** With accounts on, Sanad now refuses, with "too many
+requests, wait N s", a person or address that goes over a cap: sign-in
+attempts per address, and per person questions, new workspaces, uploads
+and conversation changes (numbers in DECISIONS). The laptop modes are not
+capped. Closes the "Nothing is rate limited" known issue.
+
+**Proof.** Suite and breakage counts are in the CHANGELOG line of this
+change; 8 of 8 deliberate breakages caught after one test was made able to
+tell refused tries from allowed ones.
+
+**Not checked yet:** that Railway's proxy really puts the visitor's address
+last in `X-Forwarded-For`. If it puts its own, every visitor shares one
+sign-in allowance (20 per 5 min for the whole site). Check after deploy.
+
+---
+
+## STATE AT 2026-09-18, ST-54 PR 1: NO ROLES, OWNED WORKSPACES (read this block first)
 
 **ST-53 part A is merged (#147) and live.** The live database was backed up
 first (`/app/data/sanad.db.bak-2026-09-18`, 163,840 bytes, same as the

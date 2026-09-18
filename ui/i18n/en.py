@@ -240,6 +240,8 @@ MESSAGES: dict[str, str] = {
     "ws.create.nothing": "No supported file was found in this folder.",
     "ws.create.skipped_nested": "Files inside subfolders skipped: {name}",
     "ws.create.open": "Open the workspace",
+    "rate.limited": "Too many requests. Please wait {seconds} s, then try again.",
+    "rate.back": "Back to Sanad",
     "ws.first.title": "Create your first workspace",
     "ws.shared.note": (
         "Shared workspace: you can read it and ask questions. Only its owner can change it."
