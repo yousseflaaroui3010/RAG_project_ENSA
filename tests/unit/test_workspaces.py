@@ -388,28 +388,43 @@ def test_create_and_get_workspace_bootstraps_schema_on_default_path(tmp_path, mo
 
 # --- ST-54 part 2: server-made folders, and only those, may be deleted ------
 
+WS_ID = "11111111-2222-3333-4444-555555555555"
 
-def test_only_a_folder_strictly_inside_the_managed_root_counts_as_server_made(tmp_path):
+
+def test_a_folder_counts_as_server_made_only_by_who_made_it_not_only_where(tmp_path):
+    """Review of #149: going by location alone, a person's own folder that
+    merely sat inside the managed area would have been deleted. It must be
+    a direct child of the root, named after THIS workspace, of a workspace
+    that has an owner (only those get a server folder)."""
     db_path = tmp_path / "sanad.db"
     root = ws.managed_folder_root(db_path)
-    inside = root / "11111111-2222-3333-4444-555555555555"
+    made = root / WS_ID
 
-    assert ws.is_managed_folder(str(inside), db_path)
-    assert not ws.is_managed_folder(str(root), db_path), "never the root itself"
-    assert not ws.is_managed_folder(str(tmp_path / "corpus"), db_path)
-    assert not ws.is_managed_folder(str(root / ".." / "corpus"), db_path), "no climbing out"
+    assert ws.is_managed_folder(str(made), WS_ID, "kc-amina", db_path)
+    assert not ws.is_managed_folder(str(made), WS_ID, None, db_path), "no owner"
+    assert not ws.is_managed_folder(str(made), "another-id", "kc-amina", db_path), "not its id"
+    assert not ws.is_managed_folder(str(root / "HR"), "HR", None, db_path), "a typed folder"
+    assert not ws.is_managed_folder(str(root / WS_ID / "deeper"), "deeper", "kc-a", db_path)
+    assert not ws.is_managed_folder(str(root), "workspaces", "kc-a", db_path), "never the root"
+    assert not ws.is_managed_folder(
+        str(root / ".." / WS_ID), WS_ID, "kc-a", db_path
+    ), "no climbing out"
 
 
-def test_removing_refuses_a_typed_folder_and_removes_a_server_made_one(tmp_path):
+def test_removing_refuses_a_typed_folder_even_inside_the_managed_area(tmp_path):
+    """The reviewer's case, made real: `<db dir>/workspaces/HR` typed by a
+    laptop user, full of their own files, must survive."""
     db_path = tmp_path / "sanad.db"
-    typed = tmp_path / "my-own-files"
-    typed.mkdir()
-    (typed / "contrat.txt").write_text("mine", encoding="utf-8")
-    made = ws.managed_folder_root(db_path) / "11111111-2222-3333-4444-555555555555"
-    made.mkdir(parents=True)
+    typed = ws.managed_folder_root(db_path) / "HR"
+    typed.mkdir(parents=True)
+    (typed / "contrat.pdf").write_bytes(b"mine")
+    made = ws.managed_folder_root(db_path) / WS_ID
+    made.mkdir()
     (made / "upload.txt").write_text("uploaded", encoding="utf-8")
 
-    assert ws.remove_managed_folder(str(typed), db_path) is False
-    assert (typed / "contrat.txt").read_text(encoding="utf-8") == "mine"
-    assert ws.remove_managed_folder(str(made), db_path) is True
+    assert ws.remove_managed_folder(str(typed), "some-workspace-id", None, db_path) is False
+    assert (typed / "contrat.pdf").read_bytes() == b"mine"
+    assert ws.remove_managed_folder(str(made), WS_ID, "kc-amina", db_path) is True
     assert not made.exists()
+
+

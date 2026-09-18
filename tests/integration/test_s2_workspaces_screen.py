@@ -471,6 +471,8 @@ def test_delete_confirm_page_states_derived_data_goes_and_files_stay(tmp_path, m
             name="HR", folder_path=str(folder), db_path=db_path
         )
 
+        before = sorted(p.name for p in folder.iterdir())
+        assert before, "the corpus must hold files for this to prove anything"
         confirm = app_client.get(f"/workspaces/{workspace.id}/delete")
         assert str(folder) in confirm.text
         assert "does" in confirm.text and "not</strong> touch" in confirm.text
@@ -486,6 +488,10 @@ def test_delete_confirm_page_states_derived_data_goes_and_files_stay(tmp_path, m
         )
         assert "HR" not in deleted.text or "Create your first workspace" in deleted.text
         assert workspaces.list_workspaces(db_path=db_path) == []
+        # PRD F-01: the person's own folder, typed without accounts, is never
+        # touched by a delete (review of #149: asserted through the ROUTE).
+        assert folder.is_dir()
+        assert sorted(p.name for p in folder.iterdir()) == before
 
 
 def test_delete_reports_a_busy_index_instead_of_crashing(tmp_path, monkeypatch):

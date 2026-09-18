@@ -1427,17 +1427,20 @@ def test_deleting_a_workspace_removes_its_uploaded_files_too(keycloak):
     assert not folder.exists()
 
 
-def test_deleting_a_shared_typed_path_workspace_never_touches_its_files(keycloak):
-    """The demo's folder is someone's real files. Even its deletion (done by
-    whoever may -- here the unrestricted login-free path cannot be reached,
-    so the rule is checked on the folder helper the route calls)."""
-    _, _, db_path, _, _ = keycloak
-    demo = db_path.parent / "corpus-typed"
-    demo.mkdir()
-    (demo / "note.txt").write_text("keep", encoding="utf-8")
+def test_the_delete_dialog_says_uploaded_files_go_too(keycloak):
+    """Review of #149: the dialog promised the files stay, then deleted
+    them. For a workspace whose folder the server made, it must say they
+    go; and no sentence may dangle waiting for a path it cannot show."""
+    client, _, _, _, sign_in = keycloak
+    sign_in(READER_CLAIMS)
+    created = client.post(
+        "/workspaces", data={"name": "Mine"}, headers={"X-Requested-With": "fetch"}
+    ).json()
 
-    assert workspaces.remove_managed_folder(str(demo), db_path) is False
-    assert (demo / "note.txt").read_text(encoding="utf-8") == "keep"
+    page = client.get(f"/workspaces/{created['id']}/delete").text
+
+    assert "the files uploaded to it" in page
+    assert "not</strong> touch" not in page
 
 
 def test_the_folder_picker_is_offered_only_with_accounts_on(keycloak):
