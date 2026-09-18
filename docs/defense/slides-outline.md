@@ -18,7 +18,7 @@ plus 1 minute of slack. One idea per slide; the numbers are the story.
 | 9 | Results | G1 37/40 (target 36), G2 20/20, G3 37/37: release gate PASS | Three gauges with target lines | MB | 0:40 |
 | 10 | Speed | Answers: median 8.3 s (target 20 s). Intake: 375-449 s per 200 pages quiet (target 600 s), 731.6 s under load | Two bars with target lines; both intake runs shown | YL | 0:40 |
 | 11 | Engineering | About 810 automated tests, protected main, every branch reviewed, crash recovery, signed API | Test count, pipeline sketch | YL | 0:30 |
-| 12 | Limits, said first | Cloud model needed today; intake speed sensitive to machine load; no OCR; screen-reader pass pending; judge shares the model family | Plain list | MB | 0:40 |
+| 12 | Limits, said first | Cloud model needed today; intake speed sensitive to machine load; no OCR; no screen-reader listening test (dropped); judge shares the model family | Plain list | MB | 0:40 |
 | 13 | Next | Faster intake, offline mode rehearsed, PowerPoint intake, answer-trace screen | Roadmap V1.0, V1.1, V2.0 | YL | 0:20 |
 | 14 | Thank you / questions | One sentence summary | Screenshot of the refusal | both | 0:10 |
 

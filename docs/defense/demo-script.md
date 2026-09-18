@@ -65,7 +65,10 @@ the right-to-left layout preview, and press **Dark theme** in the header.
 - Answers need the cloud model today; offline mode is designed but not
   rehearsed.
 - Scanned PDFs are skipped with a reason; there is no text recognition (OCR).
-- A human screen-reader pass is still pending (6 manual QA rows).
+- Nobody has listened to it with a screen reader: we dropped that check on
+  2026-09-18, which overrides part of what we signed. Sampled keyboard paths,
+  focus and contrast were checked; the screen-reader markup is in place but
+  was never heard.
 
 ## Ruling: the defense runs in cloud mode
 

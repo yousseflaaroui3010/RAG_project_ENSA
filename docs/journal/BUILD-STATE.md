@@ -1,6 +1,36 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-16, END OF SESSION -- AND WHAT IS NEXT (read this block first)
+## STATE AT 2026-09-18, SCREEN-READER PASS DROPPED (read this block first)
+
+**YL's ruling, for YL and MB: the human screen-reader pass is out of the
+plan.** ST-38's six blocked rows (S1-LOAD-01, S2-NORMAL-02, S3-LOAD-01,
+S3-NORMAL-03, A-02, A-03) are marked Descoped in
+`docs/ST-38-MANUAL-QA-RESULTS.md`, and ST-38 closes on the 35 rows that pass.
+**This is an override of signed scope, not a dropped extra check.** Signed
+ST-38 (Project Plan line 138) includes a "keyboard-only pass" and closes on a
+"Checklist signed with dates"; the signed PRD (line 222) requires "status
+changes announced to assistive tech"; the signed Architecture (line 513)
+lists a keyboard-only pass per release. A first version of this block said
+the signed spec never names a screen reader -- true of those words, false in
+substance ("assistive tech" means one), and review caught it. The signed
+pack stays as written; YL's ruling is the override, recorded in DECISIONS
+like the CR-03 rulings. The checklist is 42 rows: 35 pass, 7 descoped (these
+six, plus F-09 descoped earlier for V1).
+
+What must not be claimed afterwards: that a screen reader was used (none
+was), that status changes were confirmed as announced (the live-region
+markup is there; nobody heard it), or that a complete both-theme keyboard
+walk was done (A-02 was bundled into the dropped pass; only sampled keyboard
+paths are proven). The defense material now says this plainly instead of
+"pending".
+
+Everything else in the block below is still current, and the work queue is
+unchanged: ST-53 (chat history, drawer, header, footer, chat layout), then
+rate limiting, then the release run.
+
+---
+
+## STATE AT 2026-09-16, END OF SESSION -- AND WHAT IS NEXT (history now, except its NEXT section, which is still the plan)
 
 **Shipped today, in order:** #138 sign-up (anyone can create an account, they
 arrive as a reader who sees nothing until granted) with the permission holes
@@ -68,8 +98,11 @@ button", "a plain link with no JavaScript") and `ui/templates/base.html` ("a
 button that does nothing without JavaScript is worse than no button"), and in
 the DECISIONS row of 2026-09-05 that chose a plain confirm page over a
 `<dialog>` -- so a drawer that exists only in JS must degrade to something
-usable; and ST-38's six screen-reader rows are still owed
-(`docs/ST-38-MANUAL-QA-RESULTS.md`), so new UI should not add a seventh.
+usable. (ST-38's six screen-reader rows were DROPPED from the plan by YL on
+2026-09-18 -- see the 2026-09-18 block -- as an explicit override of part of
+signed ST-38 and PRD line 222. The rest of the signed bar still stands:
+keyboard reachability, visible focus, contrast and correct labels are still
+required of any new UI.)
 
 One more thing about the signed spec, and it is the shape of the whole
 document rather than one line: it stays as written, and the overrides live
@@ -86,7 +119,7 @@ one as "No phone or tablet layout").
 ---
 
 
-## STATE AT 2026-09-16, THE DEMO ANSWERS FOR REAL (history now; the block above is current, and this one carries the detail behind it)
+## STATE AT 2026-09-16, THE DEMO ANSWERS FOR REAL (history now; the 2026-09-16 END OF SESSION block carries the summary, this one the detail behind it)
 
 **One public demo, on YL's paid Railway, and it does the whole job:**
 https://sanad-web-production-5bee.up.railway.app (sign-in service:

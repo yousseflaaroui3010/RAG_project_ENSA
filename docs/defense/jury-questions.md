@@ -115,10 +115,12 @@ evaluation. Where both are listed, the first answers and the second adds.
     saved as it goes; on the next start, an abandoned Sync is closed from
     what it already saved, and an interrupted evaluation keeps its finished
     questions as Partial.
-24. **Is it accessible?** (MB) Keyboard-only use, visible focus, contrast
+24. **Is it accessible?** (MB) Sampled keyboard paths, visible focus, contrast
     above 4.5:1 in both themes, reduced motion, right-to-left mirroring:
-    35 of 41 manual QA rows pass. The 6 blocked rows need a person listening
-    with a screen reader; say whether that happened.
+    35 of 41 manual QA rows pass. The other 6 needed a person listening with
+    a screen reader, and we dropped that check from the plan: say so plainly.
+    The markup a screen reader relies on (live regions, labels, sort state)
+    is there and was audited automatically -- but nobody listened.
 25. **What is the API for?** (YL) The same engine through 9 endpoints under
     a signed OpenAPI contract, with tests that fail if the code drifts from
     it.
