@@ -27,7 +27,7 @@ limits that keep an open sign-up from being abused.
   it listed every workspace and could index any server folder.
 
 ## Quality gate
-Paid 60-question run on the frozen golden set against this code (2026-09-19): **G1 39/40 fully grounded (need 90%), G2 refusals 20/20, G3 sources 39/39 -- release gate PASS.** Better than v3.0.0's 38/40; the one miss, `g-in-033`, was refused in both runs (known issue: the grader reads short chunks). Report: `docs/evals/release-v3.1.0-2026-09-19.json`.
+Paid 60-question run on the frozen golden set (2026-09-19), on main as of #150; #151, merged after it, changes only screens, translations and tests, nothing on the answer path: **G1 39/40 fully grounded (need 90%), G2 refusals 20/20, G3 sources 39/39 -- release gate PASS.** Better than v3.0.0's 38/40; the one miss, `g-in-033`, was refused in both runs (known issue: the grader reads short chunks). Report: `docs/evals/release-v3.1.0-2026-09-19.json`.
 
 Full suite on the release code: 1372 passed, 2 skipped, 1 xfailed, lint clean.
 
