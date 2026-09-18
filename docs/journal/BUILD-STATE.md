@@ -1,5 +1,24 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
+## STATE AT 2026-09-19, v3.1.0 RELEASE GATE PASSED (read this block first)
+
+**Paid run finished, gate green.** 60 of 60 frozen questions answered on the
+v3.1 code: G1 39/40 fully grounded, G2 refusals 20/20, G3 sources 39/39,
+`scripts/release_gate.py` -> RELEASE GATE: PASS. Better than v3.0.0 (38/40);
+the only miss is g-in-033, refused in both runs. Report committed at
+`docs/evals/release-v3.1.0-2026-09-19.json`; notes at
+`docs/release-notes-v3.1.0.md`.
+
+**v3.1.0 contains:** #147 many conversations, #148 no roles / owned
+workspaces, #149 create from a folder, #150 rate limits, #151 history panel,
+header and footer. All live on the demo.
+
+**Still open:** `.env.example` still documents `AUTH_ROLE_PREFIX` (only a
+person can edit that file); Railway's `X-Forwarded-For` shape unverified;
+the unread grants/activity tables and the realm's roles await a clean-up.
+
+---
+
 ## STATE AT 2026-09-19, ST-53 FINISHED: HISTORY PANEL, HEADER, FOOTER (read this block first)
 
 Merged before this: #148 no roles/owned workspaces, #149 create from a
