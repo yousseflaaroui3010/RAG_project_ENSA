@@ -13,6 +13,7 @@ issues. It proves the rules Sanad applies to them.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -124,11 +125,6 @@ def _sessions(db_path) -> list:
         return list(conn.execute("SELECT * FROM user_session"))
 
 
-def _actions(db_path) -> list[str]:
-    with repo.session(db_path) as conn:
-        return [row["action"] for row in repo.list_activity(conn)]
-
-
 # --- the flow ---------------------------------------------------------------
 
 
@@ -219,7 +215,7 @@ def test_a_flow_cookie_this_server_did_not_sign_is_refused(keycloak):
     assert provider.codes == []
 
 
-def test_a_signed_in_person_is_recorded_once_with_their_roles(keycloak):
+def test_a_signed_in_person_is_recorded_once(keycloak):
     client, _, db_path, _, sign_in = keycloak
 
     sign_in(ADMIN_CLAIMS)
@@ -229,9 +225,7 @@ def test_a_signed_in_person_is_recorded_once_with_their_roles(keycloak):
         users = repo.list_users(conn)
     assert len(users) == 1
     assert users[0]["username"] == "amina"
-    assert users[0]["roles"] == "admin"
     assert len(_sessions(db_path)) == 2, "each sign-in is its own browser session"
-    assert _actions(db_path).count("signed in") == 2
 
 
 def test_the_session_cookie_is_http_only_and_never_the_stored_value(keycloak):
@@ -265,7 +259,6 @@ def test_signing_out_deletes_the_session_and_locks_the_door_again(keycloak):
     assert _sessions(db_path) == []
     after = client.get("/", follow_redirects=False)
     assert after.status_code == 303 and after.headers["location"] == "/auth/login"
-    assert "signed out" in _actions(db_path)
 
 
 def test_signing_out_also_ends_the_session_at_keycloak(keycloak):
@@ -366,13 +359,16 @@ def test_cookies_are_not_secure_on_a_plain_http_machine(keycloak):
     assert "secure" not in flow_cookie.lower()
 
 
-def _seed_report(db_path, tmp_path, *, answer: str) -> tuple[str, str]:
-    """A workspace nobody granted, with one evaluation answer in it."""
+def _seed_report(
+    db_path, tmp_path, *, answer: str, owner: str | None = "kc-someone-else"
+) -> tuple[str, str]:
+    """A workspace with one evaluation answer in it -- by default someone
+    ELSE's private one (ST-54); `owner=None` makes it shared."""
     report_path = tmp_path / "run.json"
     report_path.write_text("{}", encoding="utf-8")
     with repo.session(db_path) as conn:
         workspace_id = repo.create_workspace(
-            conn, name="Salaires direction", folder_path=str(tmp_path)
+            conn, name="Salaires direction", folder_path=str(tmp_path), owner_user_id=owner
         )
         run_id = repo.insert_eval_run(
             conn,
@@ -396,7 +392,7 @@ def _seed_report(db_path, tmp_path, *, answer: str) -> tuple[str, str]:
     return run_id, workspace_id
 
 
-def test_a_report_of_a_workspace_you_were_not_granted_is_not_readable(
+def test_a_report_of_someone_elses_private_workspace_is_not_readable(
     keycloak, tmp_path
 ):
     """Review of the sign-up change, 2026-09-15: these two routes checked
@@ -418,12 +414,12 @@ def test_a_report_of_a_workspace_you_were_not_granted_is_not_readable(
     assert answer not in export.text
 
 
-def test_an_admin_still_reads_any_report(keycloak, tmp_path):
-    """The other side: the fix must not lock out the person who may look."""
+def test_the_owner_reads_their_own_report(keycloak, tmp_path):
+    """The other side: the check must not lock out the person who may look."""
     client, _, db_path, _, sign_in = keycloak
     answer = "le salaire du directeur est de 42 000 dirhams"
-    run_id, _ = _seed_report(db_path, tmp_path, answer=answer)
-    sign_in(ADMIN_CLAIMS)
+    run_id, _ = _seed_report(db_path, tmp_path, answer=answer, owner=READER_CLAIMS["sub"])
+    sign_in(READER_CLAIMS)
 
     page = client.get(f"/reports/{run_id}")
 
@@ -431,18 +427,12 @@ def test_an_admin_still_reads_any_report(keycloak, tmp_path):
     assert "Salaires direction" in page.text
 
 
-def test_a_reader_reads_the_report_of_a_workspace_they_were_granted(
-    keycloak, tmp_path
-):
-    """The positive control the review asked for: a check written as
-    "admins only" would pass every test above and still lock out the reader
-    this feature exists for."""
+def test_anyone_reads_the_report_of_a_shared_workspace(keycloak, tmp_path):
+    """The shared demo is readable by everyone, reports included."""
     client, _, db_path, _, sign_in = keycloak
     answer = "le salaire du directeur est de 42 000 dirhams"
-    run_id, workspace_id = _seed_report(db_path, tmp_path, answer=answer)
+    run_id, _ = _seed_report(db_path, tmp_path, answer=answer, owner=None)
     sign_in(READER_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=workspace_id, user_id=READER_CLAIMS["sub"])
 
     page = client.get(f"/reports/{run_id}")
 
@@ -456,16 +446,27 @@ def test_a_stale_page_naming_a_deleted_workspace_just_falls_back(keycloak, tmp_p
     honest answer is the person's own first workspace, with no refusal in
     the activity log for an admin to puzzle over."""
     client, runtime, db_path, _, sign_in = keycloak
+    shared = workspaces.create_workspace(
+        name="Shared", folder_path=str(db_path.parent), db_path=db_path
+    )
+    hidden = workspaces.create_workspace(
+        name="Hidden", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
+    )
     sign_in(READER_CLAIMS)
+    client.post("/workspace", data={"workspace_id": shared.id}, follow_redirects=False)
+    assert runtime.active_for(READER_CLAIMS["sub"]) == shared.id
 
+    # Someone else's real workspace: refused, the selection stays put.
+    client.post("/workspace", data={"workspace_id": hidden.id}, follow_redirects=False)
+    assert runtime.active_for(READER_CLAIMS["sub"]) == shared.id
+    # An id that exists nowhere (a stale page): falls back, selection reset.
     client.post(
         "/workspace",
         data={"workspace_id": "11111111-2222-3333-4444-555555555555"},
         follow_redirects=False,
     )
-
-    assert runtime.active_workspace_id is None
-    assert "refused" not in _actions(db_path)
+    assert runtime.active_for(READER_CLAIMS["sub"]) is None
 
 
 def test_the_delete_confirmation_page_does_not_name_a_workspace_you_cannot_touch(
@@ -494,30 +495,21 @@ def test_selecting_a_workspace_you_cannot_see_changes_nothing(keycloak, tmp_path
 
     client.post("/workspace", data={"workspace_id": workspace_id}, follow_redirects=False)
 
-    assert runtime.active_workspace_id != workspace_id
-    assert "refused" in _actions(db_path)
+    assert runtime.active_for(READER_CLAIMS["sub"]) != workspace_id
 
 
-def test_a_person_with_no_role_sees_no_workspace_panel(keycloak, tmp_path):
-    """Security review, 2026-09-16: `/workspaces` shows the no-role page,
-    but the panel it polls for did not check the role at all, so an account
-    that signed in with no Sanad role -- which anyone can create, sign-up is
-    open -- could still pull the workspace name, its folder path and its
-    file table out of the poll target if a grant row existed for it."""
+def test_the_panel_never_shows_someone_elses_workspace(keycloak, tmp_path):
+    """Security review, 2026-09-16: the panel the Workspaces page polls
+    once handed out a workspace's name, folder path and file table without
+    the checks the page itself made. It must hide someone else's private
+    workspace even when asked for it by id."""
     client, _, db_path, _, sign_in = keycloak
     _, workspace_id = _seed_report(db_path, tmp_path, answer="x")
-    sign_in(NO_ROLE_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(
-            conn, workspace_id=workspace_id, user_id=NO_ROLE_CLAIMS["sub"]
-        )
+    sign_in(READER_CLAIMS)
 
-    panel = client.get("/workspaces/panel")
-    confirm = client.get("/chat/history/delete")
+    panel = client.get(f"/workspaces/panel?ws={workspace_id}")
 
-    assert panel.status_code == 403
     assert "Salaires direction" not in panel.text
-    assert confirm.status_code == 403
 
 
 def test_an_expired_session_is_not_a_session(keycloak):
@@ -567,81 +559,156 @@ def test_the_health_probe_stays_open(keycloak):
 # --- roles ------------------------------------------------------------------
 
 
-def test_an_account_with_no_sanad_role_sees_one_honest_page_everywhere(keycloak):
+def test_a_person_with_no_role_uses_sanad_like_anyone(keycloak):
+    """ST-54: roles are gone. An account the realm gives no Sanad role at
+    all -- the old "ask an administrator" dead end -- reads the shared
+    workspace like everyone else."""
     client, _, db_path, _, sign_in = keycloak
     workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
     sign_in(NO_ROLE_CLAIMS)
 
     for path in ("/", "/workspaces", "/reports"):
         page = client.get(path)
-        assert page.status_code == 403, path
-        assert "no Sanad role" in page.text or "not granted" in page.text.lower()
-        assert "HR" not in page.text.split("<main")[1] if "<main" in page.text else True
+        assert page.status_code == 200, path
+    assert "HR" in client.get("/").text
 
 
-def test_a_reader_cannot_create_a_workspace(keycloak):
+def test_anyone_signed_in_creates_a_workspace_and_owns_it(keycloak):
     client, _, db_path, _, sign_in = keycloak
     sign_in(READER_CLAIMS)
 
-    response = client.post(
+    response = client.post("/workspaces", data={"name": "Mine"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    [created] = workspaces.list_workspaces(db_path=db_path)
+    with repo.session(db_path) as conn:
+        assert repo.workspace_owners(conn) == {created.id: READER_CLAIMS["sub"]}
+    assert Path(created.folder_path) == workspaces.managed_folder_root(db_path) / created.id
+    assert Path(created.folder_path).parent.parent == db_path.parent.resolve(), (
+        "the folder sits next to the app's own database, not the real data/"
+    )
+    assert Path(created.folder_path).is_dir()
+    sign_in(CURATOR_CLAIMS)
+    assert "Mine" not in client.get("/workspaces").text, "private to its owner"
+
+
+def test_nobody_signed_in_can_point_a_workspace_at_a_server_folder(keycloak):
+    """Cold review of #148, blocking: with a typed path, anyone who signed
+    up could create a workspace ON the shared demo's folder, own it, and
+    then download, upload into or DELETE the demo's real files. With
+    accounts on, the posted path is ignored: the server makes a new, empty
+    folder of its own, and nothing is reachable through it."""
+    client, _, db_path, _, sign_in = keycloak
+    demo = db_path.parent / "corpus-demo"
+    demo.mkdir()
+    (demo / "note.txt").write_text("DEMO-TEXT", encoding="utf-8")
+    workspaces.create_workspace(name="Demo", folder_path=str(demo), db_path=db_path)
+    sign_in(READER_CLAIMS)
+
+    client.post(
         "/workspaces",
-        data={"name": "Mine", "folder_path": str(db_path.parent)},
+        data={"name": "Mine", "folder_path": str(demo)},
         follow_redirects=False,
     )
 
-    assert response.status_code == 303
-    assert workspaces.list_workspaces(db_path=db_path) == []
-    assert "refused" in _actions(db_path)
-
-
-def test_a_curator_cannot_delete_a_workspace(keycloak):
-    client, _, db_path, _, sign_in = keycloak
-    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
-    sign_in(CURATOR_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
-
-    client.post(f"/workspaces/{ws.id}/delete", follow_redirects=False)
-
-    assert [w.id for w in workspaces.list_workspaces(db_path=db_path)] == [ws.id]
-
-
-def test_a_workspace_nobody_granted_is_not_even_listed(keycloak):
-    client, _, db_path, _, sign_in = keycloak
-    seen = workspaces.create_workspace(
-        name="Granted HR", folder_path=str(db_path.parent), db_path=db_path
+    mine = next(w for w in workspaces.list_workspaces(db_path=db_path) if w.name == "Mine")
+    assert Path(mine.folder_path) != demo
+    assert list(Path(mine.folder_path).iterdir()) == []
+    stolen = client.get(f"/workspaces/{mine.id}/documents/note.txt")
+    removed = client.post(
+        f"/workspaces/{mine.id}/documents/note.txt/remove", follow_redirects=False
     )
-    workspaces.create_workspace(
-        name="Hidden Legal", folder_path=str(db_path.parent), db_path=db_path
+    assert b"DEMO-TEXT" not in stolen.content
+    assert removed.status_code == 303
+    assert (demo / "note.txt").read_text(encoding="utf-8") == "DEMO-TEXT"
+    page = client.get(f"/workspaces?ws={mine.id}").text
+    assert 'name="folder_path"' not in page, "no path field when accounts are on"
+
+
+def test_no_server_path_is_shown_to_a_signed_in_person(keycloak):
+    """Shared demo, own workspace, both confirmation pages and a failed
+    Sync: none may print where on the server the files sit. Each page is
+    one the person may actually open, so the check can fail."""
+    client, runtime, db_path, _, sign_in = keycloak
+    demo = db_path.parent / "corpus-demo-path"
+    demo.mkdir()
+    shared = workspaces.create_workspace(name="Demo", folder_path=str(demo), db_path=db_path)
+    sign_in(READER_CLAIMS)
+    client.post("/workspaces", data={"name": "Mine"}, follow_redirects=False)
+    mine = next(w for w in workspaces.list_workspaces(db_path=db_path) if w.name == "Mine")
+    (Path(mine.folder_path) / "note.txt").write_text("x", encoding="utf-8")
+    runtime.sync_errors[mine.id] = f"folder not found: {mine.folder_path}"
+
+    pages = {
+        "shared demo": client.get(f"/workspaces?ws={shared.id}").text,
+        "own workspace": client.get(f"/workspaces?ws={mine.id}").text,
+        "delete confirmation": client.get(f"/workspaces/{mine.id}/delete").text,
+        "remove confirmation": client.get(
+            f"/workspaces/{mine.id}/documents/note.txt/remove"
+        ).text,
+    }
+    for label, page in pages.items():
+        assert str(demo) not in page, label
+        assert mine.folder_path not in page, label
+
+
+def test_only_the_owner_deletes_a_workspace(keycloak):
+    """Nobody deletes a shared workspace or someone else's; the owner
+    deletes their own. Both halves, so a rule that always refuses fails."""
+    client, _, db_path, _, sign_in = keycloak
+    shared = workspaces.create_workspace(
+        name="Shared", folder_path=str(db_path.parent), db_path=db_path
+    )
+    theirs = workspaces.create_workspace(
+        name="Theirs", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
     )
     sign_in(READER_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=seen.id, user_id="kc-reader")
 
-    page = client.get("/workspaces")
+    for ws in (shared, theirs):
+        client.post(f"/workspaces/{ws.id}/delete", follow_redirects=False)
+    assert {w.id for w in workspaces.list_workspaces(db_path=db_path)} == {shared.id, theirs.id}
 
-    assert "Granted HR" in page.text
-    assert "Hidden Legal" not in page.text
-
-
-def test_a_curator_may_sync_a_granted_workspace_and_not_another(keycloak):
-    client, runtime, db_path, _, sign_in = keycloak
-    granted = workspaces.create_workspace(
-        name="Granted", folder_path=str(db_path.parent), db_path=db_path
-    )
-    other = workspaces.create_workspace(
-        name="Other", folder_path=str(db_path.parent), db_path=db_path
-    )
     sign_in(CURATOR_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=granted.id, user_id="kc-curator")
+    client.post(f"/workspaces/{theirs.id}/delete", follow_redirects=False)
+    assert [w.id for w in workspaces.list_workspaces(db_path=db_path)] == [shared.id]
 
-    refused = client.post(f"/workspaces/{other.id}/sync", follow_redirects=False)
+
+def test_someone_elses_workspace_is_not_even_listed(keycloak):
+    client, _, db_path, _, sign_in = keycloak
+    workspaces.create_workspace(
+        name="Shared HR", folder_path=str(db_path.parent), db_path=db_path
+    )
+    workspaces.create_workspace(
+        name="Hidden Legal", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
+    )
+    sign_in(READER_CLAIMS)
+
+    for path in ("/workspaces", "/"):
+        page = client.get(path).text
+        assert "Shared HR" in page, path
+        assert "Hidden Legal" not in page, path
+
+
+def test_only_the_owner_starts_a_sync(keycloak):
+    client, runtime, db_path, _, sign_in = keycloak
+    mine = workspaces.create_workspace(
+        name="Mine", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
+    )
+    shared = workspaces.create_workspace(
+        name="Shared", folder_path=str(db_path.parent), db_path=db_path
+    )
+    started: list[str] = []
+    runtime.start_sync = started.append  # this instance only
+    sign_in(CURATOR_CLAIMS)
+
+    refused = client.post(f"/workspaces/{shared.id}/sync", follow_redirects=False)
+    client.post(f"/workspaces/{mine.id}/sync", follow_redirects=False)
+
     assert refused.status_code == 303
-    assert "started a sync" not in _actions(db_path)
-
-    client.post(f"/workspaces/{granted.id}/sync", follow_redirects=False)
-    assert "started a sync" in _actions(db_path)
+    assert started == [mine.id]
 
 
 # --- one transcript per person ----------------------------------------------
@@ -650,15 +717,11 @@ def test_a_curator_may_sync_a_granted_workspace_and_not_another(keycloak):
 def test_two_people_never_share_a_conversation(keycloak):
     client, runtime, db_path, _, sign_in = keycloak
     ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
-    runtime.active_workspace_id = ws.id
 
     # A grant points at an app_user row, so the person has to have signed
     # in at least once before they can be granted anything.
     sign_in(READER_CLAIMS)
     sign_in(CURATOR_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
     sign_in(READER_CLAIMS)
     runtime.new_conversation("kc-reader", ws.id).messages.append(
         __import__("ui.conversation", fromlist=["Message"]).Message(
@@ -678,8 +741,6 @@ def test_signing_out_forgets_that_person_transcript(keycloak):
     client, runtime, db_path, _, sign_in = keycloak
     ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
     sign_in(READER_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
     runtime.new_conversation("kc-reader", ws.id)
 
     client.post("/auth/logout", follow_redirects=False)
@@ -695,8 +756,6 @@ def test_signing_out_keeps_the_stored_transcript_for_next_time(keycloak):
     client, runtime, db_path, _, sign_in = keycloak
     ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
     sign_in(READER_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
     conversation = runtime.new_conversation("kc-reader", ws.id)
     conversation.messages.append(Message(kind=MessageKind.ANSWER, text="reader's answer"))
     runtime.save_conversation(conversation)
@@ -723,11 +782,23 @@ def test_signing_out_keeps_the_stored_transcript_for_next_time(keycloak):
 
 
 def _reader_with_a_workspace(keycloak, name: str = "HR"):
+    """The reader, signed in, owning one workspace (ST-54)."""
     client, runtime, db_path, _, sign_in = keycloak
-    ws = workspaces.create_workspace(name=name, folder_path=str(db_path.parent), db_path=db_path)
+    ws = workspaces.create_workspace(
+        name=name, folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=READER_CLAIMS["sub"],
+    )
     sign_in(READER_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
+    return client, runtime, db_path, sign_in, ws
+
+
+def _shared_between_two(keycloak):
+    """One SHARED workspace both the reader and the curator can see, with
+    the reader signed in -- for tests where two people meet in it and only
+    conversation ownership may keep them apart."""
+    client, runtime, db_path, _, sign_in = keycloak
+    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    sign_in(READER_CLAIMS)
     return client, runtime, db_path, sign_in, ws
 
 
@@ -765,10 +836,8 @@ def _with_a_source(runtime, user_id, ws_id, passage_text):
 def test_the_passage_viewer_serves_only_the_owners_card(keycloak):
     """Positive control first -- the owner DOES see the card's text -- so
     the refusal below is proven to be the owner check, not an empty card."""
-    client, runtime, db_path, sign_in, ws = _reader_with_a_workspace(keycloak)
+    client, runtime, db_path, sign_in, ws = _shared_between_two(keycloak)
     sign_in(CURATOR_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
     theirs = _with_a_source(runtime, "kc-curator", ws.id, "CURATOR-PASSAGE-TEXT")
     assert "CURATOR-PASSAGE-TEXT" in client.get(f"/chat/passage/{theirs.id}/1/0").text
 
@@ -798,10 +867,8 @@ def test_a_signed_in_person_sees_their_conversations_and_can_open_an_older_one(k
 
 
 def test_the_list_never_shows_someone_elses_conversation(keycloak):
-    client, runtime, db_path, sign_in, ws = _reader_with_a_workspace(keycloak)
+    client, runtime, db_path, sign_in, ws = _shared_between_two(keycloak)
     sign_in(CURATOR_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
     theirs = _stored(runtime, "kc-curator", ws.id, "CURATOR-QUESTION", "CURATOR-ANSWER")
     sign_in(READER_CLAIMS)
 
@@ -836,10 +903,8 @@ def test_new_conversation_when_signed_in_keeps_the_one_on_screen(keycloak):
 def test_someone_elses_conversation_is_not_found_on_every_route(keycloak):
     """Not yours and does not exist are the same 404 -- on the page that
     only renders too, not just on the actions -- and nothing changes."""
-    client, runtime, db_path, sign_in, ws = _reader_with_a_workspace(keycloak)
+    client, runtime, db_path, sign_in, ws = _shared_between_two(keycloak)
     sign_in(CURATOR_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
     theirs = _stored(runtime, "kc-curator", ws.id, "CURATOR-QUESTION", "CURATOR-ANSWER")
     sign_in(READER_CLAIMS)
 
@@ -860,12 +925,13 @@ def test_someone_elses_conversation_is_not_found_on_every_route(keycloak):
     assert row is not None and row[0] == "CURATOR-QUESTION"
 
 
-def test_a_conversation_in_a_workspace_no_longer_granted_is_not_found(keycloak):
-    """A stored conversation in a workspace the person can no longer see
-    must not be reachable -- by id, through any route."""
+def test_a_conversation_in_someone_elses_private_workspace_is_not_found(keycloak):
+    """A stored conversation in a workspace the person cannot see must not
+    be reachable -- by id, through any route."""
     client, runtime, db_path, _, _ = _reader_with_a_workspace(keycloak)
     locked = workspaces.create_workspace(
-        name="Locked", folder_path=str(db_path.parent), db_path=db_path
+        name="Locked", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id="kc-someone-else",
     )
     stranded = _with_a_source(runtime, "kc-reader", locked.id, "LOCKED-PASSAGE-TEXT")
 
@@ -933,138 +999,107 @@ def test_deleting_one_conversation_keeps_the_others_and_a_get_deletes_nothing(ke
     assert "GONE-ANSWER" not in client.get(f"/?c={gone.id}").text
 
 
-def test_a_reader_is_offered_no_control_they_may_not_use(keycloak):
-    """Found in a real browser: the reader's own workspace page still
-    showed Sync and "new workspace". The routes refused them, but a button
-    that cannot work is a dead control -- the rule the theme toggle, the
-    sample questions and the drop zone already follow."""
+def test_a_shared_workspace_offers_no_control_to_change_it(keycloak):
+    """A button that cannot work is a dead control -- the rule the theme
+    toggle, the sample questions and the drop zone already follow. On a
+    shared workspace a non-owner may read, ask and create their own."""
     client, _, db_path, _, sign_in = keycloak
     ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
     sign_in(READER_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
 
     page = client.get(f"/workspaces?ws={ws.id}").text
 
-    assert "HR" in page, "the granted workspace is still shown"
+    assert "HR" in page
     assert f'action="/workspaces/{ws.id}/sync"' not in page
-    assert 'action="/workspaces"' not in page
     assert f'href="/workspaces/{ws.id}/delete"' not in page
-    assert "data-dropzone" not in page, "a reader may not add documents either"
+    assert f'action="/workspaces/{ws.id}/rename"' not in page
+    assert "data-dropzone" not in page
+    assert 'role="note"' in page, "the page says why: it is shared"
+    assert 'action="/workspaces"' in page, "anyone may still create their own"
 
 
-def test_a_curator_keeps_sync_in_a_granted_workspace_but_not_the_settings(keycloak):
+def test_the_owner_sees_every_control_on_their_own_workspace(keycloak):
     client, _, db_path, _, sign_in = keycloak
-    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
+    ws = workspaces.create_workspace(
+        name="Mine", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
+    )
     sign_in(CURATOR_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-curator")
 
     page = client.get(f"/workspaces?ws={ws.id}").text
 
     assert f'action="/workspaces/{ws.id}/sync"' in page
-    assert "data-dropzone" in page, "a curator adds documents in a granted workspace"
-    assert f'href="/workspaces/{ws.id}/delete"' not in page
-
-
-def test_an_admin_still_sees_every_control(keycloak):
-    client, _, db_path, _, sign_in = keycloak
-    ws = workspaces.create_workspace(name="HR", folder_path=str(db_path.parent), db_path=db_path)
-    sign_in(ADMIN_CLAIMS)
-
-    page = client.get(f"/workspaces?ws={ws.id}").text
-
-    assert f'action="/workspaces/{ws.id}/sync"' in page
-    assert 'action="/workspaces"' in page
     assert f'href="/workspaces/{ws.id}/delete"' in page
+    assert f'action="/workspaces/{ws.id}/rename"' in page
+    assert "data-dropzone" in page
+    assert 'role="note"' not in page
 
 
 # --- what the machine API and Reports may show -----------------------------
 
 
-def test_the_machine_api_belongs_to_administrators_once_there_are_accounts(keycloak):
-    """Found by reading the diff: the gate authenticated /api/v1 but
-    nothing authorised it, and the signed contract has no notion of who is
-    asking -- so a reader with a session could list every workspace's name
-    there, and create one, while the screens correctly hid them."""
+def test_the_machine_api_is_closed_to_everyone_signed_in(keycloak):
+    """The signed contract lists every workspace with no notion of who is
+    asking, and creates one from any server folder. With private
+    workspaces and open sign-up (ST-54) it is closed with accounts on --
+    for everyone, the person the realm still calls admin included."""
     client, _, db_path, _, sign_in = keycloak
     workspaces.create_workspace(
-        name="Hidden Legal", folder_path=str(db_path.parent), db_path=db_path
+        name="Hidden Legal", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
     )
 
-    sign_in(READER_CLAIMS)
-    listed = client.get("/api/v1/workspaces")
-    created = client.post(
-        "/api/v1/workspaces",
-        json={"name": "Mine", "folder_path": str(db_path.parent), "legal_flag": False},
-    )
-
-    assert listed.status_code == 403
-    assert listed.json()["code"] == "NOT_ALLOWED"
-    assert "Hidden Legal" not in listed.text
-    assert created.status_code == 403
+    for claims in (READER_CLAIMS, ADMIN_CLAIMS):
+        sign_in(claims)
+        listed = client.get("/api/v1/workspaces")
+        created = client.post(
+            "/api/v1/workspaces",
+            json={"name": "Mine", "folder_path": str(db_path.parent), "legal_flag": False},
+        )
+        assert listed.status_code == 403
+        assert listed.json()["code"] == "NOT_ALLOWED"
+        assert "Hidden Legal" not in listed.text
+        assert created.status_code == 403
     assert [w.name for w in workspaces.list_workspaces(db_path=db_path)] == ["Hidden Legal"]
-
-    sign_in(ADMIN_CLAIMS)
-    assert client.get("/api/v1/workspaces").status_code == 200
+    assert client.get("/api/v1/health").status_code == 200
 
 
 def test_reports_never_name_a_workspace_this_person_may_not_open(keycloak):
     """A run row carries the workspace NAME, and a feedback row carries the
-    QUESTION someone asked in it. Both are hidden everywhere else for an
-    ungranted workspace; Reports must not be the way out."""
+    QUESTION someone asked. Someone else's private workspace shows neither.
+    A SHARED one shows its runs but not its feedback: that would put one
+    person's questions in front of everyone (ST-54). Your own shows both."""
     client, _, db_path, _, sign_in = keycloak
-    granted = workspaces.create_workspace(
-        name="Granted HR", folder_path=str(db_path.parent), db_path=db_path
+    mine = workspaces.create_workspace(
+        name="My HR", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=READER_CLAIMS["sub"],
+    )
+    shared = workspaces.create_workspace(
+        name="Shared Demo", folder_path=str(db_path.parent), db_path=db_path
     )
     hidden = workspaces.create_workspace(
-        name="Hidden Legal", folder_path=str(db_path.parent), db_path=db_path
+        name="Hidden Legal", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
     )
     with repo.session(db_path) as conn:
-        # A run per workspace, so the RUNS table is exercised too and not
-        # only the feedback one -- mutating the runs filter survived while
-        # this test created no runs at all.
-        for workspace_id in (granted.id, hidden.id):
-            repo.insert_eval_run(conn, workspace_id=workspace_id, question_total=1)
-        for workspace_id, question in (
-            (granted.id, "QUESTION-IN-GRANTED"),
-            (hidden.id, "QUESTION-IN-HIDDEN"),
-        ):
+        for ws in (mine, shared, hidden):
+            repo.insert_eval_run(conn, workspace_id=ws.id, question_total=1)
             repo.upsert_answer_feedback(
                 conn,
-                workspace_id=workspace_id,
-                answer_key=f"key-{workspace_id}",
-                question=question,
+                workspace_id=ws.id,
+                answer_key=f"key-{ws.id}",
+                question=f"QUESTION-IN-{ws.name.upper().replace(' ', '-')}",
                 answer_text="answer",
                 verdict="up",
             )
     sign_in(READER_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=granted.id, user_id="kc-reader")
 
     page = client.get("/reports").text
 
-    assert "Granted HR" in page and "QUESTION-IN-GRANTED" in page
-    assert "Hidden Legal" not in page
-    assert "QUESTION-IN-HIDDEN" not in page
-
-
-def test_an_admin_still_sees_every_workspace_in_reports(keycloak):
-    client, _, db_path, _, sign_in = keycloak
-    workspaces.create_workspace(name="Alpha", folder_path=str(db_path.parent), db_path=db_path)
-    workspaces.create_workspace(name="Beta", folder_path=str(db_path.parent), db_path=db_path)
-    ws = workspaces.list_workspaces(db_path=db_path)
-    with repo.session(db_path) as conn:
-        for workspace in ws:
-            repo.upsert_answer_feedback(
-                conn, workspace_id=workspace.id, answer_key=f"k-{workspace.id}",
-                question=f"Q-{workspace.name}", answer_text="a", verdict="up",
-            )
-    sign_in(ADMIN_CLAIMS)
-
-    page = client.get("/reports").text
-
-    assert "Alpha" in page and "Beta" in page
+    assert "My HR" in page and "QUESTION-IN-MY-HR" in page
+    assert "Shared Demo" in page
+    assert "QUESTION-IN-SHARED-DEMO" not in page
+    assert "Hidden Legal" not in page and "QUESTION-IN-HIDDEN-LEGAL" not in page
 
 
 # --- documents follow the same roles ----------------------------------------
@@ -1080,18 +1115,16 @@ def _upload(client, workspace_id, name, body):
     )
 
 
-def test_a_reader_cannot_add_or_remove_a_document_but_can_download_one(keycloak):
-    """Upload, remove and Sync are curator work; reading a source document
-    is what a reader is for. Both halves, because a rule that only ever
-    refuses would pass a test that granted nobody anything."""
+def test_a_shared_workspace_can_be_read_but_not_changed(keycloak):
+    """Upload and remove are the owner's; reading a source document is what
+    everyone may do on a shared workspace. Both halves, because a rule that
+    only ever refuses would pass a test that allowed nobody anything."""
     client, _, db_path, _, sign_in = keycloak
-    folder = db_path.parent / "corpus-roles"
+    folder = db_path.parent / "corpus-shared"
     folder.mkdir(exist_ok=True)
     (folder / "note.txt").write_text("Article 1. Texte.", encoding="utf-8")
     ws = workspaces.create_workspace(name="HR", folder_path=str(folder), db_path=db_path)
     sign_in(READER_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=ws.id, user_id="kc-reader")
 
     added = _upload(client, ws.id, "new.txt", b"payload")
     removed = client.post(
@@ -1102,47 +1135,197 @@ def test_a_reader_cannot_add_or_remove_a_document_but_can_download_one(keycloak)
     assert added.status_code == 403
     assert not (folder / "new.txt").exists()
     assert removed.status_code == 303
-    assert (folder / "note.txt").exists(), "a reader removed a document"
+    assert (folder / "note.txt").exists(), "a non-owner removed a document"
     assert downloaded.status_code == 200
     assert downloaded.content == b"Article 1. Texte."
 
 
-def test_a_curator_may_add_and_remove_in_a_granted_workspace_only(keycloak):
+def test_the_owner_adds_documents_to_their_own_workspace_only(keycloak):
     client, _, db_path, _, sign_in = keycloak
     mine = db_path.parent / "corpus-mine"
-    theirs = db_path.parent / "corpus-theirs"
-    for folder in (mine, theirs):
+    shared = db_path.parent / "corpus-shared"
+    for folder in (mine, shared):
         folder.mkdir(exist_ok=True)
-    granted = workspaces.create_workspace(name="Mine", folder_path=str(mine), db_path=db_path)
-    other = workspaces.create_workspace(name="Theirs", folder_path=str(theirs), db_path=db_path)
+    own = workspaces.create_workspace(
+        name="Mine", folder_path=str(mine), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
+    )
+    other = workspaces.create_workspace(name="Shared", folder_path=str(shared), db_path=db_path)
     sign_in(CURATOR_CLAIMS)
-    with repo.session(db_path) as conn:
-        repo.grant_workspace(conn, workspace_id=granted.id, user_id="kc-curator")
 
-    ok = _upload(client, granted.id, "ok.txt", b"payload")
+    ok = _upload(client, own.id, "ok.txt", b"payload")
     refused = _upload(client, other.id, "sneaky.txt", b"payload")
 
     assert ok.status_code == 201
     assert (mine / "ok.txt").exists()
     assert refused.status_code == 403
-    assert not (theirs / "sneaky.txt").exists()
-    with repo.session(db_path) as conn:
-        actions = [row["action"] for row in repo.list_activity(conn)]
-    assert "uploaded a document" in actions
+    assert not (shared / "sneaky.txt").exists()
 
 
-def test_a_document_in_a_workspace_nobody_granted_cannot_be_downloaded(keycloak):
+def test_a_document_in_someone_elses_workspace_cannot_be_downloaded(keycloak):
     client, _, db_path, _, sign_in = keycloak
     folder = db_path.parent / "corpus-hidden"
     folder.mkdir(exist_ok=True)
     (folder / "secret.txt").write_text("CONFIDENTIEL", encoding="utf-8")
-    hidden = workspaces.create_workspace(name="Hidden", folder_path=str(folder), db_path=db_path)
+    hidden = workspaces.create_workspace(
+        name="Hidden", folder_path=str(folder), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
+    )
     sign_in(READER_CLAIMS)
 
     response = client.get(f"/workspaces/{hidden.id}/documents/secret.txt")
 
     assert response.status_code == 403
     assert b"CONFIDENTIEL" not in response.content
+
+
+def test_a_non_owner_can_neither_rename_nor_reflag_a_workspace(keycloak):
+    """The hidden buttons are not the protection; the routes are. Posted by
+    hand, a rename or legal-flag change on a shared workspace or on someone
+    else's changes nothing -- and the owner's own does change."""
+    client, _, db_path, _, sign_in = keycloak
+    shared = workspaces.create_workspace(
+        name="Shared", folder_path=str(db_path.parent), db_path=db_path
+    )
+    theirs = workspaces.create_workspace(
+        name="Theirs", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
+    )
+    sign_in(READER_CLAIMS)
+
+    for ws in (shared, theirs):
+        client.post(f"/workspaces/{ws.id}/rename", data={"name": "Taken over"})
+        client.post(f"/workspaces/{ws.id}/legal-flag", data={"legal_flag": "on"})
+
+    after = {w.id: w for w in workspaces.list_workspaces(db_path=db_path)}
+    assert after[shared.id].name == "Shared" and not after[shared.id].legal_flag
+    assert after[theirs.id].name == "Theirs" and not after[theirs.id].legal_flag
+
+    sign_in(CURATOR_CLAIMS)
+    client.post(f"/workspaces/{theirs.id}/rename", data={"name": "Renamed by owner"})
+    client.post(f"/workspaces/{theirs.id}/legal-flag", data={"legal_flag": "on"})
+    owned = workspaces.get_workspace(workspace_id=theirs.id, db_path=db_path)
+    assert owned.name == "Renamed by owner" and owned.legal_flag
+
+
+def test_an_id_that_names_no_workspace_is_never_treated_as_shared(keycloak):
+    """A missing workspace has no owner either -- and "no owner" is what
+    SHARED means. The check must ask whether it exists first, or any
+    made-up id would pass as a shared workspace."""
+    import types
+
+    from app import may_manage, may_see
+
+    _, runtime, db_path, _, _ = keycloak
+    shared = workspaces.create_workspace(
+        name="Shared", folder_path=str(db_path.parent), db_path=db_path
+    )
+    reader = auth.Principal(id="kc-reader", username="omar", display_name="Omar")
+    request = types.SimpleNamespace(state=types.SimpleNamespace(principal=reader))
+
+    assert may_see(runtime, request, shared.id) is True
+    assert may_manage(runtime, request, shared.id) is False
+    assert may_see(runtime, request, "no-such-workspace") is False
+    assert may_manage(runtime, request, "no-such-workspace") is False
+
+def test_asking_with_someone_elses_workspace_id_never_answers_from_it(keycloak):
+    """F-12's confirm button posts a workspace id; a hand-made one naming a
+    stranger's private workspace must not select it or open a chat in it."""
+    client, runtime, db_path, _, sign_in = keycloak
+    workspaces.create_workspace(name="Shared", folder_path=str(db_path.parent), db_path=db_path)
+    hidden = workspaces.create_workspace(
+        name="Hidden", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
+    )
+    sign_in(READER_CLAIMS)
+
+    client.post(
+        "/chat/ask",
+        data={"question": "Quel salaire ?", "workspace_id": hidden.id},
+        follow_redirects=False,
+    )
+
+    assert runtime.active_for(READER_CLAIMS["sub"]) != hidden.id
+    assert not [c for c in runtime.conversations.values() if c.workspace_id == hidden.id]
+
+
+def test_feedback_on_someone_elses_workspace_is_refused(keycloak):
+    """The conversation is the reader's own, so without the workspace check
+    the feedback WOULD be saved -- which is what makes this test able to
+    fail."""
+    client, runtime, db_path, _, sign_in = keycloak
+    hidden = workspaces.create_workspace(
+        name="Hidden", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
+    )
+    stranded = runtime.new_conversation(READER_CLAIMS["sub"], hidden.id)
+    stranded.messages.append(Message(kind=MessageKind.USER, text="q"))
+    answer = Message(kind=MessageKind.ANSWER, text="an answer")
+    stranded.messages.append(answer)
+    runtime.save_conversation(stranded)
+    sign_in(READER_CLAIMS)
+
+    client.post(
+        "/chat/feedback",
+        data={
+            "workspace_id": hidden.id,
+            "conversation_id": stranded.id,
+            "message_id": answer.id,
+            "verdict": "down",
+        },
+        follow_redirects=False,
+    )
+
+    with repo.session(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM answer_feedback").fetchone()[0] == 0
+
+
+def test_a_non_owner_can_neither_cancel_a_sync_nor_open_a_remove_confirmation(keycloak):
+    import threading
+
+    client, runtime, db_path, _, sign_in = keycloak
+    folder = db_path.parent / "corpus-shared-2"
+    folder.mkdir()
+    (folder / "note.txt").write_text("x", encoding="utf-8")
+    shared = workspaces.create_workspace(name="Shared", folder_path=str(folder), db_path=db_path)
+    running = threading.Event()
+    runtime.sync_cancel_events[shared.id] = running
+    sign_in(READER_CLAIMS)
+
+    client.post(f"/workspaces/{shared.id}/sync/cancel", follow_redirects=False)
+    confirm = client.get(
+        f"/workspaces/{shared.id}/documents/note.txt/remove", follow_redirects=False
+    )
+
+    assert not running.is_set(), "a non-owner cancelled the owner's Sync"
+    assert confirm.status_code == 303
+
+def test_the_admin_pages_are_gone(keycloak):
+    """YL's ruling, 2026-09-18: no admin page, no grants, no roles."""
+    client, _, _, _, sign_in = keycloak
+    sign_in(ADMIN_CLAIMS)
+
+    assert client.get("/admin").status_code == 404
+    assert client.post("/admin/grants", data={"user_id": "x"}).status_code == 404
+    assert client.post("/admin/people/kc-reader/sign-out").status_code == 404
+    assert 'href="/admin"' not in client.get("/workspaces").text
+
+
+def test_each_person_keeps_their_own_selected_workspace(keycloak):
+    """The selected workspace used to be one value for the whole server, so
+    one person switching moved everyone (cold review of #147)."""
+    client, runtime, db_path, _, sign_in = keycloak
+    first = workspaces.create_workspace(name="A", folder_path=str(db_path.parent), db_path=db_path)
+    second = workspaces.create_workspace(
+        name="B", folder_path=str(db_path.parent), db_path=db_path
+    )
+    sign_in(READER_CLAIMS)
+    client.post("/workspace", data={"workspace_id": second.id}, follow_redirects=False)
+    sign_in(CURATOR_CLAIMS)
+    client.post("/workspace", data={"workspace_id": first.id}, follow_redirects=False)
+
+    assert runtime.active_for(READER_CLAIMS["sub"]) == second.id
+    assert runtime.active_for(CURATOR_CLAIMS["sub"]) == first.id
 
 
 def test_every_response_carries_the_security_headers(keycloak, tmp_path):

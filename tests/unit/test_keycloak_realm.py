@@ -3,10 +3,11 @@
 Signing in used to be five things to click in Keycloak's admin console,
 redone from scratch every time the container stopped. `keycloak/realm-sanad.json`
 replaced that with one command, which only helps if the file keeps agreeing
-with the code that reads it: the role names come from `config.auth_role_prefix`
-plus `ui.auth.ROLES`, and the callback URL comes from
-`config.keycloak_redirect_url`. A rename on either side silently produces a
-realm where everyone signs in with no role, so both are pinned here.
+with the code that reads it: the callback URL comes from
+`config.keycloak_redirect_url`, so it is pinned here. Since ST-54 Sanad
+reads no role from the realm (every signed-in person is equal), so the
+realm's roles are no longer pinned; they stay in the file, unused, until a
+later clean-up removes them.
 
 Two bugs found on 2026-09-15 by running it, each pinned below so it cannot
 return: a volume mounted on `/opt/keycloak/data/h2` is created owned by root
@@ -25,7 +26,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-import ui.auth as auth
 from config import Settings
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,34 +38,11 @@ def _client() -> dict:
     return next(c for c in REALM["clients"] if c["clientId"] == "sanad")
 
 
-def test_realm_defines_the_three_roles_the_code_reads_plus_keycloaks_own():
-    defaults = Settings()
-    expected = {f"{defaults.auth_role_prefix}{role}" for role in auth.ROLES}
-    names = {r["name"] for r in REALM["roles"]["realm"]}
-
-    sanad_roles = {n for n in names if n.startswith(defaults.auth_role_prefix)}
-    assert sanad_roles == expected
-    # Keycloak's own roles are listed too, and must be: once a realm file
-    # lists roles, import does not create these before resolving the
-    # default role's composites ("Unable to find composite realm role:
-    # uma_authorization", 2026-09-15).
-    assert names - sanad_roles == {"offline_access", "uma_authorization", "default-roles-sanad"}
-    assert all(r.get("description") for r in REALM["roles"]["realm"])
-
-
-def test_anyone_can_sign_up_and_arrives_as_a_reader_who_sees_nothing_yet():
-    """YL asked for sign-up, not only sign-in (2026-09-15). A person who
-    signs up gets the reader role and nothing more: a reader sees no
-    workspace until an administrator grants one (verified in a browser on
-    the demo), so an open door on a public site opens onto an empty room."""
-    defaults = Settings()
+def test_anyone_can_sign_up():
+    """YL asked for sign-up, not only sign-in (2026-09-15). Since ST-54 a
+    new person owns nothing and sees only the shared workspaces until they
+    create their own."""
     assert REALM["registrationAllowed"] is True
-
-    default_role = next(r for r in REALM["roles"]["realm"] if r["name"] == "default-roles-sanad")
-    granted = set(default_role["composites"]["realm"])
-    assert f"{defaults.auth_role_prefix}reader" in granted
-    assert f"{defaults.auth_role_prefix}admin" not in granted
-    assert f"{defaults.auth_role_prefix}curator" not in granted
 
 
 def test_the_default_role_is_defined_where_keycloak_actually_reads_it():
@@ -157,13 +134,6 @@ def test_every_seeded_person_can_actually_reach_sanad():
         assert user["emailVerified"] is True
         assert user["requiredActions"] == [], user["username"]
 
-    by_roles = {tuple(u["realmRoles"]): u["username"] for u in REALM["users"]}
-    defaults = Settings()
-    for role in auth.ROLES:
-        assert (f"{defaults.auth_role_prefix}{role}",) in by_roles
-    # One person with no role at all: the "ask an administrator" screen is a
-    # real state of the product (UX spec) and needs someone to demonstrate it.
-    assert () in by_roles
 
 
 def test_compose_imports_the_realm_and_can_write_its_database():

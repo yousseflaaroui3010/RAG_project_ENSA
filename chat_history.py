@@ -246,18 +246,6 @@ def delete(*, conversation_id: str, user_id: str, db_path: str | Path | None = N
         ) > 0
 
 
-def delete_in_workspace(
-    *, user_id: str, workspace_id: str, db_path: str | Path | None = None
-) -> int:
-    """Every conversation one person has in one workspace -- an admin
-    revoking their access to it (those transcripts quote passages they
-    should no longer hold). Returns the row count deleted."""
-    with repo.session(db_path) as conn:
-        return repo.delete_conversations_in_workspace(
-            conn, user_id=user_id, workspace_id=workspace_id
-        )
-
-
 def delete_for_user(*, user_id: str, db_path: str | Path | None = None) -> int:
     """Every stored conversation belonging to one person, across every
     workspace -- law 09-08's "Delete my saved history" and admin

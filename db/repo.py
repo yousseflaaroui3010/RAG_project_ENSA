@@ -173,6 +173,19 @@ def init_db(conn: sqlite3.Connection) -> None:
             conn.execute(statement)
     _migrate_incremental_evaluation(conn)
     _migrate_chat_history_to_conversation(conn)
+    _migrate_workspace_owner(conn)
+
+
+def _migrate_workspace_owner(conn: sqlite3.Connection) -> None:
+    """ST-54: add `workspace.owner_user_id` to a database made before it.
+
+    Additive only. Every existing workspace keeps NULL, which is what
+    makes it SHARED (db/schema.sql) -- the live demo's workspace stays
+    readable by everyone, as YL ruled. Checked first, so a second start-up
+    changes nothing. Undo: the pre-ST-54 code ignores the column."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(workspace)").fetchall()}
+    if "owner_user_id" not in columns:
+        conn.execute("ALTER TABLE workspace ADD COLUMN owner_user_id TEXT")
 
 
 def _migrate_incremental_evaluation(conn: sqlite3.Connection) -> None:
@@ -232,14 +245,23 @@ def create_workspace(
     legal_flag: bool = False,
     id: str | None = None,
     created_at: str | None = None,
+    owner_user_id: str | None = None,
 ) -> str:
     ws_id = id or new_id()
     conn.execute(
-        "INSERT INTO workspace (id, name, folder_path, legal_flag, created_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (ws_id, name, folder_path, int(legal_flag), created_at or utc_now()),
+        "INSERT INTO workspace (id, name, folder_path, legal_flag, created_at, owner_user_id) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (ws_id, name, folder_path, int(legal_flag), created_at or utc_now(), owner_user_id),
     )
     return ws_id
+
+
+def workspace_owners(conn: sqlite3.Connection) -> dict[str, str | None]:
+    """Every workspace's owner by id (ST-54); None for a shared one."""
+    return {
+        row["id"]: row["owner_user_id"]
+        for row in conn.execute("SELECT id, owner_user_id FROM workspace")
+    }
 
 
 def delete_workspace(conn: sqlite3.Connection, workspace_id: str) -> None:
@@ -758,7 +780,7 @@ def list_answer_feedback(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-# --- S6 login, roles and activity (docs/design/S6-auth-rbac.md) ----------
+# --- S6 login and sessions (docs/design/S6-auth-rbac.md; no roles since ST-54) ----
 
 
 def upsert_user(
@@ -837,57 +859,6 @@ def delete_sessions_for_user(conn: sqlite3.Connection, user_id: str) -> None:
 def delete_expired_sessions(conn: sqlite3.Connection) -> int:
     cursor = conn.execute("DELETE FROM user_session WHERE expires_at <= ?", (utc_now(),))
     return cursor.rowcount
-
-
-def grant_workspace(conn: sqlite3.Connection, *, workspace_id: str, user_id: str) -> None:
-    conn.execute(
-        "INSERT INTO workspace_grant (workspace_id, user_id, granted_at) "
-        "VALUES (?, ?, ?) ON CONFLICT(workspace_id, user_id) DO NOTHING",
-        (workspace_id, user_id, utc_now()),
-    )
-
-
-def revoke_workspace(conn: sqlite3.Connection, *, workspace_id: str, user_id: str) -> None:
-    conn.execute(
-        "DELETE FROM workspace_grant WHERE workspace_id = ? AND user_id = ?",
-        (workspace_id, user_id),
-    )
-
-
-def granted_workspace_ids(conn: sqlite3.Connection, user_id: str) -> set[str]:
-    return {
-        row["workspace_id"]
-        for row in conn.execute(
-            "SELECT workspace_id FROM workspace_grant WHERE user_id = ?", (user_id,)
-        )
-    }
-
-
-def record_activity(
-    conn: sqlite3.Connection,
-    *,
-    user_id: str | None,
-    username: str,
-    action: str,
-    workspace_id: str | None = None,
-    detail: str | None = None,
-) -> None:
-    """One line of the activity log. `detail` is a file name or a workspace
-    name at most -- never a question, an answer or a document's text."""
-    conn.execute(
-        "INSERT INTO activity_event (id, user_id, username, action, workspace_id, "
-        "detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (new_id(), user_id, username, action, workspace_id, detail, utc_now()),
-    )
-
-
-def list_activity(conn: sqlite3.Connection, limit: int = 200) -> list[sqlite3.Row]:
-    return list(
-        conn.execute(
-            "SELECT * FROM activity_event ORDER BY created_at DESC, rowid DESC LIMIT ?",
-            (limit,),
-        )
-    )
 
 
 # --- S6 saved chat history (law 09-08), ST-53 conversations ----------------
@@ -1003,19 +974,6 @@ def delete_conversation(
     cursor = conn.execute(
         "DELETE FROM conversation WHERE id = ? AND user_id = ?",
         (conversation_id, user_id),
-    )
-    return cursor.rowcount
-
-
-def delete_conversations_in_workspace(
-    conn: sqlite3.Connection, *, user_id: str, workspace_id: str
-) -> int:
-    """Every conversation one person has in one workspace (an admin
-    revoking their access: those transcripts quote passages they should
-    no longer hold). Returns the row count."""
-    cursor = conn.execute(
-        "DELETE FROM conversation WHERE user_id = ? AND workspace_id = ?",
-        (user_id, workspace_id),
     )
     return cursor.rowcount
 

@@ -98,6 +98,22 @@ def _normalize_name(name: str) -> str:
     return normalized
 
 
+# ST-54: with accounts on, nobody may name a server folder (cold review of
+# #148: that let anyone read or delete any folder the server can reach, the
+# shared demo's included), so the server makes one folder per workspace,
+# here, next to the database -- on the same persistent volume in deployment.
+MANAGED_FOLDER_NAME = "workspaces"
+
+
+def managed_folder_root(db_path: str | Path | None = None) -> Path:
+    """Where the server makes each workspace's folder when accounts are on:
+    next to the database THIS app is using (second review of #148: reading
+    the setting alone made tests write into the real `data/`), as a full
+    path, so a script run from another directory finds the same folder."""
+    path = db_path if db_path is not None else get_settings().sqlite_db_path
+    return Path(path).resolve().parent / MANAGED_FOLDER_NAME
+
+
 def _validate_folder_path(folder_path: str) -> None:
     """Reject empty/whitespace-only folder_path. A non-str (e.g. None) is
     left to db/schema.sql's own NOT NULL constraint -- that is a
@@ -151,9 +167,13 @@ def create_workspace(
     name: str,
     folder_path: str,
     legal_flag: bool = False,
+    owner_user_id: str | None = None,
+    workspace_id: str | None = None,
     db_path: str | Path | None = None,
 ) -> Workspace:
-    """Create a workspace. Raises InvalidWorkspaceNameError if `name` is
+    """Create a workspace. `owner_user_id` is who created it (ST-54); None
+    makes it shared, which only pre-ST-54 rows and the machine API's
+    login-free callers produce. Raises InvalidWorkspaceNameError if `name` is
     outside the contract's length bounds, or DuplicateWorkspaceNameError
     if `name` is already taken, instead of letting sqlite3.IntegrityError
     escape (only a UNIQUE violation on workspace.name is translated; any
@@ -163,7 +183,12 @@ def create_workspace(
     with repo.session(db_path) as conn:
         try:
             ws_id = repo.create_workspace(
-                conn, name=name, folder_path=folder_path, legal_flag=legal_flag
+                conn,
+                name=name,
+                folder_path=folder_path,
+                legal_flag=legal_flag,
+                owner_user_id=owner_user_id,
+                id=workspace_id,
             )
         except sqlite3.IntegrityError as exc:
             if _NAME_UNIQUE_VIOLATION not in str(exc):

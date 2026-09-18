@@ -20,7 +20,15 @@
         <span class="marker" title="{{ t('shell.legal_marker_title') }}">{{ t('shell.legal_marker') }}</span>
       {% endif %}
     </div>
-    <p class="mono ws-detail__path">{{ selected.folder_path }}</p>
+    {# ST-54: a server path means nothing to a signed-in person, and names
+       where on the server the files sit. Shown only without accounts. #}
+    {% if asks_folder_path %}
+      <p class="mono ws-detail__path">{{ selected.folder_path }}</p>
+    {% endif %}
+    {% if signed_in_as and not may_manage_workspaces %}
+      {# ST-54: a shared workspace -- read and ask, nothing to change. #}
+      <p class="notice" role="note">{{ t('ws.shared.note') }}</p>
+    {% endif %}
     {% if capacity_warning %}
       <p class="notice" role="status">{{ tx(capacity_warning) }}</p>
     {% endif %}
@@ -94,8 +102,8 @@
       </section>
     {% endif %}
 
-    {# S6: Sync belongs to curators and admins, in the workspaces they
-       hold. A reader sees the report below it, never the button. #}
+    {# ST-54: Sync belongs to the workspace's owner. Anyone else sees
+       the report below it, never the button. #}
     {% if may_manage_documents %}
     <div class="ws-sync">
       {% if sync_blocked %}
@@ -145,7 +153,11 @@
         #}
         <div class="panel panel--error" role="alert">
           <p class="error__sentence">{{ t('ws.sync.error') }}</p>
-          <p class="error__value mono">{{ tx(sync_error) }}</p>
+          {# ST-54: the error text can quote a server path (a missing
+             folder's does, on purpose). Only without accounts. #}
+          {% if asks_folder_path %}
+            <p class="error__value mono">{{ tx(sync_error) }}</p>
+          {% endif %}
         </div>
       {% endif %}
     </div>

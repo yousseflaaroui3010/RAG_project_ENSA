@@ -16,24 +16,12 @@
     criterion 1 is what sends every visitor here when the registry starts
     empty (app.py's `chat()` redirects `/` -> `/workspaces`).
   #}
-  {% if may_manage_workspaces %}
-    <section class="panel panel--empty">
-      <h1>{{ t('ws.first.title') }}</h1>
-      <p>{{ t('ws.first.body') }}</p>
-      {% include "_workspace_create_form.html" %}
-    </section>
-  {% else %}
-    {#
-      S6: the same empty screen for someone who may not create one. Telling
-      a reader to "create your first workspace" offers them the one action
-      the server will refuse; what they actually need is the name of the
-      person who can share one.
-    #}
-    <section class="panel panel--empty">
-      <h1>{{ t('ws.none_shared.title') }}</h1>
-      <p>{{ t('ws.none_shared.body') }}</p>
-    </section>
-  {% endif %}
+  {# ST-54: everyone may create a workspace, and owns what they create. #}
+  <section class="panel panel--empty">
+    <h1>{{ t('ws.first.title') }}</h1>
+    <p>{{ t('ws.first.body') }}</p>
+    {% include "_workspace_create_form.html" %}
+  </section>
 {% else %}
   <div class="workspaces">
     <aside class="ws-list" aria-label="{{ t('ws.list.aria') }}">
@@ -58,7 +46,7 @@
           </li>
         {% endfor %}
       </ul>
-      {% if may_manage_workspaces %}
+      {% if may_create_workspace %}
         <details class="ws-list__new">
           <summary>{{ t('ws.list.new') }}</summary>
           {% include "_workspace_create_form.html" %}

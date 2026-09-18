@@ -1,6 +1,47 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-18, ST-53 PART A: MANY CONVERSATIONS (read this block first)
+## STATE AT 2026-09-18, ST-54 PR 1: NO ROLES, OWNED WORKSPACES (read this block first)
+
+**ST-53 part A is merged (#147) and live.** The live database was backed up
+first (`/app/data/sanad.db.bak-2026-09-18`, 163,840 bytes, same as the
+original); the old table held 0 rows, so the upgrade moved nothing; after
+deploy the `conversation` table exists, `chat_history` is gone, health 200.
+
+**YL's ruling: no admin page, no roles.** Sanad works like NotebookLM, but
+stricter. Everyone who signs in is equal. You own the workspaces you create
+and only you can change them or see them. Workspaces made before this
+change (the live demo's "RH -- Code du travail") are shared: everyone reads
+and asks, nobody changes. The machine API is closed when accounts are on.
+The selected workspace is per person now (it was one value for the whole
+server).
+
+**Proof.** Full suite: **1324 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose and
+caught: **25 of 25** (14, 6 for the first review's fixes, 5 for the second's). Second review: 0 blocking; its three should-fix items are fixed (tests wrote empty folders into the real `data/` -- the folder root now follows the app's own database, and the 8 stray empty folders were removed; the path-hiding had no failing test; the Sync error box still printed a server path).
+
+**Cold review of #148: 1 blocking, fixed.** Anyone who signed up could type
+any server folder when creating a workspace -- the shared demo's included --
+and then read, add or delete its files. Now, with accounts on, the server
+makes the folder itself (`workspaces/<id>` next to the database, on the
+live volume) and ignores a typed path; server paths are no longer shown to
+signed-in people. Four more routes got tests (ask with a foreign workspace
+id, feedback, sync cancel, remove confirmation). Recorded as known issues:
+names unique across everyone, feedback on the shared demo seen by nobody,
+deleted workspaces leave their uploaded files (PR 2).
+
+The live database holds ONE workspace (the demo) and zero grants, checked
+read-only on 2026-09-18, so making every old workspace shared exposes
+nothing.
+
+**Not in this PR:** creating a workspace by picking a folder on your
+computer (PR 2); dropping the now-unread `workspace_grant` and
+`activity_event` tables and the realm's roles (a later clean-up, after a
+backup). `config.auth_role_prefix` is kept, unread, only because
+`.env.example` still documents it and Claude may not read that file: remove
+both together.
+
+---
+
+## STATE AT 2026-09-18, ST-53 PART A: MANY CONVERSATIONS (merged as #147; the ST-54 block above is current)
 
 **What changed for a person.** A chat is no longer one transcript per
 workspace. Every conversation has its own id, carried in the address

@@ -79,23 +79,22 @@ class AuthGate(BaseHTTPMiddleware):
             return await call_next(request)
         if request.state.principal is None:
             return _refuse(request)
-        # THE /api/v1 SURFACE IS ADMIN-ONLY IN THIS MODE, and that is a
-        # deliberate closing rather than a feature. The contract
-        # (docs/phase2/openapi.yaml, ADR-13) was written for a local,
-        # single-user machine API: it lists and creates workspaces with no
-        # notion of who is asking, so a reader with a session could read
-        # every workspace's name there -- and create one -- while the
-        # screens correctly showed them only what they were granted. Per-
-        # route permissions on a signed contract would be a bigger change
-        # than this branch should make; the honest narrow answer is that
-        # the machine surface belongs to an administrator. Recorded in
-        # DECISIONS.
-        if path.startswith(_API_PREFIX) and not request.state.principal.is_admin:
+        # THE /api/v1 SURFACE IS CLOSED IN THIS MODE (health excepted,
+        # above). The contract (docs/phase2/openapi.yaml, ADR-13) was
+        # written for a local, single-user machine API: it lists every
+        # workspace with no notion of who is asking, and creates one from
+        # ANY server folder path. With private workspaces (ST-54) and open
+        # sign-up, opening it to a signed-in person would show them other
+        # people's workspace names and let them index any folder on the
+        # server. Before ST-54 it was admin-only; with no roles left, it is
+        # nobody's. The login-free modes keep it, unchanged. DECISIONS
+        # 2026-09-18.
+        if path.startswith(_API_PREFIX):
             return JSONResponse(
                 status_code=403,
                 content={
                     "code": "NOT_ALLOWED",
-                    "message": "The /api/v1 surface is available to administrators.",
+                    "message": "The /api/v1 surface is not available when accounts are on.",
                 },
             )
         return await call_next(request)

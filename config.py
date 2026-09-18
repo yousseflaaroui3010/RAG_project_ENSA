@@ -295,8 +295,9 @@ class Settings(BaseSettings):
     # Where Keycloak sends the browser back. Must match the client's
     # configured redirect URI exactly, including the port.
     keycloak_redirect_url: str = "http://127.0.0.1:8000/auth/callback"
-    # Realm roles are read as `<prefix><role>`: sanad-admin, sanad-curator,
-    # sanad-reader. Anything without the prefix belongs to another app.
+    # NOT READ since ST-54 (no roles). Kept only because .env.example
+    # documents it and a test forbids documenting settings that do not
+    # exist; remove the two together.
     auth_role_prefix: str = "sanad-"
     # How long a signed-in browser stays signed in.
     session_ttl_hours: int = 12

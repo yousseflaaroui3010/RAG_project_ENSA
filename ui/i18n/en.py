@@ -19,43 +19,6 @@ MESSAGES: dict[str, str] = {
     "title.delete": "Delete {name} — Sanad",
     "title.chat_history_delete": "Delete my history — Sanad",
     "shell.skip": "Skip to content",
-    "phr.activity.uploaded": "uploaded a document",
-    "phr.activity.removed_doc": "removed a document",
-    "ws.none_shared.title": "No workspace shared with you",
-    "ws.none_shared.body": (
-        "No workspace has been given to you yet. "
-        "Ask an administrator for access."
-    ),
-    "shell.nav.admin": "Admin",
-    "admin.title": "Administration",
-    "admin.lead": "Who may use Sanad, in which workspaces, and what has been done.",
-    "admin.people": "People",
-    "admin.people_caption": "Known accounts",
-    "admin.col.person": "Person",
-    "admin.col.roles": "Roles",
-    "admin.col.last_seen": "Last sign-in",
-    "admin.col.workspaces": "Allowed workspaces",
-    "admin.col.actions": "Actions",
-    "admin.all_workspaces": "Every workspace (admin role)",
-    "admin.no_workspaces": "No workspaces yet.",
-    "admin.save_grants": "Save access",
-    "admin.sign_out_everywhere": "Sign out everywhere",
-    "admin.no_people": "Nobody has signed in yet.",
-    "admin.activity": "Activity log",
-    "admin.activity_lead": "What was done and by whom. Never the content of a question.",
-    "admin.activity_caption": "Last {count} events",
-    "admin.col.when": "When",
-    "admin.col.who": "Who",
-    "admin.col.what": "What",
-    "admin.col.where": "Workspace",
-    "admin.no_activity": "No activity recorded.",
-    "phr.activity.signed_in": "signed in",
-    "phr.activity.signed_out": "signed out",
-    "phr.activity.started_sync": "started a sync",
-    "phr.activity.granted": "granted access",
-    "phr.activity.revoked": "revoked access",
-    "phr.activity.refused": "refused",
-    "phr.activity.signed_out_everywhere": "signed a person out everywhere",
     "auth.title": "Sign in to Sanad",
     "auth.lead": (
         "Sanad never asks for your password: signing in happens at your identity "
@@ -64,13 +27,6 @@ MESSAGES: dict[str, str] = {
     "auth.sign_in": "Sign in",
     "auth.sign_out": "Sign out",
     "auth.failed": "Signing in did not complete.",
-    "auth.roles": "Roles: {roles}",
-    "auth.no_roles": "none",
-    "auth.no_role.title": "Access not granted yet",
-    "auth.no_role.body": (
-        "Your account is recognised, but it holds no Sanad role. Ask an "
-        "administrator to grant one for this account:"
-    ),
     "docs.error.forbidden": "you are not allowed to do that in this workspace.",
     "shell.brand": "Sanad",
     "shell.active_workspace": "Active workspace",
@@ -83,9 +39,6 @@ MESSAGES: dict[str, str] = {
     "shell.nav_label": "Screens",
     "shell.nav.chat": "Chat",
     "shell.nav.chat_disabled_title": "Create a workspace before asking questions",
-    "shell.nav.chat_disabled_title_no_access": (
-        "No workspace is shared with you: ask an administrator for access"
-    ),
     "shell.nav.workspaces": "Workspaces",
     "shell.nav.reports": "Reports",
     "shell.dark_theme": "Dark theme",
@@ -277,6 +230,9 @@ MESSAGES: dict[str, str] = {
     "ws.sync.finished": "Last Sync finished {when}.",
     "ws.sync.never": "This workspace has not been synced yet.",
     "ws.first.title": "Create your first workspace",
+    "ws.shared.note": (
+        "Shared workspace: you can read it and ask questions. Only its owner can change it."
+    ),
     "ws.first.body": (
         "Sanad answers from documents grouped into a workspace. There is nothing to "
         "sync or ask about until one exists."

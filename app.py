@@ -73,7 +73,6 @@ from api.service import ApiService
 from config import get_settings
 from db import repo
 from ui import (
-    admin_screen,
     auth,
     documents,
     i18n,
@@ -183,7 +182,11 @@ class Runtime:
     conversations: dict[str, Conversation] = field(default_factory=dict)
     # F-12's routing screen, one per person, keyed by user id. Never saved.
     routing_conversations: dict[str, Conversation] = field(default_factory=dict)
-    active_workspace_id: str | None = None
+    # ST-54: the workspace each person has selected, keyed by user id.
+    # It used to be ONE value for the whole server, so one person switching
+    # workspace switched everyone's (cold review of #147). Lost on restart,
+    # like the rest of this object; the fallback is the first visible one.
+    active_workspace_ids: dict[str, str | None] = field(default_factory=dict)
     client: Any = None
     # Guards the three fields below, never a whole operation. See `store`.
     store_lock: threading.Lock = field(default_factory=threading.Lock)
@@ -241,6 +244,18 @@ class Runtime:
     # so a test can check that nothing of the person is left at that moment
     # and start a save there. None in every real run.
     _delete_hook: Any = field(default=None, repr=False, compare=False)
+
+    def active_for(self, user_id: str) -> str | None:
+        return self.active_workspace_ids.get(user_id)
+
+    def set_active(self, user_id: str, workspace_id: str | None) -> None:
+        self.active_workspace_ids[user_id] = workspace_id
+
+    def forget_active(self, workspace_id: str) -> None:
+        """A deleted workspace is nobody's selection any more."""
+        for user_id, selected in list(self.active_workspace_ids.items()):
+            if selected == workspace_id:
+                self.active_workspace_ids[user_id] = None
 
     def _person_lock(self, user_id: str) -> threading.Lock:
         """The one lock for this person's saved-history writes, created on
@@ -722,22 +737,6 @@ class Runtime:
         self._cancel_runs(dropped)
         return stored or bool(dropped)
 
-    def delete_workspace_history(self, user_id: str, workspace_id: str) -> None:
-        """Every conversation one person has in one workspace, stored and
-        in memory -- an admin revoking their access to it (law 09-08, cold
-        review: those transcripts quote passages they should no longer
-        hold). Same one-locked-step rule as `delete_conversation`."""
-        with self._person_lock(user_id):
-            chat_history.delete_in_workspace(
-                user_id=user_id, workspace_id=workspace_id, db_path=self.db_path
-            )
-            dropped = self._drop_where(
-                lambda c: not (c.user_id == user_id and c.workspace_id == workspace_id)
-            )
-            if self._delete_hook is not None:
-                self._delete_hook()
-        self._cancel_runs(dropped)
-
     def forget_conversations(self, user_id: str) -> None:
         """Drop every IN-MEMORY conversation belonging to one person
         (ordinary sign-out), the routing one included. Storage is
@@ -795,8 +794,7 @@ def _signed_in_as(request: Request) -> auth.Principal | None:
     The UNRESTRICTED check is what makes that true. `AuthGate` attaches
     `auth.LOCAL` to every request in the none and password modes, so the
     bare attribute was never None there: the header named "local", offered
-    a Sign out that signs nobody out, and linked an admin page whose
-    activity log is only ever written with accounts on (`_log_activity`)."""
+    and a Sign out that signs nobody out."""
     principal = getattr(request.state, "principal", None)
     if principal is None or principal.unrestricted:
         return None
@@ -858,9 +856,7 @@ def _refuse_action(runtime: Runtime, request: Request) -> Response:
     A 403 PAGE IS NOT USED for a form post, on purpose. Every action here
     is posted from a screen the person is already on, and the honest
     outcome is "nothing happened" plus the screen as it now is -- an error
-    page would lose the workspace they were looking at. The refusal is
-    recorded in the activity log, which is where an admin looks."""
-    _log_activity(runtime, request, "refused", detail=request.url.path)
+    page would lose the workspace they were looking at."""
     return RedirectResponse("/", status_code=SEE_OTHER)
 
 
@@ -870,50 +866,49 @@ def principal_of(request: Request) -> auth.Principal:
     return getattr(request.state, "principal", None) or auth.LOCAL
 
 
-def _granted_ids(runtime: Runtime, principal: auth.Principal) -> set[str]:
-    if principal.unrestricted or principal.is_admin:
-        return set()
-    with repo.session(runtime.db_path) as conn:
-        return repo.granted_workspace_ids(conn, principal.id)
-
-
 def visible_options(
     runtime: Runtime, request: Request
 ) -> list[screen.WorkspaceOption]:
     """The workspaces this person may use, in the screens' own order.
 
-    ONE FILTER, USED BY EVERY SCREEN. A workspace nobody granted is not
-    listed, not routable (F-12), and not selectable -- refusing the action
-    later would still have leaked its NAME through the selector."""
+    ONE FILTER, USED BY EVERY SCREEN. ST-54: their own and the shared ones
+    (`auth.Principal.may_see_workspace`). Anyone else's is not listed, not
+    routable (F-12), and not selectable -- refusing the action later would
+    still have leaked its NAME through the selector."""
     principal = principal_of(request)
-    options = screen.workspace_options(db_path=runtime.db_path)
-    if principal.unrestricted or principal.is_admin:
-        return options
-    granted = _granted_ids(runtime, principal)
-    return [option for option in options if option.id in granted]
+    return [
+        option
+        for option in screen.workspace_options(db_path=runtime.db_path)
+        if principal.may_see_workspace(option.owner_user_id)
+    ]
 
 
-def _log_activity(
-    runtime: Runtime,
-    request: Request,
-    action: str,
-    *,
-    workspace_id: str | None = None,
-    detail: str | None = None,
-) -> None:
-    """One activity row, and never the content of a question or answer."""
-    if get_settings().auth_mode != auth.MODE_KEYCLOAK:
-        return
-    principal = principal_of(request)
+def _owner_of(runtime: Runtime, workspace_id: str) -> tuple[bool, str | None]:
+    """(exists, owner) for one workspace. `exists` matters: an unknown id
+    has no owner either, and must never be mistaken for a shared one."""
     with repo.session(runtime.db_path) as conn:
-        repo.record_activity(
-            conn,
-            user_id=None if principal.unrestricted else principal.id,
-            username=principal.username,
-            action=action,
-            workspace_id=workspace_id,
-            detail=detail,
-        )
+        row = repo.get_workspace(conn, workspace_id)
+    if row is None:
+        return False, None
+    return True, row["owner_user_id"]
+
+
+def may_see(runtime: Runtime, request: Request, workspace_id: str) -> bool:
+    """May this person read and ask this workspace? Their own or shared."""
+    principal = principal_of(request)
+    if principal.unrestricted:
+        return True
+    exists, owner = _owner_of(runtime, workspace_id)
+    return exists and principal.may_see_workspace(owner)
+
+
+def may_manage(runtime: Runtime, request: Request, workspace_id: str) -> bool:
+    """May this person change this workspace? Their own only (ST-54)."""
+    principal = principal_of(request)
+    if principal.unrestricted:
+        return True
+    exists, owner = _owner_of(runtime, workspace_id)
+    return exists and principal.may_manage_workspace(owner)
 
 
 def _active(runtime: Runtime, request: Request) -> screen.WorkspaceOption | None:
@@ -923,7 +918,7 @@ def _active(runtime: Runtime, request: Request) -> screen.WorkspaceOption | None
     real; UX spec 4 keeps the selector visible at all times, and a
     selector showing nothing while workspaces exist is a broken shell.
 
-    F-12: returns None ALSO when `active_workspace_id` is the routing
+    F-12: returns None ALSO when this person's selection is the routing
     sentinel ("let Sanad choose") and at least two workspaces exist --
     that is "no workspace selected", not "unknown id, fall back to the
     first one". Guarded on `len(options) >= 2` so a workspace count that
@@ -934,11 +929,10 @@ def _active(runtime: Runtime, request: Request) -> screen.WorkspaceOption | None
     options = visible_options(runtime, request)
     if not options:
         return None
-    if runtime.active_workspace_id == screen.ROUTE_SENTINEL and len(options) >= 2:
+    selected = runtime.active_for(principal_of(request).id)
+    if selected == screen.ROUTE_SENTINEL and len(options) >= 2:
         return None
-    chosen = next(
-        (opt for opt in options if opt.id == runtime.active_workspace_id), None
-    )
+    chosen = next((opt for opt in options if opt.id == selected), None)
     return chosen or options[0]
 
 
@@ -1208,10 +1202,9 @@ def _ws_selected_id(
     requested = request.query_params.get("ws")
     if requested and any(opt.id == requested for opt in options):
         return requested
-    if runtime.active_workspace_id and any(
-        opt.id == runtime.active_workspace_id for opt in options
-    ):
-        return runtime.active_workspace_id
+    selected = runtime.active_for(principal_of(request).id)
+    if selected and any(opt.id == selected for opt in options):
+        return selected
     return options[0].id if options else None
 
 
@@ -1333,35 +1326,42 @@ def _ws_context(
             if request.query_params.get("doc_error", "").startswith("docs.error.")
             else None
         ),
-        # S6: a control nobody may use is not rendered at all (the rule the
+        # A control nobody may use is not rendered at all (the rule the
         # theme toggle and the drop zone already follow). The routes refuse
         # the same actions server-side; this only keeps the screen honest.
-        "may_manage_workspaces": principal_of(request).may_manage_workspaces(),
+        # ST-54: anyone may create; only the owner of the SELECTED workspace
+        # sees its settings, upload, remove and Sync.
+        "may_create_workspace": True,
+        "asks_folder_path": principal_of(request).unrestricted,
+        "may_manage_workspaces": bool(
+            selected_id and may_manage(runtime, request, selected_id)
+        ),
         "may_manage_documents": bool(
-            selected_id
-            and principal_of(request).may_manage_documents(
-                selected_id, _granted_ids(runtime, principal_of(request))
-            )
+            selected_id and may_manage(runtime, request, selected_id)
         ),
     }
 
 
 def _reports_context(runtime: Runtime, request: Request) -> dict:
     """Everything one render of the read-only S3 Reports screen needs."""
-    # S6: None for an admin and for the login-free modes ("everything");
-    # a set for anyone else, so Reports never names a workspace the rest of
-    # the screens correctly hide.
+    # S6: None for the login-free modes ("everything"); a set for anyone
+    # else, so Reports never names a workspace the rest of the screens
+    # correctly hide. ST-54: answer FEEDBACK is narrower -- only workspaces
+    # they own -- because on a shared workspace it would show one person's
+    # questions and comments to everyone.
     principal = principal_of(request)
-    visible_ids = (
+    options = visible_options(runtime, request)
+    visible_ids = None if principal.unrestricted else {option.id for option in options}
+    owned_ids = (
         None
-        if principal.unrestricted or principal.is_admin
-        else {option.id for option in visible_options(runtime, request)}
+        if principal.unrestricted
+        else {o.id for o in options if principal.may_manage_workspace(o.owner_user_id)}
     )
     reports = reports_screen.list_reports(
         db_path=runtime.db_path, visible_ids=visible_ids
     )
     feedback_rows = reports_screen.list_feedback(
-        db_path=runtime.db_path, visible_ids=visible_ids
+        db_path=runtime.db_path, visible_ids=owned_ids
     )
     active = _active(runtime, request)
     # S3's list spans every workspace at once (UX spec 8.1), so there is
@@ -1402,7 +1402,7 @@ def _slug(value: str) -> str:
     return "".join("-" if ch in _SLUG_UNSAFE else ch for ch in value) or "report"
 
 
-async def _form(request: Request, *, multi: bool = False) -> dict[str, str] | dict[str, list[str]]:
+async def _form(request: Request) -> dict[str, str]:
     """One posted form, decoded, with no third-party parser.
 
     WHY NOT FastAPI's `Form(...)` OR `await request.form()`: both require
@@ -1439,14 +1439,6 @@ async def _form(request: Request, *, multi: bool = False) -> dict[str, str] | di
         chunks.append(chunk)
     body = b"".join(chunks).decode("utf-8", errors="replace")
     pairs = parse_qsl(body, keep_blank_values=True, encoding="utf-8")
-    if multi:
-        # S6 admin grants: a form of checkboxes posts one `workspace_id`
-        # per ticked box, and `dict()` would keep only the last -- one
-        # workspace granted out of five ticked, silently.
-        grouped: dict[str, list[str]] = {}
-        for key, value in pairs:
-            grouped.setdefault(key, []).append(value)
-        return grouped
     return dict(pairs)
 
 
@@ -1647,9 +1639,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     templates.env.filters["answer_html"] = render_answer
 
     def render(request: Request, name: str = "chat.html") -> HTMLResponse:
-        denied = _no_role_page(request)
-        if denied is not None:
-            return denied
         return templates.TemplateResponse(request, name, _context(runtime, request))
 
     @app.get("/", response_class=HTMLResponse)
@@ -1668,36 +1657,11 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             return RedirectResponse("/workspaces", status_code=SEE_OTHER)
         return render(request)
 
-    def _no_role_page(request: Request) -> Response | None:
-        """The page a signed-in person with no Sanad role sees.
-
-        Sanad invents no role for anybody (ui/auth.py), so this is what a
-        person carries who has an account in the realm but no Sanad role --
-        one honest sentence, rather than an empty workspace selector that
-        looks like a broken product. With the shipped realm, someone who
-        signs up is a reader and lands on the ordinary screens instead;
-        this page remains for a realm without self-registration, and for an
-        account an administrator created or stripped by hand."""
-        if principal_of(request).has_any_role:
-            return None
-        return templates.TemplateResponse(
-            request,
-            "no_role.html",
-            {**_shell_context(runtime, request), "who": principal_of(request)},
-            status_code=403,
-        )
-
     def _may_manage(request: Request, workspace_id: str) -> bool:
-        principal = principal_of(request)
-        return principal.may_manage_documents(
-            workspace_id, _granted_ids(runtime, principal)
-        )
+        return may_manage(runtime, request, workspace_id)
 
     def _may_see(request: Request, workspace_id: str) -> bool:
-        principal = principal_of(request)
-        return principal.has_any_role and principal.may_see_workspace(
-            workspace_id, _granted_ids(runtime, principal)
-        )
+        return may_see(runtime, request, workspace_id)
 
     def _provider():
         """The Keycloak seam, injectable for tests (`Runtime.oidc_provider`)."""
@@ -1728,9 +1692,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         complete a sign-in the person never started (login CSRF)."""
         if get_settings().auth_mode != auth.MODE_KEYCLOAK:
             return RedirectResponse("/", status_code=SEE_OTHER)
-        if principal_of(request).has_any_role and getattr(
-            request.state, "principal", None
-        ):
+        if getattr(request.state, "principal", None) is not None:
             return RedirectResponse("/", status_code=SEE_OTHER)
         try:
             provider = _provider()
@@ -1798,7 +1760,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         username = str(claims.get("preferred_username") or claims.get("username") or "")
         if not user_id or not username:
             return _login_failed(request, "the login service named no user.", 400)
-        roles = auth.roles_from_claims(claims)
         token, token_hash = auth.new_session_token()
         with repo.session(runtime.db_path) as conn:
             repo.upsert_user(
@@ -1807,16 +1768,15 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 username=username,
                 email=claims.get("email"),
                 display_name=claims.get("name"),
-                roles=" ".join(roles),
+                # ST-54: no roles. The column stays so the pre-ST-54 code
+                # still reads this row; nothing reads it now.
+                roles="",
             )
             repo.create_session(
                 conn,
                 token_hash=token_hash,
                 user_id=user_id,
                 expires_at=auth.session_expiry(),
-            )
-            repo.record_activity(
-                conn, user_id=user_id, username=username, action="signed in"
             )
         response = RedirectResponse("/", status_code=SEE_OTHER)
         response.set_cookie(
@@ -1839,13 +1799,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         if token:
             with repo.session(runtime.db_path) as conn:
                 repo.delete_session(conn, auth.hash_token(token))
-                if not principal.unrestricted:
-                    repo.record_activity(
-                        conn,
-                        user_id=principal.id,
-                        username=principal.username,
-                        action="signed out",
-                    )
         if not principal.unrestricted:
             # A shared machine: the next person to sign in must not find
             # the previous one's conversation in memory.
@@ -1875,73 +1828,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         response = RedirectResponse(target, status_code=SEE_OTHER)
         response.delete_cookie(auth.SESSION_COOKIE, path="/")
         return response
-
-    @app.get("/admin", response_class=HTMLResponse)
-    def admin_route(request: Request) -> Response:
-        """Who may use Sanad, what they hold, and what has been done."""
-        if not principal_of(request).is_admin:
-            return _refuse_action(runtime, request)
-        return templates.TemplateResponse(
-            request,
-            "admin.html",
-            {
-                **_shell_context(runtime, request),
-                # NOT the shell context's empty list: that exists for pages
-                # with nobody signed in. Seen in a real browser, 2026-09-15:
-                # an admin on this page, with a workspace existing, got a
-                # header saying "no workspace yet", a disabled selector and
-                # a disabled Chat link telling them to create one.
-                "workspaces": visible_options(runtime, request),
-                "active": _active(runtime, request),
-                "current_screen": "admin",
-                "people": admin_screen.people(db_path=runtime.db_path),
-                "activity": admin_screen.activity(db_path=runtime.db_path),
-                "workspaces_all": screen.workspace_options(db_path=runtime.db_path),
-            },
-        )
-
-    @app.post("/admin/grants")
-    async def admin_grants_route(request: Request) -> Response:
-        """Set one person's workspaces to exactly what was ticked."""
-        if not principal_of(request).is_admin:
-            return _refuse_action(runtime, request)
-        form = await _form(request, multi=True)
-        user_id = (form.get("user_id") or [""])[0]
-        wanted = set(form.get("workspace_id") or [])
-        if not user_id:
-            return RedirectResponse("/admin", status_code=SEE_OTHER)
-        added, removed = admin_screen.set_grants(
-            user_id=user_id, workspace_ids=wanted, db_path=runtime.db_path
-        )
-        # The action names come from admin_screen, which resolves `detail`
-        # to a username for exactly these: one list, not two in step by hand.
-        for workspace_id in added:
-            _log_activity(runtime, request, admin_screen.GRANTED_ACCESS,
-                          workspace_id=workspace_id, detail=user_id)
-        for workspace_id in removed:
-            _log_activity(runtime, request, admin_screen.REVOKED_ACCESS,
-                          workspace_id=workspace_id, detail=user_id)
-            # S6, law 09-08 (cold review): a revoked workspace's stored
-            # transcript quotes passages this person should no longer
-            # hold, so it leaves with the grant -- not just their access.
-            runtime.delete_workspace_history(user_id, workspace_id)
-        return RedirectResponse("/admin", status_code=SEE_OTHER)
-
-    @app.post("/admin/people/{user_id}/sign-out")
-    def admin_sign_out_route(request: Request, user_id: str) -> Response:
-        """End every session this person has, and drop their transcripts,
-        in memory AND stored (S6 saved chat history).
-
-        Also the law 09-08 answer for "take this person's data out of the
-        running process": what is left afterwards is their account row and
-        the activity log, which records actions and never questions."""
-        if not principal_of(request).is_admin:
-            return _refuse_action(runtime, request)
-        with repo.session(runtime.db_path) as conn:
-            repo.delete_sessions_for_user(conn, user_id)
-        runtime.delete_all_history(user_id)
-        _log_activity(runtime, request, admin_screen.SIGNED_OUT_EVERYWHERE, detail=user_id)
-        return RedirectResponse("/admin", status_code=SEE_OTHER)
 
     @app.get("/chat/messages", response_class=HTMLResponse)
     def messages(request: Request) -> HTMLResponse:
@@ -2055,9 +1941,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         works with scripting off; deleting is the POST its own form sends
         -- this GET never changes anything (the ConfirmDialog pattern of
         UX spec 5, 7.2)."""
-        denied = _no_role_page(request)
-        if denied is not None:
-            return denied
         conversation = _own_conversation(request, conversation_id)
         if conversation is None:
             return _no_such_conversation()
@@ -2067,9 +1950,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/chat/conversations/{conversation_id}/rename")
     async def rename_conversation_route(request: Request, conversation_id: str) -> Response:
-        denied = _no_role_page(request)
-        if denied is not None:
-            return denied
         if _own_conversation(request, conversation_id) is None:
             return _no_such_conversation()
         form = await _form(request)
@@ -2091,9 +1971,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/chat/conversations/{conversation_id}/delete")
     def delete_conversation_route(request: Request, conversation_id: str) -> Response:
-        denied = _no_role_page(request)
-        if denied is not None:
-            return denied
         if _own_conversation(request, conversation_id) is None:
             return _no_such_conversation()
         runtime.delete_conversation(principal_of(request).id, conversation_id)
@@ -2107,9 +1984,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         `confirm_remove_document` -- a real page, one action, one way
         back -- and, like those, a GET here never deletes anything; only
         the POST below does."""
-        denied = _no_role_page(request)
-        if denied is not None:
-            return denied
         return templates.TemplateResponse(
             request, "chat_history_delete_confirm.html", _ws_context(runtime, request)
         )
@@ -2123,9 +1997,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         to delete, so this is consistency rather than a hole -- and "the
         confirmation page is guarded" is exactly the reasoning that leaves
         an action unguarded (review, 2026-09-16)."""
-        denied = _no_role_page(request)
-        if denied is not None:
-            return denied
         runtime.delete_all_history(principal_of(request).id)
         return RedirectResponse("/", status_code=SEE_OTHER)
 
@@ -2242,7 +2113,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         moved = chosen is not None and chosen != (
             _active(runtime, request).id if _active(runtime, request) else None
         )
-        runtime.active_workspace_id = chosen
+        runtime.set_active(principal_of(request).id, chosen)
         return RedirectResponse(
             "/?moved=1" if moved else "/", status_code=SEE_OTHER
         )
@@ -2280,9 +2151,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         tell they are reading the wrong document's section."""
         # S6: this person's transcript, never anyone else's -- the passage
         # a card opens must come from the answer the SAME reader was given.
-        denied = _no_role_page(request)
-        if denied is not None:
-            return denied
         conversation = _own_conversation(request, conversation_id)
         messages = conversation.messages if conversation else []
         card = None
@@ -2305,9 +2173,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
     @app.get("/workspaces", response_class=HTMLResponse)
     def workspaces_screen_route(request: Request) -> HTMLResponse:
         """S2 (ST-28): the workspace list, the detail region, Sync."""
-        denied = _no_role_page(request)
-        if denied is not None:
-            return denied
         return templates.TemplateResponse(
             request, "workspaces.html", _ws_context(runtime, request)
         )
@@ -2323,26 +2188,50 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         page, and without the same check this poll target handed the same
         person the workspace name, its folder path and its file table
         (security review, 2026-09-16)."""
-        denied = _no_role_page(request)
-        if denied is not None:
-            return denied
         return templates.TemplateResponse(
             request, "_workspace_detail.html", _ws_context(runtime, request)
         )
 
     @app.post("/workspaces")
     async def create_workspace_route(request: Request) -> Response:
-        if not principal_of(request).may_manage_workspaces():
-            return _refuse_action(runtime, request)
+        """ST-54: anyone signed in may create a workspace, and owns it.
+        In the login-free modes it is created SHARED (no owner): one
+        unrestricted person sees everything anyway, and a corpus built on
+        a laptop stays readable if the same database later runs with
+        accounts on."""
+        principal = principal_of(request)
         form = await _form(request)
         submitted = {
             "name": form.get("name", ""),
             "folder_path": form.get("folder_path", ""),
             "legal_flag": form.get("legal_flag") == "on",
         }
+        # WITH ACCOUNTS ON, THE SERVER PICKS THE FOLDER (cold review of
+        # #148). A typed path let anyone who signed up point a workspace
+        # they own at any folder the server can reach -- the shared demo's
+        # included -- then download, upload into or delete its files. A
+        # posted `folder_path` is ignored; the workspace gets its own empty
+        # folder under `managed_folder_root()`, filled by browser uploads.
+        # The login-free modes keep the typed path: that is one person on
+        # their own machine, pointing Sanad at their own files.
+        new_id = None
+        managed = None
+        if not principal.unrestricted:
+            new_id = repo.new_id()
+            managed = workspaces.managed_folder_root(runtime.db_path) / new_id
+            managed.mkdir(parents=True, exist_ok=False)
+            submitted["folder_path"] = str(managed)
         try:
-            created = workspaces.create_workspace(db_path=runtime.db_path, **submitted)
+            created = workspaces.create_workspace(
+                db_path=runtime.db_path,
+                owner_user_id=None if principal.unrestricted else principal.id,
+                workspace_id=new_id,
+                **submitted,
+            )
         except workspaces.WorkspaceError as exc:
+            if managed is not None:
+                managed.rmdir()
+                submitted["folder_path"] = ""
             return templates.TemplateResponse(
                 request,
                 "workspaces.html",
@@ -2353,12 +2242,19 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
                 },
                 status_code=422,
             )
-        runtime.active_workspace_id = created.id
+        except Exception:
+            # Any other failure (a locked database, say) must not leave an
+            # empty folder behind. `rmdir` refuses a non-empty folder, so
+            # this can never delete a file.
+            if managed is not None:
+                managed.rmdir()
+            raise
+        runtime.set_active(principal.id, created.id)
         return RedirectResponse(f"/workspaces?ws={created.id}", status_code=SEE_OTHER)
 
     @app.post("/workspaces/{workspace_id}/rename")
     async def rename_workspace_route(request: Request, workspace_id: str) -> Response:
-        if not principal_of(request).may_manage_workspaces():
+        if not _may_manage(request, workspace_id):
             return _refuse_action(runtime, request)
         form = await _form(request)
         try:
@@ -2381,7 +2277,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/workspaces/{workspace_id}/legal-flag")
     async def legal_flag_route(request: Request, workspace_id: str) -> Response:
-        if not principal_of(request).may_manage_workspaces():
+        if not _may_manage(request, workspace_id):
             return _refuse_action(runtime, request)
         form = await _form(request)
         try:
@@ -2402,9 +2298,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         it on."""
         # The POST that deletes checks this; this GET did not, and it
         # prints the workspace's NAME (review 2026-09-15).
-        if not principal_of(request).may_manage_workspaces() or not _may_see(
-            request, workspace_id
-        ):
+        if not _may_manage(request, workspace_id):
             return _refuse_action(runtime, request)
         try:
             target = workspaces.get_workspace(workspace_id=workspace_id, db_path=runtime.db_path)
@@ -2418,7 +2312,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
 
     @app.post("/workspaces/{workspace_id}/delete")
     def delete_workspace_route(request: Request, workspace_id: str) -> Response:
-        if not principal_of(request).may_manage_workspaces():
+        if not _may_manage(request, workspace_id):
             return _refuse_action(runtime, request)
 
         def refused(message: str) -> Response:
@@ -2470,8 +2364,7 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         runtime.sync_errors.pop(workspace_id, None)
         runtime.last_sync_run_id.pop(workspace_id, None)
         runtime.forget_workspace_conversations(workspace_id)
-        if runtime.active_workspace_id == workspace_id:
-            runtime.active_workspace_id = None
+        runtime.forget_active(workspace_id)
         return RedirectResponse("/workspaces", status_code=SEE_OTHER)
 
     @app.post("/workspaces/{workspace_id}/sync")
@@ -2484,7 +2377,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         clicked sees it; see that method for why the claim moved here."""
         if not _may_manage(request, workspace_id):
             return _refuse_action(runtime, request)
-        _log_activity(runtime, request, "started a sync", workspace_id=workspace_id)
         try:
             runtime.start_sync(workspace_id)
         except sync.EvidenceOnlyError as exc:
@@ -2557,13 +2449,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             )
         except documents.DocumentError as exc:
             return refused(exc.key, exc.status, **exc.params)
-        _log_activity(
-            runtime,
-            request,
-            "uploaded a document",
-            workspace_id=workspace_id,
-            detail=saved.file_name,
-        )
         key = "docs.upload.replaced" if saved.replaced else "docs.upload.saved"
         return JSONResponse(
             status_code=201,
@@ -2635,13 +2520,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             return RedirectResponse("/workspaces", status_code=SEE_OTHER)
         except documents.DocumentError as exc:
             return RedirectResponse(f"{base}&doc_error={exc.key}", status_code=SEE_OTHER)
-        _log_activity(
-            runtime,
-            request,
-            "removed a document",
-            workspace_id=workspace_id,
-            detail=removed,
-        )
         with contextlib.suppress(sync.SyncInProgressError, sync.EvidenceOnlyError):
             runtime.start_sync(workspace_id)
         return RedirectResponse(
@@ -2653,9 +2531,6 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
         """S3 (ST-34): the list of evaluation runs `scripts/run_evaluation.py`
         has already written. Read-only -- see ui/reports_screen.py for why
         there is no "run now" action here."""
-        denied = _no_role_page(request)
-        if denied is not None:
-            return denied
         return templates.TemplateResponse(
             request, "reports.html", _reports_context(runtime, request)
         )
@@ -2744,7 +2619,7 @@ def _start(
     so it is in the history list before the answer arrives."""
     options = visible_options(runtime, request)
     if workspace_override and any(opt.id == workspace_override for opt in options):
-        runtime.active_workspace_id = workspace_override
+        runtime.set_active(principal_of(request).id, workspace_override)
 
     active = _active(runtime, request)
     if active is None:
@@ -2752,7 +2627,7 @@ def _start(
             return _start_routing(runtime, request, question, options)
         return RedirectResponse("/", status_code=SEE_OTHER)
     principal = principal_of(request)
-    if not principal.may_ask(active.id, _granted_ids(runtime, principal)):
+    if not may_see(runtime, request, active.id):
         # Unreachable through the screen -- a workspace this person may not
         # use is not in `options` and so cannot be active -- and refused
         # anyway, because "unreachable through the screen" is a statement

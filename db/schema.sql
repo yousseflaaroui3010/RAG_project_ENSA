@@ -17,12 +17,23 @@
 -- destructive statement (DROP, DELETE, TRUNCATE) against real data:
 -- REQUIRES-HUMAN-AUTHORIZATION.
 
+-- ST-54 (YL's ruling, 2026-09-18): `owner_user_id` is the person who
+-- created the workspace. NULL means a SHARED workspace -- every one that
+-- existed before ST-54, like the live demo's -- which every signed-in
+-- person may read and ask, and nobody may change. Deliberately NOT a
+-- foreign key to app_user: the login-free modes own everything as the
+-- literal "local", which is never an app_user row, and a cascade or
+-- SET NULL on account deletion would turn a private workspace PUBLIC. A
+-- deleted account's workspaces stay private and simply unreachable.
+-- Databases made before ST-54 get the column from
+-- `db/repo.py::_migrate_workspace_owner`.
 CREATE TABLE IF NOT EXISTS workspace (
   id             TEXT    PRIMARY KEY,
   name           TEXT    NOT NULL UNIQUE,
   folder_path    TEXT    NOT NULL,
   legal_flag     INTEGER NOT NULL DEFAULT 0,
-  created_at     TEXT    NOT NULL
+  created_at     TEXT    NOT NULL,
+  owner_user_id  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS document (

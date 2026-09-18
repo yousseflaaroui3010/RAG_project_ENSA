@@ -12,7 +12,10 @@
         data-return-url="/workspaces?ws={{ target.id }}">
   <h1>{{ th('docs.del.title_html', name=file_name) }}</h1>
   <p>{{ t('docs.del.body') }}</p>
-  <p class="mono error__value">{{ target.folder_path }}</p>
+  {# ST-54: server paths only without accounts. #}
+  {% if asks_folder_path %}
+    <p class="mono error__value">{{ target.folder_path }}</p>
+  {% endif %}
   <form method="post" action="/workspaces/{{ target.id }}/documents/{{ file_name | urlencode }}/remove">
     <button class="btn btn--primary" type="submit">{{ t('docs.del.yes') }}</button>
   </form>
