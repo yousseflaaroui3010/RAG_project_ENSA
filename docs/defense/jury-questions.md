@@ -117,10 +117,13 @@ evaluation. Where both are listed, the first answers and the second adds.
     questions as Partial.
 24. **Is it accessible?** (MB) Keyboard-only use, visible focus, contrast
     above 4.5:1 in both themes, reduced motion, right-to-left mirroring:
-    35 of 41 manual QA rows pass. The other 6 needed a person listening with
-    a screen reader, and we dropped that check from the plan: say so plainly.
-    The markup a screen reader relies on (live regions, labels, sort state)
-    is there and was audited automatically -- but nobody listened.
+    35 of the 42 manual QA rows pass and 7 were descoped: 6 needed a person
+    listening with a screen reader, which we decided not to do, and F-09 was
+    out of scope for V1. Say plainly that this overrides part of what we
+    signed (the PRD asks for status changes announced to assistive tech) and
+    that it was our decision. The markup a screen reader relies on (live
+    regions, labels, sort state) is there and was audited automatically --
+    but nobody listened, and only sampled keyboard paths were walked.
 25. **What is the API for?** (YL) The same engine through 9 endpoints under
     a signed OpenAPI contract, with tests that fail if the code drifts from
     it.

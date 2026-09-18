@@ -122,11 +122,11 @@ treated as a pass.
 |---|---|
 | Passed rows | 35 |
 | Failed rows | 0 |
-| Blocked rows | 6 |
+| Descoped rows | 7 (the six screen-reader rows, by YL's ruling of 2026-09-18; F-09, descoped earlier for V1) |
 | Sev1 defects | 0 |
 | Sev2 defects | 0 open, 7 closed |
 | Sev3 defects | 0 |
 | Tester signature and date | Closed 2026-09-18 without the screen-reader rows, which were dropped from the plan by YL's ruling |
-| Release decision | Released (v1.0.0, v1.0.1) with the 6 screen-reader rows pending (DECISIONS 2026-09-12). On 2026-09-18 YL dropped those rows from the plan for both team members (DECISIONS); ST-38 closes on the 35 rows that pass. The signed WCAG 2.2 AA requirement is unchanged: the rows were a way of checking it by ear, not the requirement itself |
+| Release decision | Released (v1.0.0, v1.0.1) with the 6 screen-reader rows pending (DECISIONS 2026-09-12). On 2026-09-18 YL dropped those rows from the plan for both team members (DECISIONS); ST-38 closes on the 35 rows that pass. That is an override of part of signed ST-38 and PRD line 222, recorded as such in DECISIONS -- not a signed checklist |
 
-ST-38 is not complete. One human hearing pass remains.
+ST-38 is closed on 35 passing rows out of 42, by YL's ruling of 2026-09-18, not by a signature. That ruling overrides part of signed ST-38 (its keyboard-only pass and its "Checklist signed with dates" exit gate) and PRD line 222 ("status changes announced to assistive tech"); see DECISIONS 2026-09-18. It must not be described as a signed checklist.
