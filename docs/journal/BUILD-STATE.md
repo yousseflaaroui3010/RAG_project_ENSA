@@ -1,6 +1,59 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-18, SCREEN-READER PASS DROPPED (read this block first)
+## STATE AT 2026-09-18, ST-53 PART A: MANY CONVERSATIONS (read this block first)
+
+**What changed for a person.** A chat is no longer one transcript per
+workspace. Every conversation has its own id, carried in the address
+(`/?c=<id>`), so a signed-in person sees a plain list of their past
+conversations in this workspace, opens any of them, renames or deletes one
+(`/chat/conversations/<id>`), and New conversation keeps the old one. The
+title is the first question. Without sign-in (none, password) the list is
+hidden and New conversation still replaces the chat on screen (YL's ruling).
+One answer may run per conversation, so several can run at once.
+
+**Where it lives.** `db/schema.sql` (table `conversation`), `db/repo.py`
+(plain queries that always match the owner, plus the one-time move from
+`chat_history`, which is then DROPPED -- undo plan in DECISIONS),
+`chat_history.py` (retention, titles, rename rules), `app.py` (`Runtime`
+store keyed by conversation id, `_resolve_conversation`, the routes),
+`ui/templates/chat.html` (the list), `conversation_manage.html` (rename and
+delete), and the conversation id on every chat form and the poll.
+
+**Proof.** Full suite: **1344 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose,
+one at a time, and caught by a test: **26 of 26** (17 first, 8 for the first review's fixes, 1 for the second's). Second cold review: 0 blocking; its one should-fix (a double-clicked workspace suggestion on the routing screen started two answers) is fixed, and the cross-person id race it noted is closed (owner check live and
+stored, workspace check, grant check, no-login replace, signed-in keep, list
+hidden without sign-in, title never overwritten, old table dropped, title
+from first question, save skips a deleted chat, delete inside the lock, `?c=`
+opens that chat, `?c=new` is empty, a follow-up continues the named chat,
+admin revoke takes every chat in the workspace).
+
+**Cold review of #147: 2 blocking, 7 worth fixing -- all handled.**
+Fixed: the title rule had leaked into the upgrade step and got it wrong
+(migrated titles now start empty and fill at the next save); the passage
+test passed with its guard removed (now uses a real source card, with a
+positive control); a double-clicked first Send started two paid answers
+(the empty chat's page now proposes one id both posts share); the poll
+could show a different chat than the Send continued; the passage page's
+Back lost the chat; one orphan old row could stop every write; cancel
+skipped the grant check. Recorded in `docs/known-issues.md`, not fixed:
+memory growth, retention for chats already open, the one active workspace
+shared by everyone (older than ST-53), the English-only 404.
+
+**Not done yet, and not claimed:** the slide-out drawer (part B), the header,
+footer and chat layout (part C), and any check on the live site. **Before
+this merges, back up the live database** -- the migration drops a table.
+From `C:\sanad-railway`:
+`MSYS_NO_PATHCONV=1 railway ssh --service sanad-web -- cp /app/data/sanad.db /app/data/sanad.db.bak-2026-09-18`
+
+**A working hazard found today:** VS Code's auto-save (`files.autoSave:
+afterDelay`) wrote stale open tabs over edits made from outside the editor
+three times (db/schema.sql, ui/conversation.py, app.py, a test file and a
+defense doc). Close or revert those tabs before editing from the terminal,
+and commit often.
+
+---
+
+## STATE AT 2026-09-18, SCREEN-READER PASS DROPPED (history now; the ST-53 block above is current)
 
 **YL's ruling, for YL and MB: the human screen-reader pass is out of the
 plan.** ST-38's six blocked rows (S1-LOAD-01, S2-NORMAL-02, S3-LOAD-01,

@@ -32,6 +32,7 @@ from agent.ports import AgentPorts
 from app import Runtime, create_app
 from config import get_settings
 from db import repo
+from tests.conversations import live_conversation
 from tests.fake_chat import ScriptedChat
 from tests.fake_encoders import install as install_fake_encoders
 from ui.ports import build_ports
@@ -238,6 +239,52 @@ def test_proposal_buttons_isolate_each_workspace_name(three_workspaces):
     assert "Yes, use <bdi>Manuals</bdi>" in page
 
 
+def test_a_double_clicked_confirmation_starts_one_answer_not_two(three_workspaces):
+    """Second cold review of ST-53: the confirmation buttons carried no
+    conversation id, so two quick clicks each made their own conversation
+    and each started a PAID answer. Both clicks now carry the page's one
+    proposed id, and the second finds the first's answer running."""
+    from tests.conversations import conversation_id_on
+    from tests.integration.test_s1_chat_screen import Gate, _hold
+
+    build, ws, db_path = three_workspaces
+    client, runtime = build()
+    _choose_routing(client)
+    page = client.post(
+        "/chat/ask", data={"question": QUESTION_PYTHON}, follow_redirects=True
+    ).text
+    proposed = conversation_id_on(page)
+    assert proposed, "the routing page must propose an id for its buttons"
+    button = next(
+        form for form in page.split("<form")
+        if f'name="workspace_id" value="{ws["manuals"].id}"' in form
+    )
+    assert f'name="conversation_id" value="{proposed}"' in button, (
+        "the confirmation button itself must carry the proposed id"
+    )
+    gate = Gate()
+    _hold(runtime, gate, "summarize")
+    click = {
+        "question": QUESTION_PYTHON,
+        "workspace_id": ws["manuals"].id,
+        "conversation_id": proposed,
+    }
+
+    client.post("/chat/ask", data=click, follow_redirects=False)
+    assert gate.reached.wait(WAIT), "the first answer never started"
+    client.post("/chat/ask", data=click, follow_redirects=False)
+    gate.release.set()
+    conversation = live_conversation(runtime, ws["manuals"].id)
+    for _ in range(WAIT * 100):
+        if not conversation.busy:
+            break
+        threading.Event().wait(0.01)
+
+    assert [c.id for c in runtime.conversations.values()] == [proposed]
+    with repo.session(db_path) as conn:
+        assert [row[0] for row in conn.execute("SELECT id FROM conversation")] == [proposed]
+
+
 def test_confirming_answers_from_the_proposed_workspace_and_selects_it(three_workspaces):
     build, ws, _db = three_workspaces
     client, runtime = build()
@@ -251,7 +298,7 @@ def test_confirming_answers_from_the_proposed_workspace_and_selects_it(three_wor
     )
     assert confirm.status_code == 303
 
-    conversation = runtime.conversation(ws["manuals"].id)
+    conversation = live_conversation(runtime, ws["manuals"].id)
     for _ in range(WAIT * 100):
         if not conversation.busy:
             break
@@ -286,7 +333,7 @@ def test_a_secondary_candidate_button_answers_from_that_workspace_instead(three_
         data={"question": QUESTION_PYTHON, "workspace_id": secondary_id},
         follow_redirects=False,
     )
-    conversation = runtime.conversation(secondary_id)
+    conversation = live_conversation(runtime, secondary_id)
     for _ in range(WAIT * 100):
         if not conversation.busy:
             break
