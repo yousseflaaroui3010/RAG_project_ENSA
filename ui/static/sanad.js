@@ -376,10 +376,14 @@
       historyPanel.classList.toggle("is-open", open);
       historyToggle.setAttribute("aria-expanded", open ? "true" : "false");
       if (open) {
-        var first = historyPanel.querySelector("a, button");
-        if (first) {
-          first.focus();
-        }
+        // After the browser has made the panel visible: focusing a still
+        // hidden element does nothing, silently.
+        window.requestAnimationFrame(function () {
+          var first = historyPanel.querySelector("a, button");
+          if (first) {
+            first.focus();
+          }
+        });
       }
     }
 
@@ -406,9 +410,13 @@
     // No focus trap, so focus may leave -- and then the panel closes, so a
     // keyboard user is never focused on something the panel hides (WCAG
     // 2.4.11; review of #151).
-    historyPanel.addEventListener("focusout", function (event) {
-      var next = event.relatedTarget;
-      if (next && !historyPanel.contains(next) && next !== historyToggle) {
+    document.addEventListener("focusin", function (event) {
+      var next = event.target;
+      if (
+        historyPanel.classList.contains("is-open") &&
+        !historyPanel.contains(next) &&
+        next !== historyToggle
+      ) {
         setHistory(false);
       }
     });
