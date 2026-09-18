@@ -17,7 +17,6 @@ this module.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import uuid
 from collections.abc import Iterator, Sequence
@@ -920,9 +919,11 @@ def upsert_conversation(
 
     The FIRST write inserts the row, with `title` and `created_at`
     (= `updated_at`). Every later write for the same id replaces only
-    `payload` and `updated_at`: the title a person gave it by renaming
-    must survive the next answer being saved, and `created_at` is when the
-    conversation began, not when it last changed. `ON CONFLICT(id) DO
+    `payload` and `updated_at` -- plus the title ONLY while it is still
+    NULL (a migrated row, or one saved before any question): the title a
+    person gave it by renaming must survive the next answer being saved,
+    and `created_at` is when the conversation began, not when it last
+    changed. `ON CONFLICT(id) DO
     UPDATE` for the same reason `upsert_answer_feedback` uses it: this runs
     on every settled answer, not only the first.
 
@@ -934,7 +935,8 @@ def upsert_conversation(
         "(id, user_id, workspace_id, title, payload, created_at, updated_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(id) DO UPDATE SET "
-        "payload = excluded.payload, updated_at = excluded.updated_at "
+        "payload = excluded.payload, updated_at = excluded.updated_at, "
+        "title = COALESCE(conversation.title, excluded.title) "
         "WHERE conversation.user_id = excluded.user_id "
         "AND conversation.workspace_id = excluded.workspace_id",
         (conversation_id, user_id, workspace_id, title, payload, updated_at, updated_at),
@@ -1024,23 +1026,6 @@ def delete_conversations_older_than(conn: sqlite3.Connection, *, cutoff: str) ->
     return cursor.rowcount
 
 
-def _first_question(payload: str) -> str | None:
-    """The first question a stored transcript contains, for a migrated
-    row's title. Deliberately tolerant: a payload this cannot read gets no
-    title (NULL, shown as "untitled") rather than failing the migration --
-    losing a title is recoverable by renaming, losing the migration is not.
-    Reads the raw JSON rather than `ui.conversation`, which this module
-    must not import (db/ sits below ui/)."""
-    try:
-        data = json.loads(payload)
-        for message in data.get("messages", []):
-            if message.get("kind") == "user" and str(message.get("text", "")).strip():
-                return str(message["text"])
-    except (ValueError, TypeError, AttributeError):
-        return None
-    return None
-
-
 def _migrate_chat_history_to_conversation(conn: sqlite3.Connection) -> None:
     """ST-53: move every pre-ST-53 `chat_history` row into `conversation`,
     then DROP `chat_history` (YL's ruling, DECISIONS 2026-09-18).
@@ -1049,9 +1034,23 @@ def _migrate_chat_history_to_conversation(conn: sqlite3.Connection) -> None:
     inside `ensure_schema`'s `BEGIN IMMEDIATE`, and `DROP TABLE` is
     transactional in SQLite, so the copy, the check and the drop commit
     together or not at all: a failure anywhere leaves `chat_history`
-    exactly as it was. The check refuses to drop unless every source row
-    has a copy -- a table that cannot be undropped is only dropped once
-    its contents provably exist elsewhere.
+    exactly as it was.
+
+    TITLES ARE COPIED AS NULL, on purpose (cold review). What a title is
+    -- the first question, whitespace collapsed, cut to 80 characters -- is
+    a rule, and rules live in `chat_history.py`, not here. A migrated
+    conversation shows as untitled until its next save fills the title in
+    (`upsert_conversation` sets a NULL title, never overwrites a real one)
+    or the person renames it. An earlier version derived the title here and
+    got the rule wrong: a 900-character first question became a
+    900-character title the rename box could not even hold.
+
+    A ROW WHOSE WORKSPACE NO LONGER EXISTS IS NOT COPIED. It could only
+    exist if foreign keys were ever off; the cascade would already have
+    removed it otherwise, and nothing could ever open it. Copying it would
+    raise on the foreign key and, because `ensure_schema` runs before every
+    write, stop every write in the app until the database was fixed by
+    hand (cold review). It goes with the table instead.
 
     Idempotent: once the table is gone this returns at the first line, so
     it costs one catalogue lookup on every later `ensure_schema`.
@@ -1065,24 +1064,24 @@ def _migrate_chat_history_to_conversation(conn: sqlite3.Connection) -> None:
     if exists is None:
         return
     rows = conn.execute(
-        "SELECT user_id, workspace_id, payload, updated_at FROM chat_history"
+        "SELECT h.user_id, h.workspace_id, h.payload, h.updated_at FROM chat_history h "
+        "WHERE EXISTS (SELECT 1 FROM workspace w WHERE w.id = h.workspace_id)"
     ).fetchall()
     for row in rows:
-        title = _first_question(row[2])
         conn.execute(
             "INSERT INTO conversation "
             "(id, user_id, workspace_id, title, payload, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (new_id(), row[0], row[1], title, row[2], row[3], row[3]),
+            "VALUES (?, ?, ?, NULL, ?, ?, ?)",
+            (new_id(), row[0], row[1], row[2], row[3], row[3]),
         )
     copied = conn.execute(
-        "SELECT COUNT(*) FROM conversation c WHERE EXISTS ("
-        "SELECT 1 FROM chat_history h WHERE h.user_id = c.user_id "
-        "AND h.workspace_id = c.workspace_id AND h.payload = c.payload)"
+        "SELECT COUNT(*) FROM chat_history h WHERE EXISTS ("
+        "SELECT 1 FROM conversation c WHERE c.user_id = h.user_id "
+        "AND c.workspace_id = h.workspace_id AND c.payload = h.payload)"
     ).fetchone()[0]
-    if copied < len(rows):
+    if copied != len(rows):
         raise RuntimeError(
-            f"chat_history migration copied {copied} of {len(rows)} rows; "
+            f"chat_history migration found {copied} of {len(rows)} rows copied; "
             "refusing to drop the source table"
         )
     conn.execute("DROP TABLE chat_history")

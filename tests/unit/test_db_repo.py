@@ -880,13 +880,59 @@ def test_the_migration_copies_every_old_row_then_drops_the_old_table(tmp_path):
         connection.close()
     assert set(rows) == {("alice", ids["hr"]), ("bob", ids["hr"]), ("alice", ids["legal"])}
     moved = rows[("alice", ids["hr"])]
-    assert moved["title"] == "Durée du préavis ?", "the title is the FIRST question"
+    assert all(row["title"] is None for row in rows.values()), (
+        "titles are a chat_history.py rule; the migration copies them as NULL"
+    )
     assert moved["payload"] == _payload("Durée du préavis ?", "Et pour un cadre ?")
     assert moved["created_at"] == moved["updated_at"] == "2026-09-01T10:00:00+00:00"
-    assert rows[("bob", ids["hr"])]["title"] is None, "no question, no title"
-    assert rows[("alice", ids["legal"])]["title"] is None, "an unreadable payload still moves"
     assert rows[("alice", ids["legal"])]["payload"] == "not json at all"
     assert len({row["id"] for row in rows.values()}) == 3, "every row gets its own id"
+
+
+def test_a_migrated_conversation_gets_its_title_at_its_next_save_and_keeps_it(conn):
+    """Migrated rows start untitled; the next save fills the title once,
+    and a later save (or one after a rename) never replaces it."""
+    ws_id = repo.create_workspace(conn, name="ws-migrated", folder_path="/tmp/wsm")
+    conn.commit()
+    _conversation(conn, "c1", ws_id, title=None)
+
+    _conversation(conn, "c1", ws_id, title="first question")
+    _conversation(conn, "c1", ws_id, title="something else")
+
+    assert repo.get_conversation(conn, conversation_id="c1", user_id="local")["title"] == (
+        "first question"
+    )
+
+
+def test_an_old_row_for_a_deleted_workspace_is_skipped_not_fatal(tmp_path):
+    """A row naming a workspace that no longer exists (possible only with
+    foreign keys once off) must not stop start-up -- ensure_schema runs
+    before every write, so raising here would stop every write."""
+    db_path, ids = _pre_st53_database(tmp_path, [
+        ("alice", "hr", _payload("kept"), "2026-09-01T10:00:00+00:00"),
+    ])
+    connection = repo.get_connection(db_path)
+    try:
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute(
+            "INSERT INTO chat_history (user_id, workspace_id, payload, updated_at) "
+            "VALUES ('alice', 'gone-workspace', 'orphan', '2026-09-01T10:00:00+00:00')"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    repo.ensure_schema(db_path)
+
+    assert "chat_history" not in _tables(db_path)
+    connection = repo.get_connection(db_path)
+    try:
+        moved = [tuple(row) for row in connection.execute(
+            "SELECT workspace_id, payload FROM conversation"
+        )]
+    finally:
+        connection.close()
+    assert moved == [(ids["hr"], _payload("kept"))]
 
 
 def test_the_migration_runs_once_and_later_start_ups_change_nothing(tmp_path):
