@@ -19,13 +19,25 @@ store keyed by conversation id, `_resolve_conversation`, the routes),
 `ui/templates/chat.html` (the list), `conversation_manage.html` (rename and
 delete), and the conversation id on every chat form and the poll.
 
-**Proof.** Full suite: **1336 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose,
-one at a time, and caught by a test: **17 of 17** (owner check live and
+**Proof.** Full suite: **1343 passed, 2 skipped, 1 xfailed**, ruff clean. Rules broken on purpose,
+one at a time, and caught by a test: **25 of 25** (17 first, then 8 for the review fixes below) (owner check live and
 stored, workspace check, grant check, no-login replace, signed-in keep, list
 hidden without sign-in, title never overwritten, old table dropped, title
 from first question, save skips a deleted chat, delete inside the lock, `?c=`
 opens that chat, `?c=new` is empty, a follow-up continues the named chat,
 admin revoke takes every chat in the workspace).
+
+**Cold review of #147: 2 blocking, 7 worth fixing -- all handled.**
+Fixed: the title rule had leaked into the upgrade step and got it wrong
+(migrated titles now start empty and fill at the next save); the passage
+test passed with its guard removed (now uses a real source card, with a
+positive control); a double-clicked first Send started two paid answers
+(the empty chat's page now proposes one id both posts share); the poll
+could show a different chat than the Send continued; the passage page's
+Back lost the chat; one orphan old row could stop every write; cancel
+skipped the grant check. Recorded in `docs/known-issues.md`, not fixed:
+memory growth, retention for chats already open, the one active workspace
+shared by everyone (older than ST-53), the English-only 404.
 
 **Not done yet, and not claimed:** the slide-out drawer (part B), the header,
 footer and chat layout (part C), and any check on the live site. **Before
