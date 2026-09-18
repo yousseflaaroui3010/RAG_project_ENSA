@@ -1,6 +1,25 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
-## STATE AT 2026-09-16, END OF SESSION -- AND WHAT IS NEXT (read this block first)
+## STATE AT 2026-09-18, SCREEN-READER PASS DROPPED (read this block first)
+
+**YL's ruling, for YL and MB: the human screen-reader pass is out of the
+plan.** ST-38's six blocked rows (S1-LOAD-01, S2-NORMAL-02, S3-LOAD-01,
+S3-NORMAL-03, A-02, A-03) are marked Descoped in
+`docs/ST-38-MANUAL-QA-RESULTS.md`, and ST-38 closes on the 35 rows that pass.
+What this does NOT change: the signed UX spec's WCAG 2.2 AA requirement
+(sections 6.4 and 7.4). The rows were a way of checking it by ear, not the
+requirement itself. What must not be claimed afterwards: that a screen reader
+was used (none was), or that a complete both-theme keyboard walk was done
+(A-02 was bundled into the dropped pass; only sampled keyboard paths are
+proven). The defense material now says this plainly instead of "pending".
+
+Everything else in the block below is still current, and the work queue is
+unchanged: ST-53 (chat history, drawer, header, footer, chat layout), then
+rate limiting, then the release run.
+
+---
+
+## STATE AT 2026-09-16, END OF SESSION -- AND WHAT IS NEXT (history now; its NEXT section is still the plan)
 
 **Shipped today, in order:** #138 sign-up (anyone can create an account, they
 arrive as a reader who sees nothing until granted) with the permission holes
@@ -68,8 +87,10 @@ button", "a plain link with no JavaScript") and `ui/templates/base.html` ("a
 button that does nothing without JavaScript is worse than no button"), and in
 the DECISIONS row of 2026-09-05 that chose a plain confirm page over a
 `<dialog>` -- so a drawer that exists only in JS must degrade to something
-usable; and ST-38's six screen-reader rows are still owed
-(`docs/ST-38-MANUAL-QA-RESULTS.md`), so new UI should not add a seventh.
+usable. (ST-38's six screen-reader rows were DROPPED from the plan by YL on
+2026-09-18 -- see the block above this one -- but the signed WCAG 2.2 AA bar
+still stands: keyboard reachability, visible focus and correct labels are
+still required of any new UI.)
 
 One more thing about the signed spec, and it is the shape of the whole
 document rather than one line: it stays as written, and the overrides live

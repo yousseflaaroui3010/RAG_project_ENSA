@@ -8,14 +8,14 @@ treated as a pass.
 | Field | Value |
 |---|---|
 | Date and time | 2026-09-11 |
-| Tester | OpenCode automated checks and real Chrome CDP; human hearing pass pending |
+| Tester | OpenCode automated checks and real Chrome CDP; the human hearing pass was dropped from the plan on 2026-09-18 (DECISIONS) |
 | Commit | `57187cf` (ST-39 fixes), `e9c18a3` (ST-51 API), `6da8003` (ST-05 container), stacked on `b4a11d3` |
 | Branch | `fix/S3-ST-39-evaluation-failures` |
 | Machine and operating system | Windows NT 10.0.19045.0 |
 | Browser and version | Headless Chrome 153.0.8010.36 |
 | Model mode and model | cloud / gemini-3.6-flash |
 | Workspace and corpus version | evaluation workspace `14b81a1d-...`; frozen 40/20 set |
-| Screen reader and version | Blocked: no actual screen-reader hearing pass recorded |
+| Screen reader and version | Descoped 2026-09-18 (YL's ruling for YL and MB: no screen-reader hearing pass); none was used |
 
 ## Evidence
 
@@ -47,7 +47,7 @@ treated as a pass.
 |---|---|---|
 | S1-EMPTY-01 | Pass | 2026-09-11, S1 and B-SHELL: three samples and sources promise |
 | S1-EMPTY-02 | Pass | 2026-09-11, S1: disabled input, visible reason, S2 link |
-| S1-LOAD-01 | Blocked | Visual stages, disabled reason, and Cancel pass in S1; actual announcement hearing is part of A-03 |
+| S1-LOAD-01 | Descoped 2026-09-18 (YL's ruling for YL and MB: no screen-reader hearing pass) | Visual stages, disabled reason, and Cancel pass in S1; the announcement was never heard by a person |
 | S1-ERROR-01 | Pass | 2026-09-11, S1: named error, retry, no final-looking partial answer |
 | S1-NORMAL-01 | Pass | 2026-09-11, S1: user, answer, refusal, and one-question clarification variants |
 | S1-NORMAL-02 | Pass | 2026-09-11, B-SOURCE: Enter opens, marked span present, focus trapped, Escape returns focus |
@@ -61,7 +61,7 @@ treated as a pass.
 | S2-LOAD-01 | Pass | 2026-09-11, S2: real count, usable list, Cancel-after-current-file; remaining files get visible Skipped rows |
 | S2-ERROR-01 | Pass | 2026-09-11, S2: exact missing path, fix hint, no partial ingestion |
 | S2-NORMAL-01 | Pass | 2026-09-11, S2: all six outcomes, five columns, required reasons |
-| S2-NORMAL-02 | Blocked | Keyboard links and `aria-sort` pass; actual sort-state announcement hearing is part of A-03 |
+| S2-NORMAL-02 | Descoped 2026-09-18 (YL's ruling for YL and MB: no screen-reader hearing pass) | Keyboard links and `aria-sort` pass; the sort-state announcement was never heard by a person |
 | S2-NORMAL-03 | Pass | 2026-09-11, S2 and prior Chrome evidence: warning text, native modal trap, Escape return |
 
 ## S3 Reports States
@@ -69,11 +69,11 @@ treated as a pass.
 | ID | Result | Dated evidence or defect |
 |---|---|---|
 | S3-EMPTY-01 | Pass | 2026-09-11, S3: evaluation command shown |
-| S3-LOAD-01 | Blocked | Real Running counter and live updates pass in B-S3; periodic announcement hearing is part of A-03 |
+| S3-LOAD-01 | Descoped 2026-09-18 (YL's ruling for YL and MB: no screen-reader hearing pass) | Real Running counter and live updates pass in B-S3; the periodic announcement was never heard by a person |
 | S3-ERROR-01 | Pass | 2026-09-11, B-S3: question 2 named; question 1 kept; Partial in list/detail |
 | S3-NORMAL-01 | Pass | 2026-09-11, S3 and EVAL: date, workspace, three gates, thresholds, rows, text outcomes |
 | S3-NORMAL-02 | Pass | 2026-09-11, S3: Markdown named before download; complete and Partial exports retain status |
-| S3-NORMAL-03 | Blocked | Semantic table and text labels pass; cell-by-cell screen-reader keyboard navigation is part of A-03 |
+| S3-NORMAL-03 | Descoped 2026-09-18 (YL's ruling for YL and MB: no screen-reader hearing pass) | Semantic table and text labels pass; cell-by-cell screen-reader navigation was never tried |
 
 ## Twelve Failure Cases
 
@@ -97,8 +97,8 @@ treated as a pass.
 | ID | Result | Dated evidence or defect |
 |---|---|---|
 | A-01 | Pass | 2026-09-11, A11Y: every signed text role clears 4.5:1 in both themes |
-| A-02 | Blocked | Visible 3:1 focus and sampled keyboard paths pass; a complete both-theme walk awaits the human A-03 pass |
-| A-03 | Blocked | Live-region markup and changing text are proven; no actual screen-reader hearing pass has run |
+| A-02 | Descoped 2026-09-18 (YL's ruling for YL and MB: no screen-reader hearing pass) | Visible 3:1 focus and SAMPLED keyboard paths pass. A complete both-theme keyboard walk was bundled into the dropped human pass and has NOT been done -- only the sampled paths are claimed |
+| A-03 | Descoped 2026-09-18 (YL's ruling for YL and MB: no screen-reader hearing pass) | Live-region markup and changing text are proven in the markup; nobody listened |
 | A-04 | Pass | 2026-09-11, B-SHELL/B-RTL/B-S3: zero unnamed controls; headings and landmarks recorded |
 | A-05 | Pass | 2026-09-11, reduced-motion Chrome run reports zero animated elements; stage text remains |
 | A-06 | Pass | 2026-09-11, B-RTL: S1-S3 mirror; scroll width equals viewport; mono values stay LTR |
@@ -126,7 +126,7 @@ treated as a pass.
 | Sev1 defects | 0 |
 | Sev2 defects | 0 open, 7 closed |
 | Sev3 defects | 0 |
-| Tester signature and date | Not signed: human screen-reader evidence pending |
-| Release decision | Released (v1.0.0, v1.0.1) with the 6 screen-reader rows still pending, by recorded decision (DECISIONS 2026-09-12); ST-38 is signed when the human pass is done |
+| Tester signature and date | Closed 2026-09-18 without the screen-reader rows, which were dropped from the plan by YL's ruling |
+| Release decision | Released (v1.0.0, v1.0.1) with the 6 screen-reader rows pending (DECISIONS 2026-09-12). On 2026-09-18 YL dropped those rows from the plan for both team members (DECISIONS); ST-38 closes on the 35 rows that pass. The signed WCAG 2.2 AA requirement is unchanged: the rows were a way of checking it by ear, not the requirement itself |
 
 ST-38 is not complete. One human hearing pass remains.

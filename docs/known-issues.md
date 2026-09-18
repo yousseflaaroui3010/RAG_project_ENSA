@@ -45,7 +45,7 @@ breaks a signed gate (G1-G3 pass on the golden set).
 |---|---|
 | Answer traces are shown per answer (F-10) but not persisted (issue #51) | A trace lives as long as the conversation on screen (DECISIONS 2026-09-12) |
 | Sample questions show file names rather than questions | Cosmetic |
-| The six ST-38 screen-reader rows | Open until the human Narrator pass |
+| ~~The six ST-38 screen-reader rows~~ DROPPED 2026-09-18 | YL ruled the human screen-reader pass out of the plan, for YL and MB. Nobody has listened to Sanad with a screen reader; the markup (live regions, labels, `aria-sort`) is in place and was checked by automated audit, not by ear |
 
 
 ## V3 features (S6: streaming, documents, login, dashboard)
