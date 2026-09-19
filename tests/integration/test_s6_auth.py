@@ -1104,6 +1104,29 @@ def test_reports_never_name_a_workspace_this_person_may_not_open(keycloak):
     assert "Hidden Legal" not in page and "QUESTION-IN-HIDDEN-LEGAL" not in page
 
 
+def test_an_empty_reports_page_never_claims_the_server_ran_nothing(keycloak):
+    """Runs exist on the server, but none on a workspace this reader may
+    open. Their page is empty -- and must say "none for YOUR workspaces",
+    not "none on this server", which would be false."""
+    client, _, db_path, _, sign_in = keycloak
+    hidden = workspaces.create_workspace(
+        name="Hidden Legal", folder_path=str(db_path.parent), db_path=db_path,
+        owner_user_id=CURATOR_CLAIMS["sub"],
+    )
+    sign_in(READER_CLAIMS)
+    before = client.get("/reports").text
+    with repo.session(db_path) as conn:
+        repo.insert_eval_run(conn, workspace_id=hidden.id, question_total=1)
+
+    page = client.get("/reports").text
+
+    assert "No evaluation has been run on this server yet" in before
+    assert "No evaluation reports for your workspaces yet" in page
+    assert "No evaluation has been run on this server yet" not in page
+    assert "Hidden Legal" not in page
+    assert "uv run python scripts/run_evaluation.py" in page
+
+
 # --- documents follow the same roles ----------------------------------------
 
 

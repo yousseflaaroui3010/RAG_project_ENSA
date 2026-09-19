@@ -56,23 +56,46 @@ class _GateCounts:
     sources_total: int
 
 
-def _gate_counts(report_path: str | None) -> _GateCounts | None:
-    """Read the gate counts that the database does not store."""
+def _snapshot(report_path: str | None) -> dict | None:
+    """The run's JSON snapshot, or None when it is absent or unreadable."""
     if not report_path:
         return None
     try:
         data = json.loads(Path(report_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _gate_counts(data: dict | None) -> _GateCounts | None:
+    """Read the gate counts that the database does not store."""
+    if data is None:
+        return None
+    try:
         values = (
             data["grounded_pass"],
             data["grounded_total"],
             data["sources_pass"],
             data["sources_total"],
         )
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+    except (KeyError, TypeError):
         return None
     if any(isinstance(value, bool) or not isinstance(value, int) for value in values):
         return None
     return _GateCounts(*values)
+
+
+def _provenance(data: dict | None) -> str | None:
+    """Where the run was measured, when that is NOT simply "here, on this
+    workspace as it stands". A run copied in from another machine carries
+    this note in its snapshot, and every screen that shows the run shows
+    the note: a score presented as this workspace's own when it was
+    measured on a copy would be the dishonest answer this product refuses
+    to give."""
+    value = data.get("provenance") if data is not None else None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
 
 
 @dataclass(frozen=True)
@@ -115,6 +138,9 @@ class ReportSummary:
     grounded_total: int | None = None
     sources_pass: int | None = None
     sources_total: int | None = None
+    # Set only on a run measured somewhere other than this workspace as it
+    # stands -- see `_provenance`.
+    provenance: str | None = None
 
     @property
     def is_running(self) -> bool:
@@ -126,7 +152,8 @@ class ReportSummary:
 
 
 def _summary(row: Any) -> ReportSummary:
-    counts = _gate_counts(row["report_path"])
+    snapshot = _snapshot(row["report_path"])
+    counts = _gate_counts(snapshot)
     status = row["status"]
     completed_count = row["completed_count"]
     question_total = row["question_total"]
@@ -177,6 +204,7 @@ def _summary(row: Any) -> ReportSummary:
         grounded_total=counts.grounded_total if counts is not None else None,
         sources_pass=counts.sources_pass if counts is not None else None,
         sources_total=counts.sources_total if counts is not None else None,
+        provenance=_provenance(snapshot),
     )
 
 
@@ -459,6 +487,8 @@ def export_markdown(detail: ReportDetail) -> str:
         f"Run at: {detail.summary.run_at}",
         f"Overall: {overall}",
     ]
+    if detail.summary.provenance:
+        lines.append(f"Measured on: {detail.summary.provenance}")
     if detail.summary.status != "completed":
         lines.append(
             f"Progress: {detail.summary.completed_count}/{detail.summary.question_total} "

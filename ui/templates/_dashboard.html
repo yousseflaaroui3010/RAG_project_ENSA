@@ -48,6 +48,11 @@
     <p class="muted">
       <a href="/reports/{{ d.latest.id }}">{{ th('dash.lead_html', name=d.latest.workspace_name, when=(d.latest.run_at | when)) }}</a>
     </p>
+    {# The tiles below are this run's scores: a run measured elsewhere
+       says so here, before any number, not only in the table further down. #}
+    {% if d.latest.provenance %}
+      <p data-dash-provenance><strong>{{ t('rd.provenance') }}</strong> <bdi>{{ d.latest.provenance }}</bdi></p>
+    {% endif %}
   </div>
   <div class="dash__tiles">
     {% for g in d.gates %}

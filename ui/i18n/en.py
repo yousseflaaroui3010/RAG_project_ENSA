@@ -279,12 +279,21 @@ MESSAGES: dict[str, str] = {
     "del.yes_html": "Yes, delete <bdi>{name}</bdi>",
     "del.cancel": "Cancel, keep this workspace",
     # ---- S3 Reports ----
-    "rep.empty.title": "No evaluation reports yet",
+    "rep.empty.title": "No evaluation has been run on this server yet",
     "rep.empty.body": (
-        "Reports appear here once the golden-set evaluation has run at least once. "
-        "Run it from a terminal:"
+        "An evaluation grades Sanad's answers against a fixed set of questions, "
+        "and its report appears here. Whoever runs this server starts an "
+        "evaluation from a terminal on that machine:"
+    ),
+    "rep.empty_hidden.title": "No evaluation reports for your workspaces yet",
+    "rep.empty_hidden.body": (
+        "Reports appear here once one of your workspaces has been evaluated. "
+        "Whoever runs this server starts an evaluation from a terminal on that "
+        "machine:"
     ),
     "rep.aria": "Evaluation reports",
+    "rep.provenance": "Measured on a copy — see the report",
+    "rd.provenance": "Where this was measured:",
     "rep.title": "Reports",
     "rep.lead": "Golden-set evaluation runs and the release gates each one met.",
     "rep.caption": "Evaluation runs",

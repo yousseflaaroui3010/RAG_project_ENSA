@@ -15,8 +15,9 @@
     docstring.
   #}
   <section class="panel panel--empty">
-    <h1>{{ t('rep.empty.title') }}</h1>
-    <p>{{ t('rep.empty.body') }}</p>
+    {% set empty_key = 'rep.empty_hidden' if runs_hidden else 'rep.empty' %}
+    <h1>{{ t(empty_key ~ '.title') }}</h1>
+    <p>{{ t(empty_key ~ '.body') }}</p>
     <p class="mono">uv run python scripts/run_evaluation.py --workspace-id &lt;id&gt;</p>
   </section>
 {% else %}
@@ -50,7 +51,8 @@
                  data-report-focus="run-{{ r.id }}"
                  aria-label="{{ t('rep.open_aria', when=(r.run_at | when), name=r.workspace_name) }}">{{ r.run_at | when }}</a>
             </td>
-            <td><bdi{% if is_arabic(r.workspace_name) %} lang="ar"{% endif %}>{{ r.workspace_name }}</bdi></td>
+            <td><bdi{% if is_arabic(r.workspace_name) %} lang="ar"{% endif %}>{{ r.workspace_name }}</bdi>
+              {% if r.provenance %}<br><span class="muted" data-report-provenance="{{ r.id }}">{{ t('rep.provenance') }}</span>{% endif %}</td>
             <td class="mono" data-report-value="{{ r.id }}-grounded">{{ tx(r.groundedness_label) }}</td>
             <td class="mono" data-report-value="{{ r.id }}-refusals">{{ r.refusal_pass }}/{{ r.refusal_total }}</td>
             <td class="mono" data-report-value="{{ r.id }}-sources">{{ r.sources_label }}</td>
