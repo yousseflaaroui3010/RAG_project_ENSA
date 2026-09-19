@@ -8,8 +8,8 @@ roles (removed by hand with kcadm, verified by listing the realm's roles and
 the default role's composites). Live database backed up first:
 `/app/data/sanad.db.bak-2026-09-19-cleanup`. Undo plan in DECISIONS.
 
-Still open: `.env.example` documents `AUTH_ROLE_PREFIX` (only a person can
-edit that file); Railway's `X-Forwarded-For` shape unverified.
+Still open: Railway's `X-Forwarded-For` shape unverified. (`AUTH_ROLE_PREFIX`
+is gone from `.env.example` and `config.py` since #154.)
 
 ---
 
@@ -26,9 +26,9 @@ the only miss is g-in-033, refused in both runs. Report committed at
 workspaces, #149 create from a folder, #150 rate limits, #151 history panel,
 header and footer. All live on the demo.
 
-**Still open:** `.env.example` still documents `AUTH_ROLE_PREFIX` (only a
-person can edit that file); Railway's `X-Forwarded-For` shape unverified;
-the unread grants/activity tables and the realm's roles await a clean-up.
+**Still open:** Railway's `X-Forwarded-For` shape unverified. (Closed since:
+the role-prefix setting, #154; the grants/activity tables and realm roles,
+#153.)
 
 ---
 
@@ -118,9 +118,8 @@ nothing.
 **Not in this PR:** creating a workspace by picking a folder on your
 computer (PR 2); dropping the now-unread `workspace_grant` and
 `activity_event` tables and the realm's roles (a later clean-up, after a
-backup). `config.auth_role_prefix` is kept, unread, only because
-`.env.example` still documents it and Claude may not read that file: remove
-both together.
+backup) -- done in #153. `config.auth_role_prefix` and its `.env.example`
+line were removed together in #154.
 
 ---
 
