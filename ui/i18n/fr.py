@@ -295,10 +295,11 @@ MESSAGES: dict[str, str] = {
     "del.yes_html": "Oui, supprimer <bdi>{name}</bdi>",
     "del.cancel": "Annuler, conserver cet espace",
     # ---- S3 Rapports ----
-    "rep.empty.title": "Aucun rapport d’évaluation pour l’instant",
+    "rep.empty.title": "Aucune évaluation n’a encore été lancée sur ce serveur",
     "rep.empty.body": (
-        "Les rapports s’affichent ici dès que l’évaluation sur le jeu de référence a été "
-        f"lancée au moins une fois. Lancez-la depuis un terminal{NNBSP}:"
+        "Une évaluation note les réponses de Sanad sur un jeu de questions fixe, "
+        "et son rapport s’affiche ici. La personne qui gère ce serveur la lance "
+        f"depuis un terminal sur cette machine{NNBSP}:"
     ),
     "rep.aria": "Rapports d’évaluation",
     "rep.title": "Rapports",

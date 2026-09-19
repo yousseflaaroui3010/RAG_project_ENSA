@@ -185,7 +185,7 @@ def test_no_reports_shows_the_empty_state_and_the_cli_command(tmp_path):
     page = client.get("/reports")
 
     assert page.status_code == 200
-    assert "No evaluation reports yet" in page.text
+    assert "No evaluation has been run on this server yet" in page.text
     assert "uv run python scripts/run_evaluation.py" in page.text
 
 
