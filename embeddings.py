@@ -249,7 +249,7 @@ def embed_children(children: Sequence[Child]) -> list[list[float]]:
     are what gets a vector. Parents are read at answer time and are never
     embedded. The index alignment is enforced, not assumed: see
     `EmbeddingCountError`."""
-    return embed_passages([child.text for child in children])
+    return embed_passages([child.search_text or child.text for child in children])
 
 
 # --- sparse BM25, the lexical half of the hybrid (ST-16, section 7.5) ---

@@ -62,6 +62,10 @@ _SUPPORTED = frozenset({".pdf", ".pptx", ".docx"})
 _CAPTION_GAP_POINTS = 40.0
 # How far above a photo its label may sit: one line of small text.
 _LABEL_GAP_POINTS = 20.0
+# An image covering this much of a page is the page itself: a scan, or a
+# full-page background. Found in review: a 4-page scanned PDF came out as
+# four "figures" the size of the page, each a Gemini call for nothing.
+_FULL_PAGE_FRACTION = 0.7
 
 # A paragraph that starts like a caption, in French, English or Arabic.
 _CAPTION_START = re.compile(
@@ -96,8 +100,9 @@ class Figure:
     kind: str = ""
     explanation: str = ""
 
-    def card_text(self) -> str:
-        """The searchable text of this figure, in reading order."""
+    def document_text(self) -> str:
+        """What the document itself says about this figure: caption,
+        section and the text around it. Nothing written by a model."""
         parts = [f"Figure : {self.caption}" if self.caption else "Figure"]
         if self.heading:
             parts.append(f"Section : {self.heading}")
@@ -105,9 +110,14 @@ class Figure:
             parts.append(self.context_before)
         if self.context_after:
             parts.append(self.context_after)
-        if self.explanation:
-            parts.append(f"Description générée : {self.explanation}")
         return "\n".join(parts)
+
+    def card_text(self) -> str:
+        """The searchable text: the document's own words, plus the
+        generated description when there is one."""
+        if not self.explanation:
+            return self.document_text()
+        return f"{self.document_text()}\nDescription générée : {self.explanation}"
 
 
 @dataclass(frozen=True)
@@ -134,9 +144,21 @@ def extract_figures(path: Path) -> list[ExtractedFigure]:
         if path.suffix.lower() == ".pdf":
             drawn, photos, repeated = _pdf_page_plan(path)
             raws: list[_Raw] = []
-            if drawn:
-                raws += _render_pdf_regions(path, _docling_candidates(path, drawn), repeated)
             photo_only = [number for number in photos if number not in set(drawn)]
+            if drawn:
+                try:
+                    candidates = _docling_candidates(path, drawn)
+                    raws += _render_pdf_regions(path, candidates, repeated)
+                except Exception:  # noqa: BLE001 -- the layout model is optional
+                    # No layout model here (a host without its weights, or
+                    # offline): drawn pages fall back to their photos, and
+                    # the file's other pages lose nothing.
+                    logger.warning(
+                        "layout model unavailable for %s; keeping photos only",
+                        path.name,
+                        exc_info=True,
+                    )
+                    photo_only = photos
             if photo_only:
                 raws += _photo_raws(path, photo_only, repeated)
         else:
@@ -193,7 +215,8 @@ def _pdf_page_plan(path: Path) -> tuple[list[int], list[int], frozenset[bytes]]:
         number
         for number, images, _drawn in per_page
         if any(
-            digest not in repeated and fraction >= settings.figure_min_page_fraction
+            digest not in repeated
+            and settings.figure_min_page_fraction <= fraction < _FULL_PAGE_FRACTION
             for digest, fraction in images
         )
     ]
@@ -420,7 +443,7 @@ def _photos_inside(page: Any, rect: Any, repeated: frozenset[bytes]) -> list[Any
         if info["digest"] in repeated:
             continue
         box = pymupdf.Rect(info["bbox"])
-        if _rect_fraction(box, area) < settings.figure_min_page_fraction:
+        if not settings.figure_min_page_fraction <= _rect_fraction(box, area) < _FULL_PAGE_FRACTION:
             continue
         overlap = box & rect
         if overlap.is_empty or overlap.get_area() < 0.8 * box.get_area():

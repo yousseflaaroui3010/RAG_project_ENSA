@@ -257,20 +257,72 @@ def test_a_figure_card_hangs_off_the_section_that_holds_its_caption():
         png=item.png,
     )
 
-    (card,) = sync._figure_cards([item], parents)
+    ((_item, card),) = sync._figure_cards([item], parents)
 
     assert card.parent_id == "p2"
     assert card.section_label == "1. Circuit"
     assert card.figure_id == item.figure.id
-    assert "Description générée" in card.text
 
 
-def test_a_figure_with_no_place_in_the_text_goes_to_the_first_section():
+def test_the_generated_description_is_searched_but_never_read_by_the_grader():
+    """Found in review: the relevance grader reads a hit's `chunk_text`, and
+    the card's text carried the model-written description -- so an invented
+    description could tip an honest refusal into an answer. Search may use
+    it; the stored text every model on the answer path reads may not."""
+    parents = [Parent(id="p1", text="Figure 1 : Schéma. Suite.", source_file="m.pdf")]
+
+    ((_item, card),) = sync._figure_cards([_extracted()], parents)
+
+    assert "Un schéma." not in card.text
+    assert "Figure 1 : Schéma" in card.text
+    assert "Description générée : Un schéma." in card.search_text
+
+
+def test_a_figure_with_no_place_in_the_text_gets_no_card():
+    """Attaching it to some other section would cite unrelated text next to
+    the picture, and that section is what the answer is written from."""
     parents = [Parent(id="p1", text="Rien à voir.", source_file="m.pdf")]
 
-    (card,) = sync._figure_cards([_extracted()], parents)
+    assert sync._figure_cards([_extracted()], parents) == []
 
-    assert card.parent_id == "p1"
+
+def test_a_scanned_page_is_not_a_figure(tmp_path, enabled):
+    """Found in review: a scanned PDF, one image per page, came out as one
+    page-sized "figure" per page -- a model call each, for nothing."""
+    doc = pymupdf.open()
+    for number in range(3):
+        page = doc.new_page(width=595, height=842)
+        # A different scan on each page: the same image thrice would be
+        # dropped as a repeated logo, and the test would prove nothing.
+        scan = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 300, 420), False)
+        scan.set_rect(scan.irect, (250 - 40 * number, 250, 245))
+        page.insert_image(pymupdf.Rect(10, 10, 585, 832), pixmap=scan)
+        page.insert_text((60, 90), f"Page {number} scannée, texte reconnu.", fontsize=11)
+    path = tmp_path / "scan.pdf"
+    doc.save(path)
+
+    assert figures.extract_figures(path) == []
+
+
+def test_without_the_layout_model_the_photos_are_still_kept(tmp_path, enabled, monkeypatch):
+    """The hosted container runs offline and has no Docling weights. That
+    must cost the drawn diagrams only, never the file's photos."""
+
+    def unavailable(*_args):
+        raise OSError("no layout model weights on this host")
+
+    monkeypatch.setattr(figures, "_docling_candidates", unavailable)
+    path = _manual(tmp_path / "m.pdf")
+    # A photo on the SAME page as the diagram: only the fallback can keep it.
+    doc = pymupdf.open(path)
+    photo = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 200, 120), False)
+    photo.set_rect(photo.irect, (20, 160, 90))
+    doc[0].insert_image(pymupdf.Rect(97, 600, 497, 760), pixmap=photo)
+    doc.saveIncr()
+
+    found = figures.extract_figures(path)
+
+    assert [item.figure.page for item in found] == [1, 2]
 
 
 # --- source cards ---------------------------------------------------------

@@ -2066,4 +2066,7 @@ def test_a_figure_is_served_only_to_the_conversation_that_was_shown_it(
 
     assert client.get(f"/chat/figure/{conversation.id}/{hidden.id}").status_code == 404
     assert client.get(f"/chat/figure/{elsewhere.id}/{shown.id}").status_code == 404
-    assert client.get(f"/chat/figure/{conversation.id}/..%2F..%2Fsanad.db").status_code == 404
+    # An id that reaches the route (no slash) but is not a safe name: must be
+    # the same 404, never an error page from the file-name check.
+    assert client.get(f"/chat/figure/{conversation.id}/..").status_code == 404
+    assert client.get(f"/chat/figure/{conversation.id}/x.png").status_code == 404

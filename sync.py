@@ -852,7 +852,11 @@ def _ingest(
         db_path=db_path,
         known_descriptions=known_descriptions,
     )
-    children = [*chunked.children, *_figure_cards(found, chunked.parents)]
+    placed = _figure_cards(found, chunked.parents)
+    # Only figures with a place in the text are kept: a stored figure with
+    # no card could never be found, so it would be dead weight on disk.
+    found = [item for item, _card in placed]
+    children = [*chunked.children, *(card for _item, card in placed)]
     dense_vectors = embeddings.embed_children(children)
 
     # Parents before vectors: the mirror of the delete order, for the
@@ -938,44 +942,64 @@ def _figures_for(
 
 def _figure_cards(
     found: list[figures.ExtractedFigure], parents: list[chunking.Parent]
-) -> list[chunking.Child]:
+) -> list[tuple[figures.ExtractedFigure, chunking.Child]]:
     """One searchable card per figure, attached to the section it sits in.
 
     The section is the parent whose text holds the figure's caption, or
-    failing that the paragraph just before it, or just after. A figure
-    whose place cannot be found in the text is attached to the first
-    section of the file: it stays findable, and the answer writer still
-    reads real text from that file, never the card."""
-    if not parents:
-        return []
-    cards: list[chunking.Child] = []
+    the words just before it, or just after. A figure whose place cannot
+    be found gets NO card: attaching it to some other section would cite
+    text that has nothing to do with the picture, and the card's section
+    is what the answer is written from.
+
+    The card's `text` is the document's own words only; the generated
+    description goes into `search_text`, which search reads and no model
+    on the answer path ever does."""
+    cards: list[tuple[figures.ExtractedFigure, chunking.Child]] = []
     for item in found:
         figure = item.figure
         home = _section_holding(
-            parents, figure.caption, figure.context_before, figure.context_after
+            parents,
+            figure.caption,
+            figure.context_before[-_PROBE_CHARS:],
+            figure.context_after[:_PROBE_CHARS],
         )
+        if home is None:
+            continue
         cards.append(
-            chunking.Child(
-                text=figure.card_text(),
-                parent_id=home.id,
-                source_file=home.source_file,
-                section_label=home.section_label,
-                figure_id=figure.id,
+            (
+                item,
+                chunking.Child(
+                    text=figure.document_text(),
+                    search_text=figure.card_text(),
+                    parent_id=home.id,
+                    source_file=home.source_file,
+                    section_label=home.section_label,
+                    figure_id=figure.id,
+                ),
             )
         )
     return cards
 
 
-def _section_holding(parents: list[chunking.Parent], *needles: str) -> chunking.Parent:
+# How much of a caption or neighbouring text is looked up in the sections.
+# Short enough to survive a line break the text extractor placed
+# differently, long enough not to match by accident.
+_PROBE_CHARS = 60
+_PROBE_MIN_CHARS = 4
+
+
+def _section_holding(
+    parents: list[chunking.Parent], *needles: str
+) -> chunking.Parent | None:
     squashed = [(" ".join(parent.text.split()), parent) for parent in parents]
     for needle in needles:
-        probe = " ".join(needle.split())[:80]
-        if len(probe) < 12:
+        probe = " ".join(needle.split())
+        if len(probe) < _PROBE_MIN_CHARS:
             continue
         for text, parent in squashed:
             if probe in text:
                 return parent
-    return parents[0]
+    return None
 
 
 def _failure_write(

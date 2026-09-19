@@ -157,6 +157,11 @@ class Child:
     # searched like any child, and its parent is the text section the
     # figure sits in, so the answer is still written from real text.
     figure_id: str | None = None
+    # What SEARCH sees, when it differs from what readers see. Set only on a
+    # figure card: the generated description helps find the figure, but
+    # `text` -- the payload the relevance grader reads -- leaves it out, so a
+    # model-written description can never tip a refusal into an answer.
+    search_text: str | None = None
 
 
 @dataclass(frozen=True)

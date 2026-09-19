@@ -363,7 +363,9 @@ def upsert_children(
     # harmless: `search` uses "the collection exists" to tell "this
     # workspace has never synced" from "the sync ran and found nothing",
     # and a half-failed sync would answer that question wrongly forever.
-    sparse_vectors = embeddings.embed_sparse_passages([c.text for c in children])
+    sparse_vectors = embeddings.embed_sparse_passages(
+        [c.search_text or c.text for c in children]
+    )
     if len(sparse_vectors) != len(children):
         raise VectorCountError(len(children), len(sparse_vectors), "sparse")
 
@@ -462,21 +464,25 @@ def search_with_vectors(
         )
 
     depth = get_settings().retrieval_depth_k if limit is None else limit
+    # Figure cards beyond the per-query cap are dropped below; ask for that
+    # many more so the reader still gets `depth` passages after the drop.
+    cap = get_settings().figure_hits_max_per_query
+    fetched = depth + cap
 
     response = client.query_points(
         name,
         prefetch=[
-            models.Prefetch(query=dense_query, using=_DENSE_VECTOR, limit=depth),
+            models.Prefetch(query=dense_query, using=_DENSE_VECTOR, limit=fetched),
             models.Prefetch(
                 query=models.SparseVector(
                     indices=sparse_query.indices, values=sparse_query.values
                 ),
                 using=_SPARSE_VECTOR,
-                limit=depth,
+                limit=fetched,
             ),
         ],
         query=models.FusionQuery(fusion=models.Fusion.RRF),
-        limit=depth,
+        limit=fetched,
         with_payload=True,
     )
     hits = [
@@ -492,7 +498,6 @@ def search_with_vectors(
     ]
     # A figure card must not crowd the text out of a small result list:
     # the answer is written from text, so at most a few figures per query.
-    cap = get_settings().figure_hits_max_per_query
     kept: list[SearchHit] = []
     figures_kept = 0
     for hit in hits:
@@ -501,7 +506,7 @@ def search_with_vectors(
                 continue
             figures_kept += 1
         kept.append(hit)
-    return kept
+    return kept[:depth]
 
 
 def dense_top1_similarity(
