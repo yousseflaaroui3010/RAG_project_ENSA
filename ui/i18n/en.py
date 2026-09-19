@@ -292,6 +292,8 @@ MESSAGES: dict[str, str] = {
         "machine:"
     ),
     "rep.aria": "Evaluation reports",
+    "rep.provenance": "Measured on a copy — see the report",
+    "rd.provenance": "Where this was measured:",
     "rep.title": "Reports",
     "rep.lead": "Golden-set evaluation runs and the release gates each one met.",
     "rep.caption": "Evaluation runs",

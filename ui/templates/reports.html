@@ -51,7 +51,8 @@
                  data-report-focus="run-{{ r.id }}"
                  aria-label="{{ t('rep.open_aria', when=(r.run_at | when), name=r.workspace_name) }}">{{ r.run_at | when }}</a>
             </td>
-            <td><bdi{% if is_arabic(r.workspace_name) %} lang="ar"{% endif %}>{{ r.workspace_name }}</bdi></td>
+            <td><bdi{% if is_arabic(r.workspace_name) %} lang="ar"{% endif %}>{{ r.workspace_name }}</bdi>
+              {% if r.provenance %}<br><span class="muted" data-report-provenance="{{ r.id }}">{{ t('rep.provenance') }}</span>{% endif %}</td>
             <td class="mono" data-report-value="{{ r.id }}-grounded">{{ tx(r.groundedness_label) }}</td>
             <td class="mono" data-report-value="{{ r.id }}-refusals">{{ r.refusal_pass }}/{{ r.refusal_total }}</td>
             <td class="mono" data-report-value="{{ r.id }}-sources">{{ r.sources_label }}</td>

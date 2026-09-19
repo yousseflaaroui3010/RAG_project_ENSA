@@ -308,6 +308,8 @@ MESSAGES: dict[str, str] = {
         f"terminal, sur la machine qui l’héberge{NNBSP}:"
     ),
     "rep.aria": "Rapports d’évaluation",
+    "rep.provenance": "Mesuré sur une copie — voir le rapport",
+    "rd.provenance": f"Où cette évaluation a été mesurée{NNBSP}:",
     "rep.title": "Rapports",
     "rep.lead": "Évaluations sur le jeu de référence et critères de mise en production atteints.",
     "rep.caption": "Évaluations",

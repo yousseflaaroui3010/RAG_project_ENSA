@@ -28,6 +28,13 @@
       thresholds stay left-to-right").
     #}
     <h1><bdi{% if is_arabic(detail.summary.workspace_name) %} lang="ar"{% endif %}>{{ detail.summary.workspace_name }}</bdi> <span class="muted">{{ detail.summary.run_at | when }}</span></h1>
+    {% if detail.summary.provenance %}
+      {# Shown verbatim, in the language it was written in: it is a record
+         of where this run was measured, not interface copy. #}
+      <div class="panel" data-report-provenance="{{ detail.summary.id }}">
+        <p><strong>{{ t('rd.provenance') }}</strong> <span lang="en">{{ detail.summary.provenance }}</span></p>
+      </div>
+    {% endif %}
 
     {% if detail.summary.is_running %}
       <div class="stage" role="status" aria-live="polite"

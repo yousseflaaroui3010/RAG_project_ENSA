@@ -557,3 +557,42 @@ def test_every_square_in_the_question_map_links_to_its_own_table_row(tmp_path):
     assert targets, "the question map rendered no squares"
     assert sorted(targets) == sorted(rows)
     assert len(targets) == len(set(targets))
+
+
+# --- a run measured somewhere else says so --------------------------------
+
+NOTE = "a laptop copy of these 3 documents; one upload was added later"
+
+
+def _with_note(report_path, note) -> None:
+    data = json.loads(Path(report_path).read_text(encoding="utf-8"))
+    data["provenance"] = note
+    Path(report_path).write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_a_copied_run_names_where_it_was_measured_everywhere_it_is_shown(tmp_path):
+    client, db_path = _app(tmp_path)
+    eval_run_id, report_path = _seed_report(tmp_path, db_path)
+    _with_note(report_path, NOTE)
+
+    listing = client.get("/reports").text
+    detail = client.get(f"/reports/{eval_run_id}").text
+    export = client.get(f"/reports/{eval_run_id}/export").text
+
+    assert f'data-report-provenance="{eval_run_id}"' in listing
+    assert "Measured on a copy" in listing
+    assert html.escape(NOTE) in detail
+    assert f"Measured on: {NOTE}" in export
+
+
+def test_a_run_measured_here_carries_no_note(tmp_path):
+    client, db_path = _app(tmp_path)
+    eval_run_id, report_path = _seed_report(tmp_path, db_path)
+    _with_note(report_path, "   ")
+
+    listing = client.get("/reports").text
+    detail = client.get(f"/reports/{eval_run_id}").text
+    export = client.get(f"/reports/{eval_run_id}/export").text
+
+    assert "data-report-provenance" not in listing + detail
+    assert "Measured on:" not in export
