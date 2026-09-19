@@ -429,3 +429,29 @@ def test_a_word_picture_keeps_its_caption_and_the_paragraphs_around_it(tmp_path,
     assert item.figure.heading == "1. Circuit de refroidissement"
     assert item.figure.context_before == "La pompe P-201 alimente le circuit."
     assert item.figure.context_after == "Après la figure, on ferme la vanne V-12."
+
+
+def test_a_caption_printed_inside_the_figure_box_is_found_and_trimmed_off():
+    """Wikipedia's PDF export prints each caption inside the picture's
+    frame, so the layout model's box holds both. The printed block wins
+    over the layout model's link, which had filed Figure 5 as Figure 6."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_textbox(pymupdf.Rect(60, 380, 400, 420), "Figure 5 : Courbe caractéristique")
+    page.insert_textbox(pymupdf.Rect(60, 700, 400, 740), "Figure 6 : Point de fonctionnement")
+    box = pymupdf.Rect(50, 100, 450, 425)
+
+    found = figures._printed_caption(page, box)
+
+    assert found is not None
+    block, text = found
+    assert text == "Figure 5 : Courbe caractéristique"
+    assert block.y0 > box.y0 + 0.5 * box.height, "inside the box, so the crop is cut above it"
+
+
+def test_body_text_under_a_figure_is_not_mistaken_for_its_caption():
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_textbox(pymupdf.Rect(60, 430, 400, 470), "La pompe tourne à 1450 tours par minute.")
+
+    assert figures._printed_caption(page, pymupdf.Rect(50, 100, 450, 425)) is None

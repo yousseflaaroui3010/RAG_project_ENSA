@@ -57,6 +57,10 @@ _NOISE_CLASSES = frozenset({"logo", "signature", "stamp", "qr_code", "bar_code",
 
 _SUPPORTED = frozenset({".pdf", ".pptx", ".docx"})
 
+# How far under a figure, in PDF points (1/72 inch), a caption may start.
+# A property of page layout, about two lines of body text, not a tunable.
+_CAPTION_GAP_POINTS = 40.0
+
 # A paragraph that starts like a caption, in French, English or Arabic.
 _CAPTION_START = re.compile(
     r"^\s*(figure|fig\.|schéma|schema|image|illustration|photo|شكل|صورة)(\s|\d|:|$)", re.I
@@ -345,7 +349,7 @@ def _render_pdf_regions(
     settings = get_settings()
     out: list[tuple[bytes | None, int | None]] = []
     with pymupdf.open(path) as pdf:
-        for _doc, item, _ctx in candidates:
+        for _doc, item, ctx in candidates:
             prov = item.prov[0]
             page = pdf[prov.page_no - 1]
             height = page.rect.height
@@ -356,9 +360,41 @@ def _render_pdf_regions(
             if rect.is_empty or in_margin or not _has_graphics(page, rect, repeated):
                 out.append((None, prov.page_no))
                 continue
+            caption_block = _printed_caption(page, rect)
+            if caption_block is not None:
+                block_rect, text = caption_block
+                ctx["caption"] = text
+                if block_rect.y0 > rect.y0 + 0.5 * rect.height:
+                    # The caption was printed inside the box the layout
+                    # model drew: cut it off so the image holds only the
+                    # figure and the words stay searchable as text.
+                    rect = pymupdf.Rect(rect.x0, rect.y0, rect.x1, min(rect.y1, block_rect.y0))
             pixmap = page.get_pixmap(clip=rect, dpi=settings.figure_render_dpi)
             out.append((pixmap.tobytes("png"), prov.page_no))
     return out
+
+
+def _printed_caption(page: Any, rect: Any) -> tuple[Any, str] | None:
+    """A caption-shaped text block at the bottom of, or just under, a figure.
+
+    Found on Wikipedia's PDF export, where each picture sits in a frame
+    with its own caption printed under it: the layout model drew its box
+    around picture AND caption, then linked the NEXT figure's caption, so
+    "Figure 5" was filed as "Figure 6". The printed block is the ground
+    truth when there is one; the layout model's link is the fallback."""
+    import pymupdf
+
+    below_limit = rect.y1 + _CAPTION_GAP_POINTS
+    best: tuple[Any, str] | None = None
+    for x0, y0, x1, y1, text, *_ in page.get_text("blocks"):
+        block = pymupdf.Rect(x0, y0, x1, y1)
+        overlaps_width = min(block.x1, rect.x1) - max(block.x0, rect.x0) > 0.3 * block.width
+        starts_low = rect.y0 + 0.5 * rect.height <= block.y0 <= below_limit
+        clean = " ".join(text.split())
+        if overlaps_width and starts_low and _CAPTION_START.match(clean):
+            if best is None or block.y0 < best[0].y0:
+                best = (block, clean)
+    return best
 
 
 def _has_graphics(page: Any, rect: Any, repeated: frozenset[bytes]) -> bool:
