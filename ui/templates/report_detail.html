@@ -32,7 +32,7 @@
       {# Shown verbatim, in the language it was written in: it is a record
          of where this run was measured, not interface copy. #}
       <div class="panel" data-report-provenance="{{ detail.summary.id }}">
-        <p><strong>{{ t('rd.provenance') }}</strong> <span lang="en">{{ detail.summary.provenance }}</span></p>
+        <p><strong>{{ t('rd.provenance') }}</strong> <bdi>{{ detail.summary.provenance }}</bdi></p>
       </div>
     {% endif %}
 

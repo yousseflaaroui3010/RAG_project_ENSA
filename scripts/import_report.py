@@ -5,6 +5,10 @@ screen, labelled as such.
         --report docs/evals/release-v3.1.0-2026-09-19.json \\
         --workspace-id <id> --note "<where it was measured>"
 
+On the hosted container there is no `uv` (the runtime image ships only
+the finished virtual environment): run `python scripts/import_report.py
+...` from /app, where the relative default paths resolve to the volume.
+
 Why this exists: an evaluation writes to the database of the machine that
 ran it, so a run made on a laptop never reaches a hosted server's Reports
 screen. Re-running it there costs model credit (ADR-12). When the

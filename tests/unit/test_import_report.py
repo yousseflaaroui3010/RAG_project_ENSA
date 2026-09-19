@@ -90,6 +90,26 @@ def test_an_unknown_workspace_or_database_is_refused_before_writing(server, tmp_
     assert _runs(db_path) == 0 and not reports_dir.exists()
 
 
+def test_a_write_that_fails_halfway_leaves_nothing_behind(server, tmp_path):
+    """The last result row is malformed, so the insert fails after the run
+    row and 59 results went in: all of it must roll back, and the report
+    file already written must be removed."""
+    db_path, ws_id, reports_dir = server
+    data = json.loads(RELEASE.read_text(encoding="utf-8"))
+    del data["results"][-1]["answer_kind"]
+    broken = tmp_path / "broken.json"
+    broken.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(KeyError):
+        import_report(report=broken, workspace_id=ws_id, note=NOTE,
+                      db_path=db_path, reports_dir=reports_dir)
+
+    assert _runs(db_path) == 0
+    with repo.session(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM eval_result").fetchone()[0] == 0
+    assert list(reports_dir.rglob("*.json")) == []
+
+
 def test_the_command_line_says_refused_and_exits_non_zero(server, capsys):
     db_path, ws_id, _reports_dir = server
 

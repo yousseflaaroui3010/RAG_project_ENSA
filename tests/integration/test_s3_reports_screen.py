@@ -579,6 +579,8 @@ def test_a_copied_run_names_where_it_was_measured_everywhere_it_is_shown(tmp_pat
     detail = client.get(f"/reports/{eval_run_id}").text
     export = client.get(f"/reports/{eval_run_id}/export").text
 
+    dash = listing.split('class="dash"')[1].split("</section>")[0]
+    assert "data-dash-provenance" in dash and html.escape(NOTE) in dash
     assert f'data-report-provenance="{eval_run_id}"' in listing
     assert "Measured on a copy" in listing
     assert html.escape(NOTE) in detail
