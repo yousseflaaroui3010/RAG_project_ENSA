@@ -174,6 +174,20 @@ def init_db(conn: sqlite3.Connection) -> None:
     _migrate_incremental_evaluation(conn)
     _migrate_chat_history_to_conversation(conn)
     _migrate_workspace_owner(conn)
+    _drop_retired_access_tables(conn)
+
+
+def _drop_retired_access_tables(conn: sqlite3.Connection) -> None:
+    """Remove `workspace_grant` and `activity_event` (YL's ruling,
+    2026-09-19). Nothing has read or written them since ST-54 removed the
+    admin page and roles; the activity log still held who signed in and
+    when -- personal data (law 09-08) kept for no purpose. `IF EXISTS`, so
+    a fresh database and every later start-up change nothing. Runs inside
+    `ensure_schema`'s transaction. Undo: DECISIONS 2026-09-19 (recreate
+    both from the pre-2026-09-19 db/schema.sql; the rows come back only
+    from the backup taken before the deploy)."""
+    conn.execute("DROP TABLE IF EXISTS workspace_grant")
+    conn.execute("DROP TABLE IF EXISTS activity_event")
 
 
 def _migrate_workspace_owner(conn: sqlite3.Connection) -> None:

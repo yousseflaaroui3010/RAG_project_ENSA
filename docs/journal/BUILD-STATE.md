@@ -1,5 +1,18 @@
 # BUILD-STATE (the flight recorder: trust this file over chat memory)
 
+## STATE AT 2026-09-19, CLEAN-UP AFTER v3.1.0 (read this block first)
+
+The unread `workspace_grant` and `activity_event` tables are dropped at
+start-up, and the live Keycloak realm no longer has the three `sanad-*`
+roles (removed by hand with kcadm, verified by listing the realm's roles and
+the default role's composites). Live database backed up first:
+`/app/data/sanad.db.bak-2026-09-19-cleanup`. Undo plan in DECISIONS.
+
+Still open: `.env.example` documents `AUTH_ROLE_PREFIX` (only a person can
+edit that file); Railway's `X-Forwarded-For` shape unverified.
+
+---
+
 ## STATE AT 2026-09-19, v3.1.0 RELEASE GATE PASSED (read this block first)
 
 **Paid run finished, gate green.** 60 of 60 frozen questions answered on the

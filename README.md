@@ -169,19 +169,18 @@ tessdata ships there).
 |---|---|
 | `none` (default) | local-first: no login, everything allowed, exactly as before (ADR-13) |
 | `password` | one shared password for the whole instance (`ACCESS_PASSWORD`) |
-| `keycloak` | named people with roles: **admin**, **curator**, **reader**; used by the published demo since 2026-09-15 |
+| `keycloak` | named people, each owning the workspaces they create; used by the published demo since 2026-09-15 |
 
 With `keycloak`, Sanad never sees a password: it redirects to your realm,
-exchanges the code server-to-server, and reads the roles from Keycloak's
-introspection endpoint. Roles are realm roles named `sanad-admin`,
-`sanad-curator`, `sanad-reader` (prefix configurable). Someone with no
-Sanad role can sign in and is told to ask an administrator; they see
-nothing else. Non-admins see only the workspaces they were granted.
+exchanges the code server-to-server, and asks Keycloak's introspection
+endpoint who the person is. There are no roles (since v3.1.0): everyone who
+signs in is equal, owns the workspaces they create, sees only those plus
+the shared ones (workspaces made without accounts, like the demo's), and
+may read and ask a shared workspace but not change it.
 
 **Anyone can sign up.** The sign-in page has a "Nouvel utilisateur ?
-Enregistrement" link. A person who signs up gets the **reader** role and
-sees no workspace until an administrator ticks one for them on the
-Administration page, so an open sign-up never opens a document. No email is
+Enregistrement" link. A person who signs up sees the shared workspaces and
+can create their own; nobody else's is ever shown to them. No email is
 sent (there is no mail server); passwords need at least 10 characters and
 cannot be the username or email. Keycloak's pages open in the language Sanad
 is showing (French, Arabic or English).
@@ -205,12 +204,12 @@ docker compose -f compose.keycloak.yaml up -d
 ```
 
 That imports `keycloak/realm-sanad.json`: the realm `sanad`, the confidential
-client `sanad` with both redirect URLs already set, the three realm roles plus
-Keycloak's own two, sign-up turned on, and four people to demonstrate with — `sanad-admin-demo`, `sanad-curator-demo`,
-`sanad-reader-demo`, and `sanad-norole-demo`, who has no role and so sees the
-"ask an administrator" screen. The admin uses `KEYCLOAK_ADMIN_SEED_PASSWORD`,
-the other three `KEYCLOAK_SEED_PASSWORD`, so handing someone the reader
-login for a demo never hands them the admin one.
+client `sanad` with both redirect URLs already set, Keycloak's own two
+roles and no Sanad role, sign-up turned on, and four people to demonstrate
+with — `sanad-admin-demo`, `sanad-curator-demo`, `sanad-reader-demo` and
+`sanad-norole-demo`. The names are left over from when Sanad had roles;
+all four are now equal. The first uses `KEYCLOAK_ADMIN_SEED_PASSWORD`, the
+other three `KEYCLOAK_SEED_PASSWORD`.
 
 Then in `.env`: `AUTH_MODE=keycloak`, the same `KEYCLOAK_CLIENT_SECRET`, and
 `KEYCLOAK_ISSUER=http://localhost:8080/realms/sanad`. Start Sanad and the
