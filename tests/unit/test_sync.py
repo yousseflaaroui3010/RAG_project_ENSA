@@ -1284,3 +1284,76 @@ def test_a_never_ingested_unsupported_file_still_reports_with_no_document(
     finally:
         conn.close()
     assert items[0]["document_id"] is None
+
+
+# --- figures, end to end through Sync -----------------------------------------
+
+
+def _photo_report(path, *, with_photos=True):
+    """A small photo report: a heading, a sentence naming the room, and
+    two labelled photos. Text a user can search, pictures to cut out."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((60, 90), "# Salle de bain", fontsize=16)
+    page.insert_textbox(
+        pymupdf.Rect(60, 110, 535, 160),
+        "Salle de bain du rez-de-chaussée. Photos MURS ET SOLS ci-dessous.",
+        fontsize=11,
+    )
+    if with_photos:
+        for column, (label, shade) in enumerate((("MURS ET SOLS", 60), ("LAVABO", 180))):
+            left = 60 + column * 250
+            picture = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 220, 220), False)
+            picture.set_rect(picture.irect, (shade, 120, 200))
+            page.insert_text((left + 40, 250), label, fontsize=9)
+            page.insert_image(pymupdf.Rect(left, 258, left + 200, 458), pixmap=picture)
+    doc.save(path)
+
+
+@pytest.fixture
+def figures_on(tmp_path, monkeypatch):
+    import figures
+    from agent import vision
+
+    settings = get_settings().model_copy(
+        update={"figures_enabled": True, "figure_store_path": str(tmp_path / "figures")}
+    )
+    monkeypatch.setattr(figures, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        vision, "describe_figure", lambda png, **_: "Description inventee par le modele."
+    )
+    return tmp_path / "figures"
+
+
+def test_sync_stores_photos_as_searchable_cards_and_removes_them_with_the_file(
+    folder, db_path, workspace, store, run_sync, figures_on
+):
+    """Everything the unit tests prove separately, in one real Sync: the
+    photos are stored, their cards are findable, the card text the grader
+    reads carries no model-written words, a changed file leaves no stale
+    picture, and a removed file leaves none at all."""
+    report_path = folder / "rapport.pdf"
+    _photo_report(report_path)
+
+    assert _results(run_sync()) == {"rapport.pdf": SyncResult.ADDED}
+
+    stored = sorted(figures_on.glob(f"{workspace.id}/*.png"))
+    assert len(stored) == 2
+    hits = [
+        hit
+        for hit in _search(store, workspace.id, "MURS ET SOLS salle de bain")
+        if hit.figure_id is not None
+    ]
+    assert hits, "a figure card is findable by its label"
+    assert all("inventee" not in hit.chunk_text for hit in hits)
+
+    _photo_report(report_path, with_photos=False)
+    assert _results(run_sync()) == {"rapport.pdf": SyncResult.CHANGED}
+    assert list(figures_on.glob(f"{workspace.id}/*.png")) == []
+
+    _photo_report(report_path)
+    run_sync()
+    assert len(list(figures_on.glob(f"{workspace.id}/*.png"))) == 2
+    report_path.unlink()
+    run_sync()
+    assert list(figures_on.glob(f"{workspace.id}/*")) == []

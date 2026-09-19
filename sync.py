@@ -34,8 +34,9 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,7 @@ from typing import Any
 import change_detection
 import chunking
 import embeddings
+import figures
 import parent_store
 import vector_store
 import workspaces
@@ -118,6 +120,11 @@ CANCELLED_REASON = "Sync was cancelled before this file was processed"
 # hypothetical one. Held for microseconds: it serialises the claim, it
 # does not serialise syncing.
 _claim_guard = threading.Lock()
+
+# Figure descriptions requested at once. Four stays under the free Gemini
+# tier's per-minute limit on a typical photo report; more only earns
+# refusals that come back as empty descriptions.
+_DESCRIBE_WORKERS = 4
 
 
 class SyncError(Exception):
@@ -796,6 +803,14 @@ def _ingest(
     #    died after writing vectors but before committing the registry
     #    leaves a file that looks NEW and has stale vectors. This is the
     #    only thing that ever cleans those up.
+    #
+    # Figure descriptions already paid for are read BEFORE the delete, so
+    # an unchanged picture in a changed file is not sent to the model again.
+    known_descriptions = {
+        figure.image_sha256: figure.explanation
+        for figure in figures.figures_of(workspace_id=workspace_id, source_file=change.file_name)
+        if figure.explanation
+    }
     vector_store.delete_document(
         client,
         workspace_id=workspace_id,
@@ -831,19 +846,32 @@ def _ingest(
         )
 
     chunked = chunking.chunk_document(result.markdown, source_file=change.file_name)
-    dense_vectors = embeddings.embed_children(chunked.children)
+    found = _figures_for(
+        Path(folder) / change.file_name,
+        workspace_id=workspace_id,
+        db_path=db_path,
+        known_descriptions=known_descriptions,
+    )
+    placed = _figure_cards(found, chunked.parents)
+    # Only figures with a place in the text are kept: a stored figure with
+    # no card could never be found, so it would be dead weight on disk.
+    found = [item for item, _card in placed]
+    children = [*chunked.children, *(card for _item, card in placed)]
+    dense_vectors = embeddings.embed_children(children)
 
     # Parents before vectors: the mirror of the delete order, for the
-    # reason in this module's docstring.
+    # reason in this module's docstring. Figures before vectors too: a
+    # figure card must never be searchable before its PNG exists.
     parent_store.save_parents(
         workspace_id=workspace_id,
         parents=chunked.parents,
         base_path=parent_base_path,
     )
+    figures.save_figures(workspace_id=workspace_id, figures=found)
     vector_store.upsert_children(
         client,
         workspace_id=workspace_id,
-        children=chunked.children,
+        children=children,
         dense_vectors=dense_vectors,
     )
 
@@ -872,6 +900,106 @@ def _ingest(
             last_synced_at=repo.utc_now(),
         ),
     )
+
+
+def _figures_for(
+    path: Path,
+    *,
+    workspace_id: str,
+    db_path: str | Path | None,
+    known_descriptions: dict[str, str],
+) -> list[figures.ExtractedFigure]:
+    """The file's figures, each with a description when one can be had.
+
+    A description already written for the same image is reused; a new one
+    is asked of the vision model once. Neither step can fail the file."""
+    from agent.vision import describe_figure
+
+    found = figures.extract_figures(path)
+    if not found:
+        return []
+    with repo.session(db_path) as conn:
+        row = repo.get_workspace(conn, workspace_id)
+    workspace_name = row["name"] if row is not None else ""
+
+    def describe(item: figures.ExtractedFigure) -> figures.ExtractedFigure:
+        text = known_descriptions.get(item.figure.image_sha256)
+        if text is None:
+            text = describe_figure(
+                item.png, workspace=workspace_name, document=path.name, figure=item.figure
+            )
+        return figures.ExtractedFigure(
+            figure=replace(item.figure, explanation=text), png=item.png
+        )
+
+    # A few model calls at a time: a photo report holds hundreds of
+    # pictures, and one call after another took minutes of waiting on the
+    # network. `map` keeps the order, and a failed call already returns ""
+    # inside describe_figure, so no exception reaches this pool.
+    with ThreadPoolExecutor(max_workers=_DESCRIBE_WORKERS) as pool:
+        return list(pool.map(describe, found))
+
+
+def _figure_cards(
+    found: list[figures.ExtractedFigure], parents: list[chunking.Parent]
+) -> list[tuple[figures.ExtractedFigure, chunking.Child]]:
+    """One searchable card per figure, attached to the section it sits in.
+
+    The section is the parent whose text holds the figure's caption, or
+    the words just before it, or just after. A figure whose place cannot
+    be found gets NO card: attaching it to some other section would cite
+    text that has nothing to do with the picture, and the card's section
+    is what the answer is written from.
+
+    The card's `text` is the document's own words only; the generated
+    description goes into `search_text`, which search reads and no model
+    on the answer path ever does."""
+    cards: list[tuple[figures.ExtractedFigure, chunking.Child]] = []
+    for item in found:
+        figure = item.figure
+        home = _section_holding(
+            parents,
+            figure.caption,
+            figure.context_before[-_PROBE_CHARS:],
+            figure.context_after[:_PROBE_CHARS],
+        )
+        if home is None:
+            continue
+        cards.append(
+            (
+                item,
+                chunking.Child(
+                    text=figure.document_text(),
+                    search_text=figure.card_text(),
+                    parent_id=home.id,
+                    source_file=home.source_file,
+                    section_label=home.section_label,
+                    figure_id=figure.id,
+                ),
+            )
+        )
+    return cards
+
+
+# How much of a caption or neighbouring text is looked up in the sections.
+# Short enough to survive a line break the text extractor placed
+# differently, long enough not to match by accident.
+_PROBE_CHARS = 60
+_PROBE_MIN_CHARS = 4
+
+
+def _section_holding(
+    parents: list[chunking.Parent], *needles: str
+) -> chunking.Parent | None:
+    squashed = [(" ".join(parent.text.split()), parent) for parent in parents]
+    for needle in needles:
+        probe = " ".join(needle.split())
+        if len(probe) < _PROBE_MIN_CHARS:
+            continue
+        for text, parent in squashed:
+            if probe in text:
+                return parent
+    return None
 
 
 def _failure_write(

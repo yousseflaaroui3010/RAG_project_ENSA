@@ -438,6 +438,34 @@ class Settings(BaseSettings):
     # whole Sync batch behind one file.
     ocr_max_pages: int = 200
 
+    # --- Figures: pictures, diagrams and schemas (see figures.py) ---
+    figures_enabled: bool = True
+    figure_store_path: str = "data/figures/"
+    # A PDF page goes to the layout model only if it holds a picture covering
+    # at least this share of the page, or at least this many drawn shapes
+    # (boxes and circles, not lines), or any curve or diagonal line.
+    figure_min_page_fraction: float = 0.02
+    figure_min_drawings: int = 3
+    # Shorter side below this many pixels: too small to read, not a figure.
+    figure_min_px: int = 120
+    # Top and bottom share of the page treated as header and footer.
+    figure_margin_band: float = 0.08
+    # The same image on this many pages or more is a logo, not a figure.
+    figure_repeat_limit: int = 3
+    figure_render_dpi: int = 150
+    figure_context_chars: int = 600
+    # A photo report runs to hundreds of pictures (a 32-page inspection
+    # report holds about 280); this caps the worst case, not the usual one.
+    figures_max_per_document: int = 300
+    # "model" = the configured chat model describes each figure at Sync
+    # (cloud mode sends the image to Gemini); "off" = no descriptions.
+    # In strict-local mode a description needs `vision_model_local`, an
+    # Ollama model that reads images; empty means no descriptions.
+    figure_explanations: str = "model"
+    vision_model_local: str = ""
+    # At most this many figures per answer are shown and searched.
+    figure_hits_max_per_query: int = 4
+
     @field_validator("ocr_dpi")
     @classmethod
     def _ocr_dpi_must_be_reasonable(cls, value: int) -> int:

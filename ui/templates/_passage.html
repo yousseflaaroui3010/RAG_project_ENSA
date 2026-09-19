@@ -12,7 +12,37 @@
   as markup.
 #}
 
-{% macro passage_body(card) %}
+{% macro figure_gallery(card, conversation_id) %}
+  {#
+    The figures the search found in this source. The image URL is built
+    here from a server-side id, never from anything the model wrote, and
+    the route that serves it checks the conversation belongs to the reader.
+    The description is always labelled as generated: the answer is written
+    from the section text, and the reader looks at the figure themselves.
+  #}
+  {% if card.figures %}
+    <div class="figures">
+      {% for figure in card.figures %}
+        <figure class="figure">
+          <a href="/chat/figure/{{ conversation_id }}/{{ figure.figure_id }}" target="_blank" rel="noopener">
+            <img class="figure__image" src="/chat/figure/{{ conversation_id }}/{{ figure.figure_id }}"
+                 alt="{{ figure.caption or t('figure.untitled') }}" loading="lazy">
+          </a>
+          <figcaption>
+            {% if figure.caption %}<span class="figure__caption" dir="auto">{{ figure.caption }}</span>{% endif %}
+            {% if figure.page %}<span class="figure__page mono">{{ t('figure.page', page=figure.page) }}</span>{% endif %}
+            {% if figure.explanation %}
+              <p class="figure__explanation" dir="auto"><span class="figure__badge">{{ t('figure.generated') }}</span> {{ figure.explanation }}</p>
+            {% endif %}
+          </figcaption>
+        </figure>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro passage_body(card, conversation_id="") %}
+  {% if conversation_id %}{{ figure_gallery(card, conversation_id) }}{% endif %}
   {% for passage in card.passages %}
     <article class="passage">
       {% if not passage.highlighted %}

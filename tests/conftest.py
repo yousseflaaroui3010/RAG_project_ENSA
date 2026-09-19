@@ -15,3 +15,10 @@ An explicit DEFAULT_UI_LANGUAGE in the environment is respected.
 import os
 
 os.environ.setdefault("DEFAULT_UI_LANGUAGE", "en")
+
+# Figure extraction loads a layout model and takes seconds per page, and it
+# writes PNGs under data/figures/. Suites written before figures existed
+# sync PDFs with pictures in them (the scanned-PDF fixtures), so figures are
+# off for the suite; tests/unit/test_figures.py and the figure sync tests
+# turn them on explicitly with a temporary store.
+os.environ.setdefault("FIGURES_ENABLED", "false")

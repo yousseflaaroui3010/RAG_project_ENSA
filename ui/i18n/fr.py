@@ -197,6 +197,9 @@ MESSAGES: dict[str, str] = {
     "docs.removed": "{name} a été retiré du dossier.",
     "files.col.actions": "Actions",
     "sources.download": "Télécharger l’original",
+    "figure.generated": "Description générée automatiquement",
+    "figure.page": "page {page}",
+    "figure.untitled": "Figure du document",
     "passage.not_located": (
         "Affichage de la section entière. Sanad n’a pas pu repérer précisément le passage "
         "retrouvé : rien n’est donc surligné comme texte cité."

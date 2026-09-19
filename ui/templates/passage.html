@@ -18,7 +18,7 @@
           — <span class="mono">{{ card.section_label }}</span>
         {% endif %}
       </h1>
-      {{ viewer.passage_body(card) }}
+      {{ viewer.passage_body(card, conversation_id) }}
       <p><a class="btn btn--quiet" href="{{ back_url }}">{{ t('passage.back') }}</a></p>
     </article>
   {% else %}

@@ -11,6 +11,7 @@
   "stage changes during loading are announced".
 #}
 {% import "_sources.html" as cards with context %}
+{% import "_passage.html" as figure_viewer with context %}
 
 {#
   F-10: "for each answer, the user can open a trace that lists the
@@ -254,6 +255,8 @@
           <div class="bubble bubble--answer">
             <p class="bubble__head"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7Z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>{{ t('conv.answer.head') }}{% if message.sources %} · {{ t('conv.answer.sources', count=message.sources | length) }}{% endif %}</p>
             <div class="answer__text prose" dir="auto"{% if is_arabic(message.text) %} lang="ar"{% endif %}>{{ message.text | answer_html }}</div>
+            {# Figures found behind this answer, under the text they illustrate. #}
+            {% for card in message.sources %}{{ figure_viewer.figure_gallery(card, conversation_id) }}{% endfor %}
             {% if message.sources %}
               {#
                 The evidence strip: every source this answer rests on, as a

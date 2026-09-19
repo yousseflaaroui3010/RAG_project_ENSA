@@ -1259,6 +1259,17 @@ caption.sources__title { display: table-caption; text-align: start; padding: 0 0
   margin: var(--space-4) 0 0;
   font-size: var(--size-meta);
 }
+
+/* ---- Figures: pictures and diagrams behind a source ----------------- */
+
+.figures { display: grid; gap: var(--space-12); margin: var(--space-12) 0; }
+.figure { margin: 0; border: 1px solid var(--border); border-radius: 6px; padding: var(--space-8); background: var(--surface); }
+.figure__image { display: block; max-width: 100%; max-height: 420px; height: auto; margin-inline: auto; background: #fff; }
+.figure figcaption { margin-top: var(--space-8); font-size: var(--size-meta); }
+.figure__caption { font-weight: 600; color: var(--text); }
+.figure__page { margin-inline-start: var(--space-8); color: var(--text-muted); }
+.figure__explanation { margin: var(--space-4) 0 0; color: var(--text); }
+.figure__badge { display: inline-block; padding: 0 var(--space-4); border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); font-size: var(--size-meta); }
 /* ---- S6 sign-in ---------------------------------------------------- */
 
 .shell__account { display: flex; align-items: center; gap: var(--space-8); margin: 0; }
