@@ -173,6 +173,9 @@ MESSAGES: dict[str, str] = {
     "docs.removed": "أُزيل {name} من المجلد.",
     "files.col.actions": "إجراءات",
     "sources.download": "تنزيل الأصل",
+    "figure.generated": "وصف مولَّد آليًا",
+    "figure.page": "صفحة {page}",
+    "figure.untitled": "شكل من الوثيقة",
     "passage.not_located": (
         "يُعرض القسم كاملًا. لم يتمكن سند من تحديد المقطع المسترجع بدقة، لذلك لا يوجد "
         "نص مظلَّل بوصفه اقتباسًا."

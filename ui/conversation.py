@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+import figures
 from agent.querying import ClarificationContext
 from agent.state import Answer, AnswerKind, Source, Turn
 from config import get_settings
@@ -123,18 +124,55 @@ class Passage:
 
 
 @dataclass(frozen=True)
+class FigureRef:
+    """A figure found by the search behind one source card.
+
+    Only the id travels to the browser; the PNG is served by the owner-
+    checked figure route, which resolves the id against the conversation's
+    own workspace. `explanation` is the model-written description, shown
+    under the image with a "generated automatically" label."""
+
+    figure_id: str
+    caption: str
+    explanation: str
+    page: int | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "figure_id": self.figure_id,
+            "caption": self.caption,
+            "explanation": self.explanation,
+            "page": self.page,
+        }
+
+    @staticmethod
+    def from_dict(data: Mapping[str, Any]) -> FigureRef:
+        page = data.get("page")
+        return FigureRef(
+            figure_id=str(data["figure_id"]),
+            caption=str(data.get("caption", "")),
+            explanation=str(data.get("explanation", "")),
+            page=int(page) if page is not None else None,
+        )
+
+
+@dataclass(frozen=True)
 class SourceCard:
     """One citation, and everything behind it (UX spec 5).
 
     `passages` is a LIST because `_sources_for` de-duplicates by file and
     section label, and one long article can be split across two parents
     that both carry the label "Article 235". Showing only the first would
-    hide half of what the model read. Ordinary case: one passage."""
+    hide half of what the model read. Ordinary case: one passage.
+
+    `figures` are the figures whose cards the search found in this source.
+    Empty for every conversation saved before figures existed."""
 
     index: int
     file_name: str
     section_label: str | None
     passages: tuple[Passage, ...]
+    figures: tuple[FigureRef, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -142,6 +180,7 @@ class SourceCard:
             "file_name": self.file_name,
             "section_label": self.section_label,
             "passages": [passage.to_dict() for passage in self.passages],
+            "figures": [figure.to_dict() for figure in self.figures],
         }
 
     @staticmethod
@@ -151,6 +190,7 @@ class SourceCard:
             file_name=str(data["file_name"]),
             section_label=data["section_label"],
             passages=tuple(Passage.from_dict(item) for item in data["passages"]),
+            figures=tuple(FigureRef.from_dict(item) for item in data.get("figures", ())),
         )
 
 
@@ -347,14 +387,17 @@ def _cards_for(
     sources: Sequence[Source],
     cited: Sequence[SearchHit],
     parents: Mapping[str, str],
+    workspace_id: str | None = None,
 ) -> tuple[SourceCard, ...]:
-    """One card per source, carrying the sections it was written from."""
+    """One card per source, carrying the sections it was written from, and
+    the figures the search found there."""
     cards: list[SourceCard] = []
     for index, source in enumerate(sources):
         # Spans, grouped by the section they were found in. Two chunks of
         # one article become two highlights in one passage, not two
         # passages.
         spans: dict[str, list[tuple[int, int]]] = {}
+        figure_ids: list[str] = []
         for hit in cited:
             if hit.source_file != source.file_name:
                 continue
@@ -363,8 +406,14 @@ def _cards_for(
             section = parents.get(hit.parent_id)
             if section is None:
                 continue
-            found = find_span(section, hit.chunk_text)
             spans.setdefault(hit.parent_id, [])
+            if hit.figure_id is not None:
+                # A figure card's text is not in the section, so there is
+                # nothing to highlight; the section itself is still shown.
+                if hit.figure_id not in figure_ids:
+                    figure_ids.append(hit.figure_id)
+                continue
+            found = find_span(section, hit.chunk_text)
             if found is not None:
                 spans[hit.parent_id].append(found)
         if not spans:
@@ -390,15 +439,37 @@ def _cards_for(
                 file_name=source.file_name,
                 section_label=source.section_label,
                 passages=passages,
+                figures=_figure_refs(workspace_id, figure_ids),
             )
         )
     return tuple(cards)
+
+
+def _figure_refs(workspace_id: str | None, figure_ids: Sequence[str]) -> tuple[FigureRef, ...]:
+    """The stored figures behind these ids. A figure whose record is gone
+    (the file was re-synced since) is left out rather than shown broken."""
+    if not workspace_id or not figure_ids:
+        return ()
+    refs: list[FigureRef] = []
+    for figure_id in figure_ids:
+        figure = figures.load_figure(workspace_id=workspace_id, figure_id=figure_id)
+        if figure is not None:
+            refs.append(
+                FigureRef(
+                    figure_id=figure.id,
+                    caption=figure.caption,
+                    explanation=figure.explanation,
+                    page=figure.page,
+                )
+            )
+    return tuple(refs)
 
 
 def message_for(
     answer: Answer,
     cited: Sequence[SearchHit] = (),
     parents: Mapping[str, str] | None = None,
+    workspace_id: str | None = None,
 ) -> Message:
     """One `Answer` as one rendered message.
 
@@ -408,7 +479,7 @@ def message_for(
     return Message(
         kind=_VARIANT[answer.kind],
         text=answer.text,
-        sources=_cards_for(answer.sources, cited, parents or {}),
+        sources=_cards_for(answer.sources, cited, parents or {}, workspace_id),
         searched=answer.searched,
         files_consulted=answer.trace.files_consulted,
         retries=answer.retries,
@@ -682,6 +753,7 @@ class Conversation:
                     answer,
                     run.reading.cited,
                     run.reading.parents,
+                    self.workspace_id,
                 )
                 self.messages.append(message)
                 self.session_id = answer.session_id

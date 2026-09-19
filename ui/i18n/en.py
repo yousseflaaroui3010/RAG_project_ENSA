@@ -184,6 +184,9 @@ MESSAGES: dict[str, str] = {
     "docs.removed": "{name} was removed from the folder.",
     "files.col.actions": "Actions",
     "sources.download": "Download original",
+    "figure.generated": "Generated description",
+    "figure.page": "page {page}",
+    "figure.untitled": "Figure from the document",
     "passage.not_located": (
         "Showing the whole section. Sanad could not locate the exact retrieved span "
         "inside it, so nothing here is marked as the cited text."

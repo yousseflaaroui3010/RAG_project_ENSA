@@ -61,6 +61,7 @@ from fastapi.templating import Jinja2Templates
 
 import chat_history
 import embeddings
+import figures
 import recovery
 import sync
 import vector_store
@@ -2182,11 +2183,47 @@ def create_app(runtime: Runtime | None = None) -> FastAPI:
             {
                 **_context(runtime, request),
                 "card": card,
+                # Figure links must name the conversation the card came
+                # from, not whichever one is active.
+                "conversation_id": conversation.id if conversation else "",
                 # Back goes to the conversation the card came from, not the
                 # latest one (cold review).
                 "back_url": _chat_url(conversation.id if conversation else None),
             },
         )
+
+    @app.get("/chat/figure/{conversation_id}/{figure_id}")
+    def figure_image(request: Request, conversation_id: str, figure_id: str) -> Response:
+        """One figure's PNG, for a reader who was shown it.
+
+        Two checks, and both are needed. The conversation must be this
+        reader's (`_own_conversation`, the same 404 as the passage page),
+        and the figure must be one this conversation's answers actually
+        cited: an id copied from someone else's page, or guessed, is a 404
+        even inside the reader's own conversation. The file path is built
+        from the conversation's workspace and a checked id, never from the
+        request."""
+        conversation = _own_conversation(request, conversation_id)
+        if conversation is None:
+            return _no_such_conversation()
+        shown = {
+            ref.figure_id
+            for message in conversation.messages
+            for card in message.sources
+            for ref in card.figures
+        }
+        if figure_id not in shown:
+            return _no_such_conversation()
+        path = figures.figure_png_path(
+            workspace_id=conversation.workspace_id, figure_id=figure_id
+        )
+        if path is None:
+            return Response(
+                "This figure is no longer stored; run Sync again.",
+                status_code=404,
+                media_type="text/plain; charset=utf-8",
+            )
+        return FileResponse(path, media_type="image/png")
 
     @app.get("/workspaces", response_class=HTMLResponse)
     def workspaces_screen_route(request: Request) -> HTMLResponse:

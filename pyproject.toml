@@ -51,6 +51,7 @@ dependencies = [
     # Already in uv.lock through rich; declared because ui/answer_format.py
     # imports it directly.
     "markdown-it-py>=4.2",
+    "docling>=2.129.0",
 ]
 
 [dependency-groups]

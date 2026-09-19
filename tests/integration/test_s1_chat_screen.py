@@ -2022,3 +2022,48 @@ def test_script_and_stylesheet_links_carry_a_fingerprint_of_their_bytes(sanad):
         served = client.get(url)
         assert served.status_code == 200
         assert served.content == (app_module.STATIC / name).read_bytes()
+
+
+def test_a_figure_is_served_only_to_the_conversation_that_was_shown_it(
+    sanad, tmp_path, monkeypatch
+):
+    """The figure route's two checks, each proven by a request it refuses.
+
+    A figure is served when THIS conversation's answer cited it. The same
+    id asked through another conversation, or an id this conversation was
+    never shown, is the same 404 -- a figure id copied from someone else's
+    page must not open their document's picture."""
+    import figures
+    from ui.conversation import FigureRef, SourceCard
+
+    build, workspace, db_path = sanad
+    client, runtime = build()
+    store = get_settings().model_copy(update={"figure_store_path": str(tmp_path / "fig")})
+    monkeypatch.setattr(figures, "get_settings", lambda: store)
+    shown = figures.Figure(
+        id="a" * 32, source_file="m.pdf", index=0, page=1, caption="Figure 1",
+        heading="", context_before="", context_after="", image_sha256="0" * 64,
+        width_px=10, height_px=10,
+    )
+    hidden = dataclasses.replace(shown, id="b" * 32, index=1)
+    png = b"\x89PNG\r\n\x1a\n-fake-"
+    figures.save_figures(
+        workspace_id=workspace.id,
+        figures=[figures.ExtractedFigure(shown, png), figures.ExtractedFigure(hidden, png)],
+    )
+    conversation = runtime.new_conversation("local", workspace.id)
+    card = SourceCard(
+        index=0, file_name="m.pdf", section_label=None, passages=(),
+        figures=(FigureRef(shown.id, "Figure 1", "", 1),),
+    )
+    conversation.messages.append(Message(kind=MessageKind.ANSWER, text="x", sources=(card,)))
+    elsewhere = runtime.new_conversation("local", workspace.id)
+
+    served = client.get(f"/chat/figure/{conversation.id}/{shown.id}")
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/png"
+    assert served.content == png
+
+    assert client.get(f"/chat/figure/{conversation.id}/{hidden.id}").status_code == 404
+    assert client.get(f"/chat/figure/{elsewhere.id}/{shown.id}").status_code == 404
+    assert client.get(f"/chat/figure/{conversation.id}/..%2F..%2Fsanad.db").status_code == 404

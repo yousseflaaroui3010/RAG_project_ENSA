@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import embeddings
+import figures
 import parent_store
 from config import get_settings
 
@@ -70,6 +71,9 @@ _PAYLOAD_PARENT_ID = "parent_id"
 _PAYLOAD_SOURCE_FILE = "source_file"
 _PAYLOAD_SECTION_LABEL = "section_label"
 _PAYLOAD_CHUNK_TEXT = "chunk_text"
+# Present only on a figure card. Points written before figures existed
+# have no such key and read back as ordinary text.
+_PAYLOAD_FIGURE_ID = "figure_id"
 
 # Namespace for deriving child point ids, built the same way
 # `chunking._PARENT_ID_NAMESPACE` is, so the value is reproducible from
@@ -141,6 +145,8 @@ class SearchHit:
     section_label: str | None
     chunk_text: str
     score: float
+    # A figure card's figure id; None for ordinary text.
+    figure_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -378,6 +384,7 @@ def upsert_children(
                 _PAYLOAD_SOURCE_FILE: child.source_file,
                 _PAYLOAD_SECTION_LABEL: child.section_label,
                 _PAYLOAD_CHUNK_TEXT: child.text,
+                **({_PAYLOAD_FIGURE_ID: child.figure_id} if child.figure_id else {}),
             },
         )
         for child, position, dense, sparse in zip(
@@ -472,16 +479,29 @@ def search_with_vectors(
         limit=depth,
         with_payload=True,
     )
-    return [
+    hits = [
         SearchHit(
             parent_id=point.payload[_PAYLOAD_PARENT_ID],
             source_file=point.payload[_PAYLOAD_SOURCE_FILE],
             section_label=point.payload.get(_PAYLOAD_SECTION_LABEL),
             chunk_text=point.payload[_PAYLOAD_CHUNK_TEXT],
             score=point.score,
+            figure_id=point.payload.get(_PAYLOAD_FIGURE_ID),
         )
         for point in response.points
     ]
+    # A figure card must not crowd the text out of a small result list:
+    # the answer is written from text, so at most a few figures per query.
+    cap = get_settings().figure_hits_max_per_query
+    kept: list[SearchHit] = []
+    figures_kept = 0
+    for hit in hits:
+        if hit.figure_id is not None:
+            if figures_kept >= cap:
+                continue
+            figures_kept += 1
+        kept.append(hit)
+    return kept
 
 
 def dense_top1_similarity(
@@ -540,6 +560,7 @@ def delete_document(
     workspace_id: str,
     source_file: str,
     parent_base_path: str | Path | None = None,
+    figure_base_path: str | Path | None = None,
 ) -> StoreDeletion:
     """Remove one document's vectors AND its parent files, as one unit.
 
@@ -592,6 +613,11 @@ def delete_document(
     parents_deleted = parent_store.delete_parents(
         workspace_id=workspace_id, parent_ids=listing.ids, base_path=parent_base_path
     )
+    # Figures last, same reasoning: an orphan PNG is wasted disk, a live
+    # figure card pointing at a missing PNG is a broken source.
+    figures.delete_figures(
+        workspace_id=workspace_id, source_file=source_file, base_path=figure_base_path
+    )
     return StoreDeletion(
         points_deleted=points_deleted,
         parents_deleted=parents_deleted,
@@ -604,6 +630,7 @@ def delete_workspace(
     *,
     workspace_id: str,
     parent_base_path: str | Path | None = None,
+    figure_base_path: str | Path | None = None,
 ) -> StoreDeletion:
     """Drop a workspace's whole collection and all of its parent files.
 
@@ -627,6 +654,7 @@ def delete_workspace(
     parents_deleted = parent_store.delete_workspace_parents(
         workspace_id=workspace_id, base_path=parent_base_path
     )
+    figures.delete_workspace_figures(workspace_id=workspace_id, base_path=figure_base_path)
     return StoreDeletion(
         points_deleted=None if dropped else 0,
         parents_deleted=parents_deleted,

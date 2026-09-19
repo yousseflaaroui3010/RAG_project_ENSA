@@ -153,6 +153,10 @@ class Child:
     parent_id: str
     source_file: str
     section_label: str | None = None
+    # Set only on a figure's searchable card (figures.py): the card is
+    # searched like any child, and its parent is the text section the
+    # figure sits in, so the answer is still written from real text.
+    figure_id: str | None = None
 
 
 @dataclass(frozen=True)

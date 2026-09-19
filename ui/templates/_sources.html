@@ -70,7 +70,7 @@
         </h2>
         <button class="btn btn--quiet" type="button" data-close-viewer>{{ t('sources.close') }}</button>
       </div>
-      {{ viewer.passage_body(card) }}
+      {{ viewer.passage_body(card, conversation_id) }}
     </dialog>
   {% endfor %}
 {% endmacro %}

@@ -57,6 +57,7 @@ def _registry(tmp_path, prompt_id: str, text: str):
     [
         "answer-writer",
         "eval-judge",
+        "figure-explainer",
         "query-planner",
         "query-reword",
         "relevance-grader",
