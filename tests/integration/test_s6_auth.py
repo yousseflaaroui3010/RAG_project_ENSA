@@ -29,6 +29,8 @@ from db import repo
 from ui import auth
 from ui.conversation import Message, MessageKind
 
+# Four distinct test people. Their names and `sanad-*` roles are left over from
+# before ST-54: Sanad reads no role any more, so these only tell people apart.
 ADMIN_CLAIMS = {
     "sub": "kc-admin",
     "preferred_username": "amina",
