@@ -1385,6 +1385,15 @@ def _reports_context(runtime: Runtime, request: Request) -> dict:
         "state": reports_screen.screen_state(report_count=len(reports)),
         "ReportsScreenState": reports_screen.ReportsScreenState,
         "reports": reports,
+        # The empty state must not say "nothing has run on this server" to
+        # someone who merely cannot SEE the runs: a reader whose own
+        # workspaces were never evaluated, while an admin's were. Only
+        # computed when the filtered list is empty and a filter applied.
+        "runs_hidden": bool(
+            visible_ids is not None
+            and not reports
+            and reports_screen.list_reports(db_path=runtime.db_path)
+        ),
         # F-15. Independent of `reports`/`state` above -- see
         # ui/reports_screen.py's module note on why feedback is never
         # gated by the eval-run empty state. Pure SQLite reads, same as

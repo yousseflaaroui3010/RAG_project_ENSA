@@ -282,8 +282,14 @@ MESSAGES: dict[str, str] = {
     "rep.empty.title": "No evaluation has been run on this server yet",
     "rep.empty.body": (
         "An evaluation grades Sanad's answers against a fixed set of questions, "
-        "and its report appears here. Whoever runs this server starts it from a "
-        "terminal on that machine:"
+        "and its report appears here. Whoever runs this server starts an "
+        "evaluation from a terminal on that machine:"
+    ),
+    "rep.empty_hidden.title": "No evaluation reports for your workspaces yet",
+    "rep.empty_hidden.body": (
+        "Reports appear here once one of your workspaces has been evaluated. "
+        "Whoever runs this server starts an evaluation from a terminal on that "
+        "machine:"
     ),
     "rep.aria": "Evaluation reports",
     "rep.title": "Reports",

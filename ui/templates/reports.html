@@ -15,8 +15,9 @@
     docstring.
   #}
   <section class="panel panel--empty">
-    <h1>{{ t('rep.empty.title') }}</h1>
-    <p>{{ t('rep.empty.body') }}</p>
+    {% set empty_key = 'rep.empty_hidden' if runs_hidden else 'rep.empty' %}
+    <h1>{{ t(empty_key ~ '.title') }}</h1>
+    <p>{{ t(empty_key ~ '.body') }}</p>
     <p class="mono">uv run python scripts/run_evaluation.py --workspace-id &lt;id&gt;</p>
   </section>
 {% else %}

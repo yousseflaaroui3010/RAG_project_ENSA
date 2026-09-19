@@ -297,9 +297,15 @@ MESSAGES: dict[str, str] = {
     # ---- S3 Rapports ----
     "rep.empty.title": "Aucune évaluation n’a encore été lancée sur ce serveur",
     "rep.empty.body": (
-        "Une évaluation note les réponses de Sanad sur un jeu de questions fixe, "
-        "et son rapport s’affiche ici. La personne qui gère ce serveur la lance "
-        f"depuis un terminal sur cette machine{NNBSP}:"
+        "Une évaluation note les réponses de Sanad à partir d’un jeu fixe de "
+        "questions, et son rapport s’affiche ici. La personne qui gère ce serveur "
+        f"la lance depuis un terminal, sur la machine qui l’héberge{NNBSP}:"
+    ),
+    "rep.empty_hidden.title": "Aucun rapport d’évaluation pour vos espaces de travail",
+    "rep.empty_hidden.body": (
+        "Les rapports s’affichent ici dès qu’un de vos espaces de travail a été "
+        "évalué. La personne qui gère ce serveur lance l’évaluation depuis un "
+        f"terminal, sur la machine qui l’héberge{NNBSP}:"
     ),
     "rep.aria": "Rapports d’évaluation",
     "rep.title": "Rapports",
