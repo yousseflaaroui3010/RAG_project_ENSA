@@ -216,6 +216,13 @@ def test_saved_figures_load_back_and_are_deleted_with_their_file(tmp_path, enabl
     assert figures.load_figure(workspace_id="ws1", figure_id=other.figure.id) is not None
 
 
+def test_a_file_with_no_figures_leaves_nothing_on_disk(tmp_path, enabled):
+    """Every synced file calls save_figures; most have none. Found when
+    the test suite left empty workspace folders under data/figures/."""
+    assert figures.save_figures(workspace_id="ws1", figures=[]) == 0
+    assert not (tmp_path / "figures").exists()
+
+
 def test_workspace_delete_removes_every_figure(tmp_path, enabled):
     figures.save_figures(workspace_id="ws1", figures=[_extracted(0), _extracted(1)])
 

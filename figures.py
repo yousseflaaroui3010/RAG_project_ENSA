@@ -525,6 +525,9 @@ def _workspace_dir(workspace_id: str, base_path: str | Path | None) -> Path:
 def save_figures(
     *, workspace_id: str, figures: list[ExtractedFigure], base_path: str | Path | None = None
 ) -> int:
+    if not figures:
+        # Most files have no figures: create nothing on disk for them.
+        return 0
     folder = _workspace_dir(workspace_id, base_path)
     folder.mkdir(parents=True, exist_ok=True)
     for item in figures:
