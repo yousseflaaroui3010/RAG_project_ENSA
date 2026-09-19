@@ -98,7 +98,12 @@ RUN set -eu; \
     # begin with, which is why that test proved nothing. `nvidia-` is now
     # an open prefix; `torch` and `triton` stay anchored to an operator so
     # a future `torchvision` is not silently dropped.
-    grep -vE '^nvidia-|^torch([=<>!~; ]|$)|^triton([=<>!~; ]|$)' \
+    # `torchvision` (pulled in by docling, for figures) is filtered too and
+    # installed from the CPU index below, pinned like torch: the PyPI wheel
+    # is built against the CUDA torch, and next to the CPU one it broke
+    # `import transformers` in the model-cache step (found by building the
+    # figures branch, 2026-09-19).
+    grep -vE '^nvidia-|^torch([=<>!~; ]|$)|^torchvision([=<>!~; ]|$)|^triton([=<>!~; ]|$)' \
         /tmp/req.txt > /tmp/req-cpu.txt; \
     dropped=$(( $(wc -l < /tmp/req.txt) - $(wc -l < /tmp/req-cpu.txt) )); \
     echo "dropped ${dropped} GPU-only requirement rows"; \
@@ -133,8 +138,14 @@ RUN set -eu; \
     # the time the rest is installed, torch is already present and
     # satisfies `sentence-transformers`'s requirement, so nothing
     # re-resolves it and no GPU wheel is ever fetched.
+    torchvision_version="$(grep -oE '^torchvision==[^ ;]+' /tmp/req.txt | head -1 | cut -d= -f3)"; \
+    cpu_wheels="torch==${torch_version}"; \
+    if [ -n "$torchvision_version" ]; then \
+        cpu_wheels="${cpu_wheels} torchvision==${torchvision_version}"; \
+    fi; \
+    echo "installing CPU wheels pinned to uv.lock: ${cpu_wheels}"; \
     VIRTUAL_ENV=/app/.venv uv pip install \
-        --index-url https://download.pytorch.org/whl/cpu "torch==${torch_version}"; \
+        --index-url https://download.pytorch.org/whl/cpu $cpu_wheels; \
     # `--no-deps` IS LOAD-BEARING. Without it `uv pip install -r`
     # RE-RESOLVES the whole set: it reads `sentence-transformers`, sees a
     # torch requirement, ignores the CPU build already sitting in the venv
