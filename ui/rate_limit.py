@@ -39,11 +39,15 @@ allowed to open (DECISIONS 2026-09-18, ST-55). Moving them into config.py is
 a two-line change once someone documents them there.
 
 THE CLIENT ADDRESS. Behind a proxy (the configured callback is https -- the
-same signal `_cookies_are_secure` uses), it is the LAST entry of
-`X-Forwarded-For`, the one the proxy itself appended; earlier entries are
-whatever the client chose to send. Without a proxy (a laptop, a local
-Docker), the header is anyone's to invent, so it is ignored and the
-socket's own address is used (review of #150).
+same signal `_cookies_are_secure` uses), it is the FIRST entry of
+`X-Forwarded-For`. Railway's edge strips whatever header the visitor sent
+and writes its own, so the first entry is the real visitor; the entries
+after it are Railway's internal proxies, which CHANGE from request to
+request. The first version keyed by the last entry and, checked on the live
+site on 2026-09-19, never refused anyone: 61 sign-in starts from one
+machine all got through, because every request looked like a new visitor.
+Without a proxy (a laptop, a local Docker), the header is anyone's to
+invent, so it is ignored and the socket's own address is used.
 """
 
 from __future__ import annotations
@@ -109,7 +113,7 @@ def client_address(request: Request, *, behind_proxy: bool | None = None) -> str
         forwarded = request.headers.get("x-forwarded-for", "")
         hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
         if hops:
-            return hops[-1]
+            return hops[0]
     return request.client.host if request.client else "unknown"
 
 

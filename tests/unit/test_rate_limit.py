@@ -120,15 +120,17 @@ def _request(forwarded: str | None, host: str = "10.0.0.1"):
     ("forwarded", "expected"),
     [
         ("203.0.113.9", "203.0.113.9"),
-        # The client may send its own header; the proxy APPENDS the real
-        # address, so only the last entry can be trusted.
-        ("1.2.3.4, 203.0.113.9", "203.0.113.9"),
-        ("  , 203.0.113.9 ", "203.0.113.9"),
+        # Railway's edge writes the header itself (the visitor's own is
+        # stripped): the visitor first, then its internal proxies, which
+        # change per request -- keying by those let everyone through.
+        ("203.0.113.9, 100.64.0.2", "203.0.113.9"),
+        ("203.0.113.9, 100.64.0.7, 100.64.0.9", "203.0.113.9"),
+        (" 203.0.113.9 , ", "203.0.113.9"),
         (None, "10.0.0.1"),
         ("", "10.0.0.1"),
     ],
 )
-def test_behind_a_proxy_the_address_is_the_hop_the_proxy_appended(forwarded, expected):
+def test_behind_railways_proxy_the_address_is_the_first_hop(forwarded, expected):
     assert client_address(_request(forwarded), behind_proxy=True) == expected
 
 
