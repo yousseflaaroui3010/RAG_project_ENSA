@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -119,6 +120,11 @@ CANCELLED_REASON = "Sync was cancelled before this file was processed"
 # hypothetical one. Held for microseconds: it serialises the claim, it
 # does not serialise syncing.
 _claim_guard = threading.Lock()
+
+# Figure descriptions requested at once. Four stays under the free Gemini
+# tier's per-minute limit on a typical photo report; more only earns
+# refusals that come back as empty descriptions.
+_DESCRIBE_WORKERS = 4
 
 
 class SyncError(Exception):
@@ -911,17 +917,23 @@ def _figures_for(
     with repo.session(db_path) as conn:
         row = repo.get_workspace(conn, workspace_id)
     workspace_name = row["name"] if row is not None else ""
-    described: list[figures.ExtractedFigure] = []
-    for item in found:
+
+    def describe(item: figures.ExtractedFigure) -> figures.ExtractedFigure:
         text = known_descriptions.get(item.figure.image_sha256)
         if text is None:
             text = describe_figure(
                 item.png, workspace=workspace_name, document=path.name, figure=item.figure
             )
-        described.append(
-            figures.ExtractedFigure(figure=replace(item.figure, explanation=text), png=item.png)
+        return figures.ExtractedFigure(
+            figure=replace(item.figure, explanation=text), png=item.png
         )
-    return described
+
+    # A few model calls at a time: a photo report holds hundreds of
+    # pictures, and one call after another took minutes of waiting on the
+    # network. `map` keeps the order, and a failed call already returns ""
+    # inside describe_figure, so no exception reaches this pool.
+    with ThreadPoolExecutor(max_workers=_DESCRIBE_WORKERS) as pool:
+        return list(pool.map(describe, found))
 
 
 def _figure_cards(

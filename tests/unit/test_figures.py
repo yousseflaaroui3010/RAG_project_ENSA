@@ -462,3 +462,30 @@ def test_body_text_under_a_figure_is_not_mistaken_for_its_caption():
     page.insert_textbox(pymupdf.Rect(60, 430, 400, 470), "La pompe tourne à 1450 tours par minute.")
 
     assert figures._printed_caption(page, pymupdf.Rect(50, 100, 450, 425)) is None
+
+
+def test_a_grid_of_labelled_photos_comes_out_one_photo_per_label(tmp_path, enabled):
+    """The inspection-report case: rows of three photos, each with its
+    label printed just above it, the first row starting under the page's
+    top edge. Each photo is its own figure with its own label -- not the
+    whole grid as one picture, and not the neighbour's label."""
+    labels = [["WALLS/FLOORS", "EXTRA", "TUBS/FAUCETS"], ["CABINETS", "MORE", "ADDITIONAL"]]
+    doc = pymupdf.open()
+    for number in range(2):
+        page = doc.new_page(width=595, height=842)
+        for row, top in enumerate((49, 258)):
+            for column, left in enumerate((21, 210, 399)):
+                shade = 40 * (number * 6 + row * 3 + column)
+                picture = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 200, 200), False)
+                picture.set_rect(picture.irect, (shade % 255, 120, 200 - shade % 200))
+                page.insert_image(pymupdf.Rect(left, top, left + 177, top + 176), pixmap=picture)
+                page.insert_text((left + 40, top - 8), labels[row][column], fontsize=9)
+    path = tmp_path / "report.pdf"
+    doc.save(path)
+
+    found = figures.extract_figures(path)
+
+    assert len(found) == 12
+    assert [item.figure.caption for item in found[:6]] == labels[0] + labels[1]
+    assert {item.figure.page for item in found} == {1, 2}
+    assert all(item.figure.width_px < 400 for item in found), "one photo each, never the grid"

@@ -454,7 +454,9 @@ class Settings(BaseSettings):
     figure_repeat_limit: int = 3
     figure_render_dpi: int = 150
     figure_context_chars: int = 600
-    figures_max_per_document: int = 40
+    # A photo report runs to hundreds of pictures (a 32-page inspection
+    # report holds about 280); this caps the worst case, not the usual one.
+    figures_max_per_document: int = 300
     # "model" = the configured chat model describes each figure at Sync
     # (cloud mode sends the image to Gemini); "off" = no descriptions.
     # In strict-local mode a description needs `vision_model_local`, an
@@ -462,7 +464,7 @@ class Settings(BaseSettings):
     figure_explanations: str = "model"
     vision_model_local: str = ""
     # At most this many figures per answer are shown and searched.
-    figure_hits_max_per_query: int = 2
+    figure_hits_max_per_query: int = 4
 
     @field_validator("ocr_dpi")
     @classmethod

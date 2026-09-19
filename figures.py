@@ -60,6 +60,8 @@ _SUPPORTED = frozenset({".pdf", ".pptx", ".docx"})
 # How far under a figure, in PDF points (1/72 inch), a caption may start.
 # A property of page layout, about two lines of body text, not a tunable.
 _CAPTION_GAP_POINTS = 40.0
+# How far above a photo its label may sit: one line of small text.
+_LABEL_GAP_POINTS = 20.0
 
 # A paragraph that starts like a caption, in French, English or Arabic.
 _CAPTION_START = re.compile(
@@ -130,12 +132,16 @@ def extract_figures(path: Path) -> list[ExtractedFigure]:
         return []
     try:
         if path.suffix.lower() == ".pdf":
-            pages, repeated = _pdf_pages_with_visuals(path)
-            if not pages:
-                return []
-            found = _extract_with_docling(path, pages, repeated)
+            drawn, photos, repeated = _pdf_page_plan(path)
+            raws: list[_Raw] = []
+            if drawn:
+                raws += _render_pdf_regions(path, _docling_candidates(path, drawn), repeated)
+            photo_only = [number for number in photos if number not in set(drawn)]
+            if photo_only:
+                raws += _photo_raws(path, photo_only, repeated)
         else:
-            found = _extract_with_docling(path, None, frozenset())
+            raws = _office_raws(path, _docling_candidates(path, None))
+        found = _finish(path, raws)
     except Exception:  # noqa: BLE001 -- see docstring: never fail the file
         logger.exception("figure extraction failed for %s; indexing its text only", path.name)
         return []
@@ -143,15 +149,30 @@ def extract_figures(path: Path) -> list[ExtractedFigure]:
 
 
 def _pdf_pages_with_visuals(path: Path) -> tuple[list[int], frozenset[bytes]]:
-    """1-based page numbers that hold a picture or enough vector drawing,
-    and the digests of images repeated across pages.
+    """Every page worth looking at, drawn or photographed, and the digests
+    of images repeated across pages."""
+    drawn, photos, repeated = _pdf_page_plan(path)
+    return sorted(set(drawn) | set(photos)), repeated
+
+
+def _pdf_page_plan(path: Path) -> tuple[list[int], list[int], frozenset[bytes]]:
+    """Which pages hold drawn artwork, which hold photos, and which images
+    are decoration.
 
     The cheap gate in front of the slow layout model. An image placed on
     `figure_repeat_limit` pages or more is decoration: a header logo, or a
     watermark behind the text. Found on the Moroccan Labour Code, where
     every one of 201 pages carries the same background image over 58% of
     the page; counting it would have sent the whole law to the layout
-    model, about half an hour of Sync for zero figures."""
+    model, about half an hour of Sync for zero figures.
+
+    The split matters for speed and accuracy. A PHOTO is one embedded
+    image whose exact frame the PDF records, so it is cut out directly. A
+    DRAWING is many lines and shapes with no frame of its own, and only
+    the layout model can say where it starts and ends. Found on a 32-page
+    inspection report with nine photos per page: the layout model boxed
+    each page's grid of nine photos as ONE picture, and took 25 seconds a
+    page to do it."""
     import pymupdf
 
     settings = get_settings()
@@ -167,16 +188,16 @@ def _pdf_pages_with_visuals(path: Path) -> tuple[list[int], frozenset[bytes]]:
             seen_on.update({digest for digest, _ in images})
             per_page.append((page.number + 1, images, _looks_drawn(page.get_drawings())))
     repeated = frozenset(d for d, n in seen_on.items() if n >= settings.figure_repeat_limit)
-    pages = [
+    drawn = [number for number, _images, looks_drawn in per_page if looks_drawn]
+    photos = [
         number
-        for number, images, drawn in per_page
-        if drawn
-        or any(
+        for number, images, _drawn in per_page
+        if any(
             digest not in repeated and fraction >= settings.figure_min_page_fraction
             for digest, fraction in images
         )
     ]
-    return pages, repeated
+    return drawn, photos, repeated
 
 
 def _looks_drawn(drawings: list[dict[str, Any]]) -> bool:
@@ -244,9 +265,14 @@ def _converter(fmt: str) -> Any:
 _CONVERTERS: dict[str, Any] = {}
 
 
-def _extract_with_docling(
-    path: Path, pdf_pages: list[int] | None, repeated: frozenset[bytes]
-) -> list[ExtractedFigure]:
+# One figure before it is numbered: (page, top y, PNG or None, context).
+_Raw = tuple[int | None, float, bytes | None, dict[str, str]]
+
+
+def _docling_candidates(
+    path: Path, pdf_pages: list[int] | None
+) -> list[tuple[Any, Any, dict[str, str]]]:
+    """Every picture the layout model finds, with its caption and context."""
     from docling_core.types.doc import PictureItem, SectionHeaderItem, TextItem
 
     is_pdf = pdf_pages is not None
@@ -284,40 +310,44 @@ def _extract_with_docling(
                     "kind": _top_class(item),
                 }
                 candidates.append((doc, item, context))
+    return candidates
 
-    if is_pdf:
-        rendered = _render_pdf_regions(path, candidates, repeated)
-    else:
-        is_slides = path.suffix.lower() == ".pptx"
-        rendered = [
-            (_png_of(item.get_image(doc)), _page_of(item) if is_slides else None)
-            for doc, item, _ctx in candidates
-        ]
 
+def _office_raws(path: Path, candidates: list[tuple[Any, Any, dict[str, str]]]) -> list[_Raw]:
+    """Word and PowerPoint pictures are embedded files: take them as they are."""
+    is_slides = path.suffix.lower() == ".pptx"
+    return [
+        (_page_of(item) if is_slides else None, float(order), _png_of(item.get_image(doc)), ctx)
+        for order, (doc, item, ctx) in enumerate(candidates)
+    ]
+
+
+def _finish(path: Path, raws: list[_Raw]) -> list[ExtractedFigure]:
+    """Reading order, size floor, numbering, ids."""
+    ordered = sorted(
+        (raw for raw in raws if raw[2] is not None), key=lambda raw: (raw[0] or 0, raw[1])
+    )
     kept: list[ExtractedFigure] = []
-    for (_doc, _item, ctx), (png, page) in zip(candidates, rendered, strict=True):
-        if png is None:
-            continue
+    for page, _top, png, ctx in ordered:
         size = _png_size(png)
         if min(size) < get_settings().figure_min_px:
             continue
-        index = len(kept)
         sha = hashlib.sha256(png).hexdigest()
         kept.append(
             ExtractedFigure(
                 figure=Figure(
-                    id=figure_id(path.name, index, sha),
+                    id="",
                     source_file=path.name,
-                    index=index,
+                    index=0,
                     page=page,
-                    caption=ctx["caption"],
-                    heading=ctx["heading"],
-                    context_before=ctx["before"],
-                    context_after=ctx["after"],
+                    caption=ctx.get("caption", ""),
+                    heading=ctx.get("heading", ""),
+                    context_before=ctx.get("before", ""),
+                    context_after=ctx.get("after", ""),
                     image_sha256=sha,
                     width_px=size[0],
                     height_px=size[1],
-                    kind=ctx["kind"],
+                    kind=ctx.get("kind", ""),
                 ),
                 png=png,
             )
@@ -339,15 +369,17 @@ def _spans(pages: list[int]) -> list[tuple[int, int]]:
 
 def _render_pdf_regions(
     path: Path, candidates: list[tuple[Any, Any, dict[str, str]]], repeated: frozenset[bytes]
-) -> list[tuple[bytes | None, int | None]]:
+) -> list[_Raw]:
     """Cut each figure out of the original page with PyMuPDF.
 
-    Returns (None, page) for a region that fails a rule in the module
-    docstring, so the caller keeps its list aligned with `candidates`."""
+    A region that fails a rule in the module docstring gives nothing. A
+    region that holds several separate photos is cut into one figure per
+    photo: the layout model sometimes boxes a whole grid of photos as one
+    picture, and one answer needs one photo, not a page of nine."""
     import pymupdf
 
     settings = get_settings()
-    out: list[tuple[bytes | None, int | None]] = []
+    out: list[_Raw] = []
     with pymupdf.open(path) as pdf:
         for _doc, item, ctx in candidates:
             prov = item.prov[0]
@@ -358,7 +390,10 @@ def _render_pdf_regions(
             band = settings.figure_margin_band * height
             in_margin = rect.y1 <= band or rect.y0 >= height - band
             if rect.is_empty or in_margin or not _has_graphics(page, rect, repeated):
-                out.append((None, prov.page_no))
+                continue
+            inner = _photos_inside(page, rect, repeated)
+            if len(inner) >= 2:
+                out += [raw for bbox in inner if (raw := _photo_raw(page, bbox)) is not None]
                 continue
             caption_block = _printed_caption(page, rect)
             if caption_block is not None:
@@ -370,8 +405,120 @@ def _render_pdf_regions(
                     # figure and the words stay searchable as text.
                     rect = pymupdf.Rect(rect.x0, rect.y0, rect.x1, min(rect.y1, block_rect.y0))
             pixmap = page.get_pixmap(clip=rect, dpi=settings.figure_render_dpi)
-            out.append((pixmap.tobytes("png"), prov.page_no))
+            out.append((prov.page_no, rect.y0, pixmap.tobytes("png"), ctx))
     return out
+
+
+def _photos_inside(page: Any, rect: Any, repeated: frozenset[bytes]) -> list[Any]:
+    """The distinct, non-decorative photos lying (mostly) inside a region."""
+    import pymupdf
+
+    settings = get_settings()
+    area = page.rect.width * page.rect.height
+    found: list[Any] = []
+    for info in page.get_image_info(hashes=True):
+        if info["digest"] in repeated:
+            continue
+        box = pymupdf.Rect(info["bbox"])
+        if _rect_fraction(box, area) < settings.figure_min_page_fraction:
+            continue
+        overlap = box & rect
+        if overlap.is_empty or overlap.get_area() < 0.8 * box.get_area():
+            continue
+        if not any(abs(box.x0 - seen.x0) < 1 and abs(box.y0 - seen.y0) < 1 for seen in found):
+            found.append(box)
+    return found
+
+
+def _photo_raws(path: Path, pages: list[int], repeated: frozenset[bytes]) -> list[_Raw]:
+    """Every non-decorative photo on these pages, each cut out by its own
+    frame. No layout model: the PDF already knows where each photo is."""
+    import pymupdf
+
+    out: list[_Raw] = []
+    with pymupdf.open(path) as pdf:
+        for number in pages:
+            page = pdf[number - 1]
+            for bbox in _photos_inside(page, page.rect, repeated):
+                raw = _photo_raw(page, bbox)
+                if raw is not None:
+                    out.append(raw)
+    return out
+
+
+def _photo_raw(page: Any, bbox: Any) -> _Raw | None:
+    """One photo, its label and the text around it."""
+    import pymupdf
+
+    settings = get_settings()
+    height = page.rect.height
+    rect = pymupdf.Rect(bbox) & page.rect
+    band = settings.figure_margin_band * height
+    if rect.is_empty or rect.y1 <= band or rect.y0 >= height - band:
+        return None
+    caption = ""
+    printed = _printed_caption(page, rect)
+    if printed is not None:
+        caption = printed[1]
+    else:
+        caption = _label_above(page, rect)
+    before, after = _text_around(page, rect, caption)
+    pixmap = page.get_pixmap(clip=rect, dpi=settings.figure_render_dpi)
+    context = {"caption": caption, "heading": "", "before": before, "after": after, "kind": "photo"}
+    return (page.number + 1, rect.y0, pixmap.tobytes("png"), context)
+
+
+def _label_above(page: Any, rect: Any) -> str:
+    """The short line printed right above a photo, centred over it.
+
+    Inspection reports, catalogues and photo annexes label each photo this
+    way ("WALLS/FLOORS" over a picture of a floor). Only text whose centre
+    lies over the photo counts, so the label of the next photo in the row
+    is never borrowed."""
+    words: list[str] = []
+    # Margins included: the first row of photos often starts just under
+    # the page's top edge, and its labels sit inside the header band.
+    for line in _lines(page, skip_margins=False):
+        box, text = line
+        centre = (box.x0 + box.x1) / 2
+        if rect.x0 <= centre <= rect.x1 and rect.y0 - _LABEL_GAP_POINTS <= box.y1 <= rect.y0 + 2:
+            words.append(text)
+    return " ".join(words)[:200]
+
+
+def _text_around(page: Any, rect: Any, caption: str) -> tuple[str, str]:
+    """The nearest text above and below a photo, caption excluded."""
+    limit = get_settings().figure_context_chars
+    above = [
+        (box, text)
+        for box, text in _lines(page)
+        if box.y1 <= rect.y0 + 2 and text not in caption
+    ]
+    below = [
+        (box, text)
+        for box, text in _lines(page)
+        if box.y0 >= rect.y1 - 2 and text not in caption
+    ]
+    before = " ".join(text for _box, text in sorted(above, key=lambda b: b[0].y1)[-3:])
+    after = " ".join(text for _box, text in sorted(below, key=lambda b: b[0].y0)[:3])
+    return before[-limit:], after[:limit]
+
+
+def _lines(page: Any, skip_margins: bool = True) -> list[tuple[Any, str]]:
+    """Every text line on a page, with its box; page furniture (header and
+    footer bands) excluded unless `skip_margins` is False."""
+    import pymupdf
+
+    height = page.rect.height
+    band = get_settings().figure_margin_band * height if skip_margins else -1.0
+    lines: list[tuple[Any, str]] = []
+    for block in page.get_text("dict").get("blocks", []):
+        for line in block.get("lines", []):
+            text = " ".join(span["text"] for span in line["spans"]).strip()
+            box = pymupdf.Rect(line["bbox"])
+            if text and band < box.y0 < height - band:
+                lines.append((box, " ".join(text.split())))
+    return lines
 
 
 def _printed_caption(page: Any, rect: Any) -> tuple[Any, str] | None:
@@ -493,7 +640,13 @@ def _drop_repeated(figures: list[ExtractedFigure]) -> list[ExtractedFigure]:
     kept = [item for item in figures if counts[item.figure.image_sha256] < threshold]
     return [
         ExtractedFigure(
-            figure=Figure(**{**asdict(item.figure), "index": i}),
+            figure=Figure(
+                **{
+                    **asdict(item.figure),
+                    "index": i,
+                    "id": figure_id(item.figure.source_file, i, item.figure.image_sha256),
+                }
+            ),
             png=item.png,
         )
         for i, item in enumerate(kept)
