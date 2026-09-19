@@ -21,18 +21,6 @@
   "roles": {
     "realm": [
       {
-        "name": "sanad-admin",
-        "description": "Sees every workspace, grants and revokes access, reads the activity log."
-      },
-      {
-        "name": "sanad-curator",
-        "description": "Adds and removes documents and runs Sync in the workspaces granted to them."
-      },
-      {
-        "name": "sanad-reader",
-        "description": "Asks questions in the workspaces granted to them. Changes nothing."
-      },
-      {
         "name": "offline_access",
         "description": "${role_offline-access}",
         "composite": false
@@ -44,13 +32,12 @@
       },
       {
         "name": "default-roles-sanad",
-        "description": "Given to everyone who signs up: the reader role, which sees no workspace until an administrator grants one.",
+        "description": "Keycloak's own default role. Sanad reads no role: every signed-in person is equal.",
         "composite": true,
         "composites": {
           "realm": [
             "offline_access",
-            "uma_authorization",
-            "sanad-reader"
+            "uma_authorization"
           ],
           "client": {
             "account": [
@@ -108,9 +95,7 @@
           "temporary": false
         }
       ],
-      "realmRoles": [
-        "sanad-admin"
-      ],
+      "realmRoles": [],
       "email": "sanad-admin-demo@sanad.invalid",
       "requiredActions": []
     },
@@ -127,9 +112,7 @@
           "temporary": false
         }
       ],
-      "realmRoles": [
-        "sanad-curator"
-      ],
+      "realmRoles": [],
       "email": "sanad-curator-demo@sanad.invalid",
       "requiredActions": []
     },
@@ -146,9 +129,7 @@
           "temporary": false
         }
       ],
-      "realmRoles": [
-        "sanad-reader"
-      ],
+      "realmRoles": [],
       "email": "sanad-reader-demo@sanad.invalid",
       "requiredActions": []
     },

@@ -1001,3 +1001,29 @@ def test_an_old_database_gets_the_owner_column_and_every_workspace_stays_shared(
             conn, name="Mine", folder_path="/tmp/m", owner_user_id="kc-amina"
         )
         assert repo.workspace_owners(conn)[new] == "kc-amina"
+
+
+def test_the_retired_access_tables_are_removed_from_an_old_database(tmp_path):
+    """2026-09-19 clean-up: a database made before it still has the grants
+    and activity tables; start-up removes them, and a second start-up (or a
+    fresh database) changes nothing."""
+    db_path = tmp_path / "old.db"
+    repo.ensure_schema(db_path)
+    connection = sqlite3.connect(db_path)
+    connection.execute("CREATE TABLE workspace_grant (workspace_id TEXT, user_id TEXT)")
+    connection.execute("CREATE TABLE activity_event (id TEXT, username TEXT)")
+    connection.execute("INSERT INTO activity_event VALUES ('e1', 'amina')")
+    connection.commit()
+    connection.close()
+
+    repo.ensure_schema(db_path)
+    repo.ensure_schema(db_path)
+
+    connection = sqlite3.connect(db_path)
+    tables = {row[0] for row in connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+    )}
+    connection.close()
+    assert "workspace_grant" not in tables
+    assert "activity_event" not in tables
+    assert "workspace" in tables

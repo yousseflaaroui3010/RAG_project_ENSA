@@ -6,8 +6,8 @@ replaced that with one command, which only helps if the file keeps agreeing
 with the code that reads it: the callback URL comes from
 `config.keycloak_redirect_url`, so it is pinned here. Since ST-54 Sanad
 reads no role from the realm (every signed-in person is equal), so the
-realm's roles are no longer pinned; they stay in the file, unused, until a
-later clean-up removes them.
+realm carries no Sanad role at all (removed 2026-09-19), and a test below
+keeps it that way.
 
 Two bugs found on 2026-09-15 by running it, each pinned below so it cannot
 return: a volume mounted on `/opt/keycloak/data/h2` is created owned by root
@@ -280,3 +280,13 @@ def test_the_start_guard_refuses_a_trailing_slash_and_passes_complete_settings()
     # Complete settings get PAST the guard to `exec kc.sh`, which does not
     # exist outside the image: whatever happens next, it is not a refusal.
     assert "refuses to start" not in complete.stderr
+
+
+def test_the_realm_defines_no_sanad_role_and_gives_none():
+    """Sanad reads no role since ST-54; a role left in the realm would only
+    mislead whoever reads it into thinking it still means something."""
+    names = {r["name"] for r in REALM["roles"]["realm"]}
+    assert not {n for n in names if n.startswith("sanad-")}
+    default = next(r for r in REALM["roles"]["realm"] if r["name"] == "default-roles-sanad")
+    assert not [n for n in default["composites"]["realm"] if n.startswith("sanad-")]
+    assert all(not u.get("realmRoles") for u in REALM["users"])

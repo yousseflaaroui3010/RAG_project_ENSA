@@ -161,27 +161,10 @@ CREATE TABLE IF NOT EXISTS user_session (
   last_seen_at   TEXT    NOT NULL
 );
 
--- Which workspaces a non-admin may use at all. No row means the workspace
--- is not offered to them anywhere, not merely that an action is refused.
-CREATE TABLE IF NOT EXISTS workspace_grant (
-  workspace_id   TEXT    NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
-  user_id        TEXT    NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
-  granted_at     TEXT    NOT NULL,
-  PRIMARY KEY (workspace_id, user_id)
-);
-
--- What was done, by whom. NEVER what was asked: a question is document
--- content and belongs in the transcript, not in an audit row (law 09-08,
--- and docs/phase2/ENGINEERING-RULES.md's rule about logging request bodies).
-CREATE TABLE IF NOT EXISTS activity_event (
-  id             TEXT    PRIMARY KEY,
-  user_id        TEXT    REFERENCES app_user(id) ON DELETE SET NULL,
-  username       TEXT    NOT NULL,
-  action         TEXT    NOT NULL,
-  workspace_id   TEXT,
-  detail         TEXT,
-  created_at     TEXT    NOT NULL
-);
+-- `workspace_grant` and `activity_event` lived here until 2026-09-19. ST-54
+-- removed the admin page and roles, which were their only readers and
+-- writers; `db/repo.py::_drop_retired_access_tables` removes them from a
+-- database made before that (undo plan in DECISIONS 2026-09-19).
 
 -- S6 saved chat history (law 09-08), ST-53 conversations: every stored chat
 -- a person has had, MANY per workspace, each with its own id. Replaces the
