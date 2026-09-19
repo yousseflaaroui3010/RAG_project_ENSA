@@ -57,6 +57,11 @@ _NOISE_CLASSES = frozenset({"logo", "signature", "stamp", "qr_code", "bar_code",
 
 _SUPPORTED = frozenset({".pdf", ".pptx", ".docx"})
 
+# A paragraph that starts like a caption, in French, English or Arabic.
+_CAPTION_START = re.compile(
+    r"^\s*(figure|fig\.|schéma|schema|image|illustration|photo|شكل|صورة)(\s|\d|:|$)", re.I
+)
+
 
 class UnsafeFigureIdError(ValueError):
     """A workspace or figure id that is not usable as a path segment."""
@@ -253,16 +258,25 @@ def _extract_with_docling(
         items = [item for item, _level in doc.iterate_items()]
         heading = ""
         for position, item in enumerate(items):
-            if isinstance(item, SectionHeaderItem):
+            if isinstance(item, SectionHeaderItem) or str(getattr(item, "label", "")) == "title":
                 heading = item.text.strip()
             if isinstance(item, PictureItem):
                 if _classified_as_noise(item):
                     continue
+                caption = item.caption_text(doc).strip()
+                after = _neighbour_text(items, position, +1, TextItem, item)
+                if not caption and _CAPTION_START.match(after):
+                    # Word and PowerPoint do not link captions the way a PDF
+                    # layout model does: the "Figure 1 : ..." line is simply
+                    # the next paragraph. Take it as the caption, and the
+                    # paragraph after it as the following context.
+                    caption = after
+                    after = _neighbour_text(items, position, +1, TextItem, item, skip=1)
                 context = {
-                    "caption": item.caption_text(doc).strip(),
+                    "caption": caption,
                     "heading": heading,
                     "before": _neighbour_text(items, position, -1, TextItem, item),
-                    "after": _neighbour_text(items, position, +1, TextItem, item),
+                    "after": after,
                     "kind": _top_class(item),
                 }
                 candidates.append((doc, item, context))
@@ -364,21 +378,31 @@ def _has_graphics(page: Any, rect: Any, repeated: frozenset[bytes]) -> bool:
 
 
 def _neighbour_text(
-    items: list[Any], start: int, step: int, text_type: type, picture: Any
+    items: list[Any], start: int, step: int, text_type: type, picture: Any, skip: int = 0
 ) -> str:
-    """The nearest body paragraph before or after a figure, not its caption."""
+    """The nearest body paragraph before or after a figure, not its caption.
+
+    `skip` passes over that many body paragraphs first: 1 when the first
+    one after the figure turned out to be its caption."""
     limit = get_settings().figure_context_chars
     captions = {ref.cref for ref in getattr(picture, "captions", [])}
     position = start + step
     while 0 <= position < len(items):
         item = items[position]
         label = str(getattr(item, "label", ""))
+        if label in {"title", "section_header"}:
+            # A new slide or section starts: its text is not this figure's.
+            return ""
         if (
             isinstance(item, text_type)
             and getattr(item, "self_ref", None) not in captions
             and label not in {"caption", "page_header", "page_footer"}
             and item.text.strip()
         ):
+            if skip:
+                skip -= 1
+                position += step
+                continue
             text = " ".join(item.text.split())
             return text[:limit] if step > 0 else text[-limit:]
         position += step

@@ -358,3 +358,74 @@ def test_strict_local_mode_without_a_vision_model_sends_nothing(monkeypatch):
     monkeypatch.setattr(vision, "get_settings", lambda: settings)
 
     assert vision._vision_model() is None
+
+
+# --- PowerPoint and Word, through the real layout model --------------------
+
+
+def _png(width, height):
+    picture = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, width, height), False)
+    for x in range(width):
+        for y in range(0, height, 4):
+            picture.set_pixel(x, y, (x % 255, (y * 3) % 255, 120))
+    return picture.tobytes("png")
+
+
+def test_a_slide_picture_is_kept_with_its_slide_caption_and_title(tmp_path, enabled):
+    """A logo on every slide is dropped; the one real picture keeps its
+    slide number, its "Figure 1" line as caption, and the slide title as
+    heading -- and borrows no text from the next slide."""
+    import io
+
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    deck = Presentation()
+    for number in range(3):
+        slide = deck.slides.add_slide(deck.slide_layouts[5])
+        slide.shapes.title.text = f"Maintenance {number + 1}"
+        slide.shapes.add_picture(
+            io.BytesIO(_png(60, 30)), Inches(0.2), Inches(0.1), Inches(0.6), Inches(0.3)
+        )
+        body = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(9), Inches(1))
+        body.text_frame.text = "La pompe P-201 alimente le circuit de refroidissement."
+        if number == 1:
+            slide.shapes.add_picture(
+                io.BytesIO(_png(400, 260)), Inches(2), Inches(2.5), Inches(5), Inches(3.2)
+            )
+            caption = slide.shapes.add_textbox(Inches(2), Inches(5.8), Inches(6), Inches(0.5))
+            caption.text_frame.text = "Figure 1 : Vue de la pompe P-201"
+    path = tmp_path / "deck.pptx"
+    deck.save(path)
+
+    (item,) = figures.extract_figures(path)
+
+    assert item.figure.page == 2
+    assert item.figure.caption == "Figure 1 : Vue de la pompe P-201"
+    assert item.figure.heading == "Maintenance 2"
+    assert "P-201" in item.figure.context_before
+    assert "Maintenance 3" not in item.figure.context_after
+
+
+def test_a_word_picture_keeps_its_caption_and_the_paragraphs_around_it(tmp_path, enabled):
+    import io
+
+    from docx import Document
+    from docx.shared import Inches
+
+    document = Document()
+    document.add_heading("1. Circuit de refroidissement", 1)
+    document.add_paragraph("La pompe P-201 alimente le circuit.")
+    document.add_picture(io.BytesIO(_png(400, 260)), width=Inches(4))
+    document.add_paragraph("Figure 1 : Vue de la pompe P-201")
+    document.add_paragraph("Après la figure, on ferme la vanne V-12.")
+    path = tmp_path / "doc.docx"
+    document.save(path)
+
+    (item,) = figures.extract_figures(path)
+
+    assert item.figure.page is None
+    assert item.figure.caption == "Figure 1 : Vue de la pompe P-201"
+    assert item.figure.heading == "1. Circuit de refroidissement"
+    assert item.figure.context_before == "La pompe P-201 alimente le circuit."
+    assert item.figure.context_after == "Après la figure, on ferme la vanne V-12."
