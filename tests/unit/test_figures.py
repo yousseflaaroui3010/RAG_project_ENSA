@@ -541,3 +541,25 @@ def test_a_grid_of_labelled_photos_comes_out_one_photo_per_label(tmp_path, enabl
     assert [item.figure.caption for item in found[:6]] == labels[0] + labels[1]
     assert {item.figure.page for item in found} == {1, 2}
     assert all(item.figure.width_px < 400 for item in found), "one photo each, never the grid"
+
+
+def test_the_heading_comes_from_the_page_when_the_layout_model_gives_none(tmp_path, enabled):
+    """CI on Linux: Docling did not tag "1. Circuit de refroidissement" as
+    a section header, while Windows did. The page's own typography (16 pt
+    title over 11 pt body) is the same on every machine."""
+    page = pymupdf.open(_manual(tmp_path / "m.pdf"))[0]
+
+    assert figures._heading_above(page, pymupdf.Rect(78, 248, 517, 412)) == (
+        "1. Circuit de refroidissement"
+    )
+
+
+def test_body_text_is_never_taken_for_a_heading(tmp_path, enabled):
+    """The inspection-report case: room names in plain body text. Nothing
+    stands out, so nothing is invented."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    for y in range(80, 240, 20):
+        page.insert_text((60, y), "BATHROOM WALLS/FLOORS EXTRA", fontsize=11)
+
+    assert figures._heading_above(page, pymupdf.Rect(60, 260, 400, 500)) == ""

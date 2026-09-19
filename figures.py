@@ -66,6 +66,10 @@ _LABEL_GAP_POINTS = 20.0
 # full-page background. Found in review: a 4-page scanned PDF came out as
 # four "figures" the size of the page, each a Gemini call for nothing.
 _FULL_PAGE_FRACTION = 0.7
+# A title: set at least this much larger than the page's body text, and
+# short enough to be a heading rather than a paragraph.
+_TITLE_SIZE_RATIO = 1.2
+_TITLE_MAX_CHARS = 120
 
 # A paragraph that starts like a caption, in French, English or Arabic.
 _CAPTION_START = re.compile(
@@ -414,6 +418,11 @@ def _render_pdf_regions(
             in_margin = rect.y1 <= band or rect.y0 >= height - band
             if rect.is_empty or in_margin or not _has_graphics(page, rect, repeated):
                 continue
+            if not ctx.get("heading"):
+                # The layout model's own heading depends on the machine it
+                # runs on (found when CI on Linux missed a title Windows
+                # found); the page's own typography does not.
+                ctx["heading"] = _heading_above(page, rect)
             inner = _photos_inside(page, rect, repeated)
             if len(inner) >= 2:
                 out += [raw for bbox in inner if (raw := _photo_raw(page, bbox)) is not None]
@@ -487,7 +496,13 @@ def _photo_raw(page: Any, bbox: Any) -> _Raw | None:
         caption = _label_above(page, rect)
     before, after = _text_around(page, rect, caption)
     pixmap = page.get_pixmap(clip=rect, dpi=settings.figure_render_dpi)
-    context = {"caption": caption, "heading": "", "before": before, "after": after, "kind": "photo"}
+    context = {
+        "caption": caption,
+        "heading": _heading_above(page, rect),
+        "before": before,
+        "after": after,
+        "kind": "photo",
+    }
     return (page.number + 1, rect.y0, pixmap.tobytes("png"), context)
 
 
@@ -525,6 +540,42 @@ def _text_around(page: Any, rect: Any, caption: str) -> tuple[str, str]:
     before = " ".join(text for _box, text in sorted(above, key=lambda b: b[0].y1)[-3:])
     after = " ".join(text for _box, text in sorted(below, key=lambda b: b[0].y0)[:3])
     return before[-limit:], after[:limit]
+
+
+def _heading_above(page: Any, rect: Any) -> str:
+    """The nearest title above a figure on its page, or "".
+
+    A title is a line set clearly larger than the page's body text, or in
+    bold while the body is not. Found missing on an inspection report whose
+    room names are plain body text: there, nothing is invented."""
+    import statistics
+
+    import pymupdf
+
+    spans: list[tuple[Any, str, float, bool]] = []
+    for block in page.get_text("dict").get("blocks", []):
+        for line in block.get("lines", []):
+            text = " ".join(span["text"] for span in line["spans"]).strip()
+            if not text:
+                continue
+            size = max(span["size"] for span in line["spans"])
+            bold = all(span["flags"] & 16 for span in line["spans"] if span["text"].strip())
+            spans.append((pymupdf.Rect(line["bbox"]), " ".join(text.split()), size, bold))
+    if not spans:
+        return ""
+    body = statistics.median(size for _box, _text, size, _bold in spans)
+    body_bold = statistics.median(1.0 if bold else 0.0 for *_rest, bold in spans) >= 0.5
+    titles = [
+        (box, text)
+        for box, text, size, bold in spans
+        if box.y1 <= rect.y0 + 1
+        and len(text) <= _TITLE_MAX_CHARS
+        and not _CAPTION_START.match(text)
+        and (size >= body * _TITLE_SIZE_RATIO or (bold and not body_bold))
+    ]
+    if not titles:
+        return ""
+    return max(titles, key=lambda item: item[0].y1)[1]
 
 
 def _lines(page: Any, skip_margins: bool = True) -> list[tuple[Any, str]]:
